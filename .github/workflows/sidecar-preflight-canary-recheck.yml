@@ -62,6 +62,27 @@ on:
         required: false
         default: "1.8"
         type: string
+      run_dry_notional_per_trade_override:
+        description: "Pass DRY_NOTIONAL_PER_TRADE override to target dry-run"
+        required: false
+        default: "100"
+        type: string
+      run_entry_high_price_policy:
+        description: "Pass ENTRY_HIGH_PRICE_POLICY override to target dry-run"
+        required: false
+        default: "min_one_share"
+        type: choice
+        options: ["skip", "min_one_share"]
+      run_entry_min_one_share_max_notional:
+        description: "Pass ENTRY_MIN_ONE_SHARE_MAX_NOTIONAL override to target dry-run"
+        required: false
+        default: "300"
+        type: string
+      run_entry_max_risk_dollars_per_trade:
+        description: "Pass ENTRY_MAX_RISK_DOLLARS_PER_TRADE override to target dry-run"
+        required: false
+        default: "25"
+        type: string
       verify_mode:
         description: "Canary pass mode: auto(any), submit_pass, guard_skip_pass"
         required: false
@@ -152,6 +173,10 @@ jobs:
       RUN_ENTRY_PRICE_DISTANCE_TRIGGER_PCT: ${{ inputs.run_entry_price_distance_trigger_pct || '2.5' }}
       RUN_ENTRY_PRICE_DISTANCE_SCALE: ${{ inputs.run_entry_price_distance_scale || '0.35' }}
       RUN_ENTRY_PRICE_MIN_RR: ${{ inputs.run_entry_price_min_rr || '1.8' }}
+      RUN_DRY_NOTIONAL_PER_TRADE_OVERRIDE: ${{ inputs.run_dry_notional_per_trade_override || '100' }}
+      RUN_ENTRY_HIGH_PRICE_POLICY: ${{ inputs.run_entry_high_price_policy || 'min_one_share' }}
+      RUN_ENTRY_MIN_ONE_SHARE_MAX_NOTIONAL: ${{ inputs.run_entry_min_one_share_max_notional || '300' }}
+      RUN_ENTRY_MAX_RISK_DOLLARS_PER_TRADE: ${{ inputs.run_entry_max_risk_dollars_per_trade || '25' }}
       VERIFY_MODE: ${{ inputs.verify_mode || 'auto' }}
       VERIFY_REPLACE_TUNING: ${{ inputs.verify_replace_tuning || 'true' }}
       EXPECT_REPLACE_MIN_DELTA_BPS: ${{ inputs.expected_replace_min_delta_bps || '10' }}
@@ -185,6 +210,10 @@ jobs:
           RUN_ENTRY_PRICE_DISTANCE_TRIGGER_PCT: ${{ env.RUN_ENTRY_PRICE_DISTANCE_TRIGGER_PCT }}
           RUN_ENTRY_PRICE_DISTANCE_SCALE: ${{ env.RUN_ENTRY_PRICE_DISTANCE_SCALE }}
           RUN_ENTRY_PRICE_MIN_RR: ${{ env.RUN_ENTRY_PRICE_MIN_RR }}
+          RUN_DRY_NOTIONAL_PER_TRADE_OVERRIDE: ${{ env.RUN_DRY_NOTIONAL_PER_TRADE_OVERRIDE }}
+          RUN_ENTRY_HIGH_PRICE_POLICY: ${{ env.RUN_ENTRY_HIGH_PRICE_POLICY }}
+          RUN_ENTRY_MIN_ONE_SHARE_MAX_NOTIONAL: ${{ env.RUN_ENTRY_MIN_ONE_SHARE_MAX_NOTIONAL }}
+          RUN_ENTRY_MAX_RISK_DOLLARS_PER_TRADE: ${{ env.RUN_ENTRY_MAX_RISK_DOLLARS_PER_TRADE }}
         with:
           github-token: ${{ env.SIDECAR_DISPATCH_TOKEN }}
           script: |
@@ -207,12 +236,9 @@ jobs:
               per_page: 1
             });
             const baselineRunId = Number(beforeRuns.data?.workflow_runs?.[0]?.id || 0);
-            // Dedupe-bust knobs for repeated canary runs:
-            // keep max total notional below default 2*100 so it actually changes
-            // the runtime mode key (values above 200 were effectively no-op).
             const dedupeBustMaxOrders = "1";
             const dedupeBustMaxTotalNotional = String(
-              130 + (Math.floor(Date.now() / 1000) % 60)
+              500 + (Math.floor(Date.now() / 1000) % 60)
             );
             const verifyModeRaw = String(process.env.VERIFY_MODE || 'auto').trim().toLowerCase();
             const verifyModeAllowed = new Set(['auto', 'submit_pass', 'guard_skip_pass']);
@@ -235,6 +261,16 @@ jobs:
               ),
               run_entry_price_distance_scale: String(process.env.RUN_ENTRY_PRICE_DISTANCE_SCALE || '0.35'),
               run_entry_price_min_rr: String(process.env.RUN_ENTRY_PRICE_MIN_RR || '1.8'),
+              run_dry_notional_per_trade_override: String(
+                process.env.RUN_DRY_NOTIONAL_PER_TRADE_OVERRIDE || '100'
+              ),
+              run_entry_high_price_policy: String(process.env.RUN_ENTRY_HIGH_PRICE_POLICY || 'min_one_share'),
+              run_entry_min_one_share_max_notional: String(
+                process.env.RUN_ENTRY_MIN_ONE_SHARE_MAX_NOTIONAL || '300'
+              ),
+              run_entry_max_risk_dollars_per_trade: String(
+                process.env.RUN_ENTRY_MAX_RISK_DOLLARS_PER_TRADE || '25'
+              ),
               run_verify_mode: targetRunVerifyMode,
               run_disable_order_idempotency: 'true',
               run_dry_max_orders_override: dedupeBustMaxOrders,
@@ -309,6 +345,7 @@ jobs:
               `verifyModeExpected=${verifyModeRaw} verifyModeDispatch=${dispatchedVerifyMode} verifyModeFallback=${verifyModeFallback} ` +
               `allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} includeSpeculative=${inputs.run_actionable_include_speculative_buy} ` +
               `entryPriceMode=${inputs.run_entry_price_mode || "n/a"} entryPriceMaxChasePct=${inputs.run_entry_price_max_chase_pct || "n/a"} entryPriceDistanceTriggerPct=${inputs.run_entry_price_distance_trigger_pct || "n/a"} entryPriceDistanceScale=${inputs.run_entry_price_distance_scale || "n/a"} entryPriceMinRr=${inputs.run_entry_price_min_rr || "n/a"} ` +
+              `notionalPerTradeOverride=${inputs.run_dry_notional_per_trade_override || "n/a"} highPricePolicy=${inputs.run_entry_high_price_policy || "n/a"} minOneShareMaxNotional=${inputs.run_entry_min_one_share_max_notional || "n/a"} maxRiskDollars=${inputs.run_entry_max_risk_dollars_per_trade || "n/a"} ` +
               `maxOrdersOverride=${inputs.run_dry_max_orders_override} maxTotalNotionalOverride=${inputs.run_dry_max_total_notional_override} ` +
               `baselineRunId=${baselineRunId} at=${dispatchAt}`;
             core.notice(summaryLine);
