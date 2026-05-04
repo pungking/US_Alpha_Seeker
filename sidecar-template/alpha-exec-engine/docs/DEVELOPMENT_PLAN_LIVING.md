@@ -30,6 +30,11 @@ follow this sequence:
    Alpaca paper order visibility, and broker-aware idempotency release after manual cancel.
 2. **Fillability tuning**: tune entry price realism before changing upstream scoring. Required dimensions:
    current-price distance, ATR, spread, volume, stale order cancel/replace, and RR after any chase adjustment.
+   The 2026-05-04 RTH sample confirmed the broker lane was not the blocker: `ADBE` was blocked by high-price sizing
+   (`DRY_NOTIONAL_PER_TRADE=100` below one share) and `CPRX` was blocked by entry distance/current RR. Next tuning must
+   separate high-price sizing policy from Stage6 entry/OTE calibration instead of loosening both at once.
+   The same review found one GitHub bridge-watchdog requeue failure caused by a transient GitHub `502`; dispatch calls now
+   carry retry coverage so cadence failures are not misdiagnosed as broker/order failures.
 3. **Stage 1-6 signal quality review**: only after execution telemetry exists, review why Stage6 "executable" entries are
    too far from current market or too idealized.
 4. **Lifecycle policy hardening**: refine `ENTRY_NEW`, `HOLD_WAIT`, `SCALE_UP`, `SCALE_DOWN`, `EXIT_PARTIAL`,

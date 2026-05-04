@@ -91,6 +91,8 @@ jobs:
         uses: actions/github-script@v8
         with:
           github-token: ${{ env.DISPATCH_TOKEN }}
+          retries: 3
+          retry-exempt-status-codes: 400,401,403,404,422
           script: |
             const parseNumber = (raw, fallback, min, max) => {
               const n = Number(raw);
@@ -304,6 +306,8 @@ jobs:
           LOOP_NEXT_INDEX: ${{ steps.eval.outputs.loop_next_index }}
         with:
           github-token: ${{ env.DISPATCH_TOKEN }}
+          retries: 3
+          retry-exempt-status-codes: 400,401,403,404,422
           script: |
             const ref = context.ref.replace("refs/heads/", "") || "main";
             const loopIntervalMin = String(process.env.LOOP_INTERVAL_MIN || "15");
