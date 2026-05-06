@@ -45,10 +45,15 @@ Missing earnings data defaults to a stricter quality haircut instead of
 auto-moving every candidate to the watchlist.
 
 Recommended production envs:
+- `VITE_ENTRY_FEASIBILITY_MAX_DISTANCE_PCT=6`
 - `VITE_STAGE6_EARNINGS_MISSING_POLICY=haircut`
 - `VITE_STAGE6_EARNINGS_MISSING_MIN_RR=3`
 - `VITE_STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT=8`
 - `VITE_STAGE6_EARNINGS_BLACKOUT_DAYS=5`
+
+`VITE_ENTRY_FEASIBILITY_MAX_DISTANCE_PCT` must stay aligned with the sidecar
+`ENTRY_MAX_DISTANCE_PCT`; otherwise Stage6 can label a name executable while the
+sidecar correctly rejects it as `entry_too_far_from_market`.
 
 Policy options:
 - `haircut`: allow otherwise valid names only when RR/expected-return floors are stronger.

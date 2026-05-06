@@ -3623,12 +3623,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return null;
       };
       const entryFeasibilityMaxDistanceRaw = Number(
-          (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_MAX_DISTANCE_PCT ?? 15
+          (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_MAX_DISTANCE_PCT ?? 6
       );
       const ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT =
           Number.isFinite(entryFeasibilityMaxDistanceRaw) && entryFeasibilityMaxDistanceRaw >= 0
               ? entryFeasibilityMaxDistanceRaw
-              : 15;
+              : 6;
       const stage6MinRrRaw = Number((import.meta as any)?.env?.VITE_STAGE6_MIN_RR ?? 2);
       const STAGE6_MIN_RR_HARD_GATE =
           Number.isFinite(stage6MinRrRaw) && stage6MinRrRaw > 0 ? stage6MinRrRaw : 2;
@@ -5442,6 +5442,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
                       minConviction: STAGE6_MIN_CONVICTION,
                       requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
+                      entryFeasibilityMaxDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
                       earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
                       earningsMissingPolicy: STAGE6_EARNINGS_MISSING_POLICY,
                       earningsMissingMinRr: STAGE6_EARNINGS_MISSING_MIN_RR,
