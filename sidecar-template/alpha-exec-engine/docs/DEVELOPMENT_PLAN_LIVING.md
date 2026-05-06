@@ -1,6 +1,6 @@
 # Sidecar Development Plan (Living Document)
 
-Last updated: 2026-05-01 (KST, P0 fillability / monitor-driven reprice bridge)
+Last updated: 2026-05-07 (KST, P0 cumulative execution-blocker audit)
 Owner: givet-bsm + Codex
 Scope: `alpha-exec-engine` execution/paper-trading operations
 
@@ -35,6 +35,11 @@ follow this sequence:
    separate high-price sizing policy from Stage6 entry/OTE calibration instead of loosening both at once.
    The same review found one GitHub bridge-watchdog requeue failure caused by a transient GitHub `502`; dispatch calls now
    carry retry coverage so cadence failures are not misdiagnosed as broker/order failures.
+   A 2026-05-07 cumulative audit over 15 recent sidecar dry-run artifacts showed the current failure is upstream of Alpaca:
+   `submittedRuns=0`, `STAGE6_ZERO_EXECUTABLE=7`, and `SIDECAR_CANDIDATE_BLOCKED=8`. The two distinct Stage6 hashes split
+   into (a) all candidates removed by `blocked_earnings_window` / `wait_earnings_data_missing`, and (b) ADBE/CPRX blocked
+   by high-price sizing plus entry distance. Next implementation must fix Stage6 executable gating and entry realism before
+   enabling broader reprice or raising order size.
 3. **Stage 1-6 signal quality review**: only after execution telemetry exists, review why Stage6 "executable" entries are
    too far from current market or too idealized.
 4. **Lifecycle policy hardening**: refine `ENTRY_NEW`, `HOLD_WAIT`, `SCALE_UP`, `SCALE_DOWN`, `EXIT_PARTIAL`,
