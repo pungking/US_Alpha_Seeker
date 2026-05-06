@@ -37,6 +37,25 @@ Optional workspace pointers (for ops linking/manual workflows):
 Optional client toggle:
 - `VITE_NOTION_SYNC_ENABLED=true|false` (default: `true`)
 
+## Stage6 Execution Gate Controls
+
+Stage6 remains the canonical signal source for the sidecar. Earnings dates are
+treated as a hard blocker only when known to be inside the blackout window.
+Missing earnings data defaults to a stricter quality haircut instead of
+auto-moving every candidate to the watchlist.
+
+Recommended production envs:
+- `VITE_STAGE6_EARNINGS_MISSING_POLICY=haircut`
+- `VITE_STAGE6_EARNINGS_MISSING_MIN_RR=3`
+- `VITE_STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT=8`
+- `VITE_STAGE6_EARNINGS_BLACKOUT_DAYS=5`
+
+Policy options:
+- `haircut`: allow otherwise valid names only when RR/expected-return floors are stronger.
+- `wait_price`: safe legacy mode; missing earnings data blocks execution.
+- `blocked_event`: hard-block missing earnings data as event risk.
+- `allow`: ignore missing earnings data in the execution decision.
+
 ## Optional: Performance Dashboard API (Simulation/Live)
 
 Web UI panel `Trading Performance Board` reads from `/api/performance_dashboard`.

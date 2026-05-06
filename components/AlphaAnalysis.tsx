@@ -47,8 +47,10 @@ interface AlphaCandidate {
   finalDecision?: 'EXECUTABLE_NOW' | 'WAIT_PRICE' | 'BLOCKED_RISK' | 'BLOCKED_EVENT';
   decisionReason?:
     | 'executable_pullback'
+    | 'executable_earnings_data_missing_haircut'
     | 'wait_pullback_not_reached'
     | 'wait_earnings_data_missing'
+    | 'wait_earnings_data_missing_quality_floor'
     | 'wait_insufficient_history'
     | 'wait_state_verdict_conflict'
     | 'blocked_symbol_stale'
@@ -3653,16 +3655,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               ? stage6EarningsBlackoutDaysRaw
               : 5;
       const stage6EarningsMissingPolicyRaw = String(
-          (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_MISSING_POLICY ?? 'wait_price'
+          (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_MISSING_POLICY ?? 'haircut'
       )
           .trim()
           .toLowerCase();
-      const STAGE6_EARNINGS_MISSING_POLICY: 'WAIT_PRICE' | 'BLOCKED_EVENT' | 'ALLOW' =
+      const STAGE6_EARNINGS_MISSING_POLICY: 'WAIT_PRICE' | 'BLOCKED_EVENT' | 'ALLOW' | 'HAIRCUT' =
           stage6EarningsMissingPolicyRaw === 'blocked_event'
               ? 'BLOCKED_EVENT'
               : stage6EarningsMissingPolicyRaw === 'allow'
                   ? 'ALLOW'
-                  : 'WAIT_PRICE';
+                  : stage6EarningsMissingPolicyRaw === 'wait_price'
+                      ? 'WAIT_PRICE'
+                      : 'HAIRCUT';
+      const stage6EarningsMissingMinRrRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_MISSING_MIN_RR ??
+              Math.max(STAGE6_MIN_RR_HARD_GATE, 3)
+      );
+      const STAGE6_EARNINGS_MISSING_MIN_RR =
+          Number.isFinite(stage6EarningsMissingMinRrRaw) && stage6EarningsMissingMinRrRaw > 0
+              ? stage6EarningsMissingMinRrRaw
+              : Math.max(STAGE6_MIN_RR_HARD_GATE, 3);
+      const stage6EarningsMissingMinExpectedReturnPctRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT ??
+              Math.max(STAGE6_MIN_EXPECTED_RETURN_PCT, 8)
+      );
+      const STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT =
+          Number.isFinite(stage6EarningsMissingMinExpectedReturnPctRaw) &&
+          stage6EarningsMissingMinExpectedReturnPctRaw >= 0
+              ? stage6EarningsMissingMinExpectedReturnPctRaw
+              : Math.max(STAGE6_MIN_EXPECTED_RETURN_PCT, 8);
       const stage6OnboardingHistoryPolicyRaw = String(
           (import.meta as any)?.env?.VITE_STAGE6_ONBOARDING_HISTORY_POLICY ?? 'wait_price'
       )
@@ -4445,15 +4466,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision = 'BLOCKED_RISK';
               decisionReason = 'blocked_rr_below_min';
           } else if (
+              earningsDataMissing &&
+              STAGE6_EARNINGS_MISSING_POLICY === 'HAIRCUT' &&
+              riskRewardRatioValue != null &&
+              Number.isFinite(riskRewardRatioValue) &&
+              riskRewardRatioValue < STAGE6_EARNINGS_MISSING_MIN_RR
+          ) {
+              finalDecision = 'WAIT_PRICE';
+              decisionReason = 'wait_earnings_data_missing_quality_floor';
+          } else if (
               expectedReturnPct != null &&
               Number.isFinite(expectedReturnPct) &&
               expectedReturnPct <= STAGE6_MIN_EXPECTED_RETURN_PCT
           ) {
               finalDecision = 'BLOCKED_RISK';
               decisionReason = 'blocked_ev_non_positive';
+          } else if (
+              earningsDataMissing &&
+              STAGE6_EARNINGS_MISSING_POLICY === 'HAIRCUT' &&
+              expectedReturnPct != null &&
+              Number.isFinite(expectedReturnPct) &&
+              expectedReturnPct < STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT
+          ) {
+              finalDecision = 'WAIT_PRICE';
+              decisionReason = 'wait_earnings_data_missing_quality_floor';
           } else if (executionReason === 'WAIT_PULLBACK_TOO_DEEP') {
               finalDecision = 'WAIT_PRICE';
               decisionReason = 'wait_pullback_not_reached';
+          } else if (earningsDataMissing && STAGE6_EARNINGS_MISSING_POLICY === 'HAIRCUT') {
+              decisionReason = 'executable_earnings_data_missing_haircut';
           }
           const executionBucket: AlphaCandidate["executionBucket"] =
               finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST';
@@ -4752,7 +4793,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           "info"
       );
       addLog(
-          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} wait_earnings_missing=${decisionReasonCountsPrimary.wait_earnings_data_missing || 0} wait_history=${decisionReasonCountsPrimary.wait_insufficient_history || 0} wait_state_conflict=${decisionReasonCountsPrimary.wait_state_verdict_conflict || 0} stale_blocked=${decisionReasonCountsPrimary.blocked_symbol_stale || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_missing_blocked=${decisionReasonCountsPrimary.blocked_earnings_data_missing || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} state_conflict_blocked=${decisionReasonCountsPrimary.blocked_state_verdict_conflict || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
+          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} earnings_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} wait_earnings_missing=${decisionReasonCountsPrimary.wait_earnings_data_missing || 0} wait_earnings_quality=${decisionReasonCountsPrimary.wait_earnings_data_missing_quality_floor || 0} wait_history=${decisionReasonCountsPrimary.wait_insufficient_history || 0} wait_state_conflict=${decisionReasonCountsPrimary.wait_state_verdict_conflict || 0} stale_blocked=${decisionReasonCountsPrimary.blocked_symbol_stale || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_missing_blocked=${decisionReasonCountsPrimary.blocked_earnings_data_missing || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} state_conflict_blocked=${decisionReasonCountsPrimary.blocked_state_verdict_conflict || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
           "info"
       );
       const verdictConflictCountPrimary = primaryPool.filter((item) => Boolean(item.verdictConflict)).length;
@@ -4786,7 +4827,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return acc;
       }, {});
       addLog(
-          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} wait_earnings_data_missing=${watchlistReasonCounts.wait_earnings_data_missing || 0} wait_insufficient_history=${watchlistReasonCounts.wait_insufficient_history || 0} wait_state_verdict_conflict=${watchlistReasonCounts.wait_state_verdict_conflict || 0} blocked_symbol_stale=${watchlistReasonCounts.blocked_symbol_stale || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_data_missing=${watchlistReasonCounts.blocked_earnings_data_missing || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0} blocked_state_verdict_conflict=${watchlistReasonCounts.blocked_state_verdict_conflict || 0}`,
+          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} executable_earnings_data_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} wait_earnings_data_missing=${watchlistReasonCounts.wait_earnings_data_missing || 0} wait_earnings_data_missing_quality_floor=${watchlistReasonCounts.wait_earnings_data_missing_quality_floor || 0} wait_insufficient_history=${watchlistReasonCounts.wait_insufficient_history || 0} wait_state_verdict_conflict=${watchlistReasonCounts.wait_state_verdict_conflict || 0} blocked_symbol_stale=${watchlistReasonCounts.blocked_symbol_stale || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_data_missing=${watchlistReasonCounts.blocked_earnings_data_missing || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0} blocked_state_verdict_conflict=${watchlistReasonCounts.blocked_state_verdict_conflict || 0}`,
           "info"
       );
       if (hardCutBlocked.length > 0) {
@@ -5403,6 +5444,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
                       earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
                       earningsMissingPolicy: STAGE6_EARNINGS_MISSING_POLICY,
+                      earningsMissingMinRr: STAGE6_EARNINGS_MISSING_MIN_RR,
+                      earningsMissingMinExpectedReturnPct: STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT,
                       onboardingHistoryPolicy: STAGE6_ONBOARDING_HISTORY_POLICY,
                       staleSymbolPolicy: STAGE6_STALE_SYMBOL_POLICY,
                       minStopDistancePct: STAGE6_MIN_STOP_DISTANCE_PCT,
