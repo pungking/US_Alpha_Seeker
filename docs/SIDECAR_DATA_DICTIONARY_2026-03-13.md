@@ -467,6 +467,55 @@ market-guard가 dry-run/entry gate에 전달하는 제어 스냅샷.
 
 ---
 
+## `state/portfolio-admission-audit.json`
+sidecar dry-run이 broker submit 직전 portfolio capacity / fillability gate를 평가한 스냅샷.
+
+| 필드 | 타입 | 의미 |
+|---|---|---|
+| `generatedAt` | string | 감사 파일 생성 시각 |
+| `stage6Hash` | string | 평가 대상 Stage6 sha256 |
+| `stage6File` | string | 평가 대상 Stage6 파일명 |
+| `summary.enabled` | boolean | admission controller 활성 여부 |
+| `summary.enforce` | boolean | rejected 후보를 실제 payload에서 제거하는지 여부 |
+| `summary.checked` | number | 평가한 payload 수 |
+| `summary.admitted` | number | 통과 후보 수 |
+| `summary.rejected` | number | 차단 후보 수 |
+| `summary.bypassed` | number | enforce=false로 우회된 후보 수 |
+| `summary.activeSymbolsBefore/After` | number | admission 전/후 활성 심볼 수 |
+| `summary.openEntryOrdersBefore/After` | number | admission 전/후 open entry 주문 수 |
+| `summary.newSymbolsTodayBefore/After` | number | NY 거래일 기준 신규 심볼 수 |
+| `summary.reasonCounts` | object | `admitted`, `fillability_below_floor`, `sector_capacity_full` 등 사유별 카운트 |
+| `summary.records[]` | array | 심볼별 admission 판정 상세 |
+
+record 핵심:
+- `status`: `ADMITTED | REJECTED | BYPASSED`
+- `fillabilityScore`, `rrAtCurrent`, `effectiveEntryDistancePct`
+- `sector`, `actionType`, `reason`, `detail`
+
+## `state/recommendation-ledger.json`
+Stage6 후보와 sidecar 주문/감시 상태를 심볼 단위로 이어주는 lifecycle 원장.
+
+| 필드 | 타입 | 의미 |
+|---|---|---|
+| `recommendations` | object | `symbol -> recommendation record` |
+| `updatedAt` | string | 마지막 원장 갱신 시각 |
+
+recommendation record 핵심:
+- `status`:
+  `RECOMMENDED_NEW | ADMITTED_FOR_ENTRY | ORDER_PENDING | OPEN_ORDER | FILLED | HOLD_MONITOR | SCALE_UP_CANDIDATE | SCALE_DOWN_CANDIDATE | EXIT_PARTIAL_CANDIDATE | EXIT_FULL_CANDIDATE | CLOSED | EXPIRED_RECOMMENDATION | REJECTED_BY_ADMISSION`
+- `firstSeenAt`, `lastSeenAt`, `updatedAt`
+- `stage6Hash`, `latestStage6File`, `verdict`, `finalDecision`, `decisionReason`
+- `entry`, `target`, `stop`, `modelRank`, `executionRank`, `qualityScore`, `executionScore`
+- `brokerStatus`, `brokerOrderId`
+- `openOrderMonitorStatus`, `portfolioAdmissionStatus`, `portfolioAdmissionReason`
+
+주의:
+- 이 원장은 주문 실행 원장이 아니라 추천/감시 원장이다. 실제 broker 제출/상태 전이는 `state/order-ledger.json`,
+  `state/last-order-decision-audit.json`, Alpaca order page/API와 함께 확인해야 한다.
+- `EXPIRED_RECOMMENDATION`은 종목 폐기가 아니라 sidecar active set에서 빠졌다는 의미다.
+
+---
+
 ## 4) Day 판정 시 최소 확인 필드
 
 - Dry-run: `guardControl.blocked`, `preflight.status/code`, `payloadCount/skippedCount`, `[RUN_SUMMARY] event`
