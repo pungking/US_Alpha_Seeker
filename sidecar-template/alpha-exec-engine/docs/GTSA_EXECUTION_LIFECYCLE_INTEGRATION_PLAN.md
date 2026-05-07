@@ -3,7 +3,7 @@
 Last updated: 2026-05-07 (KST)
 Owner: givet-bsm + Codex
 Scope: Stage6 final-recommendation overlay + sidecar execution/lifecycle policy design
-Source input: `/Users/givet-bsm/Downloads/GTSA_Skill_Prompt.md`
+Source input: `docs/prompts/GTSA_Skill_Prompt.md`
 
 ---
 
@@ -204,6 +204,8 @@ GTSA may refine the reason and priority, but the action must be emitted by deter
 ### P0-A: Documentation and contract freeze
 
 - Add this document to the living development plan.
+- Keep the source GTSA prompt in `docs/prompts/GTSA_Skill_Prompt.md` so CI, GitHub, and the always-on machine do not
+  depend on a local `Downloads` path.
 - Define `gtsa_overlay_v1` reduced schema.
 - Define `recommendation-ledger` state schema.
 
