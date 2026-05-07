@@ -489,7 +489,7 @@ sidecar dry-run이 broker submit 직전 portfolio capacity / fillability gate를
 
 record 핵심:
 - `status`: `ADMITTED | REJECTED | BYPASSED`
-- `fillabilityScore`, `rrAtCurrent`, `effectiveEntryDistancePct`
+- `fillabilityScore`, `rrAtCurrent`, `admissionRr`, `effectiveEntryDistancePct`
 - `sector`, `actionType`, `reason`, `detail`
 
 ## `state/recommendation-ledger.json`
