@@ -76,6 +76,7 @@ interface AlphaCandidate {
   aiVerdict?: string;
   verdictRaw?: string;
   verdictFinal?: string;
+  executionVerdict?: string;
   verdictConflict?: boolean;
   verdictConflictDetail?: string | null;
   stateVerdictConflict?: boolean;
@@ -414,6 +415,21 @@ const normalizeOptionalText = (value: any): string | null => {
     return null;
   }
   return text;
+};
+
+const toOptionalFiniteNumber = (value: any): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'boolean') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const toPositiveFiniteNumber = (...values: any[]): number | null => {
+  for (const value of values) {
+    const parsed = toOptionalFiniteNumber(value);
+    if (parsed != null && parsed > 0) return parsed;
+  }
+  return null;
 };
 
 const toNonNegativeInt = (value: any, fallback = 0): number => {
@@ -3669,12 +3685,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       : 'HAIRCUT';
       const stage6EarningsMissingMinRrRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_MISSING_MIN_RR ??
-              Math.max(STAGE6_MIN_RR_HARD_GATE, 3)
+              Math.max(STAGE6_MIN_RR_HARD_GATE, 2.5)
       );
       const STAGE6_EARNINGS_MISSING_MIN_RR =
           Number.isFinite(stage6EarningsMissingMinRrRaw) && stage6EarningsMissingMinRrRaw > 0
               ? stage6EarningsMissingMinRrRaw
-              : Math.max(STAGE6_MIN_RR_HARD_GATE, 3);
+              : Math.max(STAGE6_MIN_RR_HARD_GATE, 2.5);
       const stage6EarningsMissingMinExpectedReturnPctRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT ??
               Math.max(STAGE6_MIN_EXPECTED_RETURN_PCT, 8)
@@ -4922,8 +4938,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (shouldDowngradeByFeasibility) {
               entryFeasibilityDowngradedCount++;
           }
-          // Keep Stage6 verdicts canonical (no WAIT code in final contract).
-          const verdictFinal = shouldDowngradeByFeasibility ? 'HOLD' : candidateVerdict;
+          // Keep the alpha verdict canonical; execution timing belongs to finalDecision/executionBucket.
+          const verdictFinal = candidateVerdict;
+          const executionVerdict = shouldDowngradeByFeasibility ? 'HOLD_WAIT_PRICE' : candidateVerdict;
           return {
               ...item,
               verdictRaw,
@@ -4931,6 +4948,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               aiVerdict: verdictFinal,
               verdict: verdictFinal,
               finalVerdict: verdictFinal,
+              executionVerdict,
               entryPrice: executionContract.mirroredEntry ?? pickPositiveFinite(item?.entryPrice, item?.otePrice, item?.supportLevel) ?? undefined,
               entryAnchorPrice: executionContract.entryAnchorPrice ?? undefined,
               entryExecPrice: executionContract.entryExecPriceShadow ?? undefined,
@@ -5004,7 +5022,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       });
       if (ENTRY_FEASIBILITY_VERDICT_ENFORCE) {
           addLog(
-              `Entry Feasibility Verdict Gate: downgraded ${entryFeasibilityDowngradedCount} names to HOLD (maxDistancePct=${ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT}).`,
+              `Entry Feasibility Verdict Gate: flagged ${entryFeasibilityDowngradedCount} names with executionVerdict=HOLD_WAIT_PRICE while preserving canonical alpha verdict (maxDistancePct=${ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT}).`,
               entryFeasibilityDowngradedCount > 0 ? "warn" : "ok"
           );
       }
@@ -5069,8 +5087,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           // [CRITICAL] Save Final Top 6 to Stage 6 Folder (The "Dump")
           const stage6FolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
           const toFiniteShadowNumber = (value: any): number | null => {
-              const parsed = Number(value);
-              return Number.isFinite(parsed) ? parsed : null;
+              return toOptionalFiniteNumber(value);
           };
           const toShadowIsoDate = (value: any): string | null => {
               if (typeof value !== 'string') return null;
@@ -5148,9 +5165,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               analysisEligible: isAnalysisEligibleTicker(item),
               historyTier: normalizeOptionalText(item?.historyTier) || 'UNKNOWN',
               symbolLifecycleState: normalizeOptionalText(item?.symbolLifecycleState) || 'UNKNOWN',
-              historyPeriods: Number.isFinite(Number(item?.historyPeriods))
-                  ? Number(item.historyPeriods)
-                  : null,
+              historyPeriods: toOptionalFiniteNumber(item?.historyPeriods),
               netIncomeSource: normalizeOptionalText(item?.netIncomeSource) || 'MISSING',
               integrityReasons: Array.isArray(item?.integrityReasons) ? item.integrityReasons : [],
               tradePlanStatus: item.tradePlanStatus || 'VALID',
@@ -5168,59 +5183,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision: normalizeOptionalText(item.finalDecision),
               decisionReason: normalizeOptionalText(item.decisionReason),
               chosenPlanType: normalizeOptionalText(item.chosenPlanType),
-              rankRaw: Number.isFinite(Number(item.rankRaw)) ? Number(item.rankRaw) : null,
-              rankFinal: Number.isFinite(Number(item.rankFinal)) ? Number(item.rankFinal) : null,
-              modelRank: Number.isFinite(Number(item.modelRank)) ? Number(item.modelRank) : null,
-              executionRank: Number.isFinite(Number(item.executionRank))
-                  ? Number(item.executionRank)
-                  : null,
-              executionScore: Number.isFinite(Number(item.executionScore))
-                  ? Number(item.executionScore)
-                  : null,
-              qualityScore: Number.isFinite(Number(item.qualityScore))
-                  ? Number(item.qualityScore)
-                  : null,
-              executionScoreBase: Number.isFinite(Number(item.executionScoreBase))
-                  ? Number(item.executionScoreBase)
-                  : null,
-              qualityScoreBase: Number.isFinite(Number(item.qualityScoreBase))
-                  ? Number(item.qualityScoreBase)
-                  : null,
+              executionVerdict: normalizeOptionalText(item.executionVerdict),
+              rankRaw: toOptionalFiniteNumber(item.rankRaw),
+              rankFinal: toOptionalFiniteNumber(item.rankFinal),
+              modelRank: toOptionalFiniteNumber(item.modelRank),
+              executionRank: toOptionalFiniteNumber(item.executionRank),
+              executionScore: toOptionalFiniteNumber(item.executionScore),
+              qualityScore: toOptionalFiniteNumber(item.qualityScore),
+              executionScoreBase: toOptionalFiniteNumber(item.executionScoreBase),
+              qualityScoreBase: toOptionalFiniteNumber(item.qualityScoreBase),
               hfBlendApplied: Boolean(item.hfBlendApplied),
-              hfBlendDeltaExecution: Number.isFinite(Number(item.hfBlendDeltaExecution))
-                  ? Number(item.hfBlendDeltaExecution)
-                  : null,
-              hfBlendDeltaQuality: Number.isFinite(Number(item.hfBlendDeltaQuality))
-                  ? Number(item.hfBlendDeltaQuality)
-                  : null,
+              hfBlendDeltaExecution: toOptionalFiniteNumber(item.hfBlendDeltaExecution),
+              hfBlendDeltaQuality: toOptionalFiniteNumber(item.hfBlendDeltaQuality),
               hfBlendReason: normalizeOptionalText(item.hfBlendReason),
-              hfBlendShadowRankWithBlend: Number.isFinite(Number(item.hfBlendShadowRankWithBlend))
-                  ? Number(item.hfBlendShadowRankWithBlend)
-                  : null,
-              hfBlendShadowRankNoBlend: Number.isFinite(Number(item.hfBlendShadowRankNoBlend))
-                  ? Number(item.hfBlendShadowRankNoBlend)
-                  : null,
-              hfBlendShadowRankShift: Number.isFinite(Number(item.hfBlendShadowRankShift))
-                  ? Number(item.hfBlendShadowRankShift)
-                  : null,
-              stopDistancePct: Number.isFinite(Number(item.stopDistancePct))
-                  ? Number(item.stopDistancePct)
-                  : null,
-              targetDistancePct: Number.isFinite(Number(item.targetDistancePct))
-                  ? Number(item.targetDistancePct)
-                  : null,
-              anchorExecGapPct: Number.isFinite(Number(item.anchorExecGapPct))
-                  ? Number(item.anchorExecGapPct)
-                  : null,
-              riskRewardRatioValue: Number.isFinite(Number(item.riskRewardRatioValue))
-                  ? Number(item.riskRewardRatioValue)
-                  : null,
-              expectedReturnPct: Number.isFinite(Number(item.expectedReturnPct))
-                  ? Number(item.expectedReturnPct)
-                  : null,
-              earningsDaysToEvent: Number.isFinite(Number(item.earningsDaysToEvent))
-                  ? Number(item.earningsDaysToEvent)
-                  : null,
+              hfBlendShadowRankWithBlend: toOptionalFiniteNumber(item.hfBlendShadowRankWithBlend),
+              hfBlendShadowRankNoBlend: toOptionalFiniteNumber(item.hfBlendShadowRankNoBlend),
+              hfBlendShadowRankShift: toOptionalFiniteNumber(item.hfBlendShadowRankShift),
+              stopDistancePct: toOptionalFiniteNumber(item.stopDistancePct),
+              targetDistancePct: toOptionalFiniteNumber(item.targetDistancePct),
+              anchorExecGapPct: toOptionalFiniteNumber(item.anchorExecGapPct),
+              riskRewardRatioValue: toOptionalFiniteNumber(item.riskRewardRatioValue),
+              expectedReturnPct: toOptionalFiniteNumber(item.expectedReturnPct),
+              earningsDaysToEvent: toOptionalFiniteNumber(item.earningsDaysToEvent),
               finalGateState: item.finalGateState || 'OPEN',
               finalGateBonus: Number(item.finalGateBonus || 0),
               finalGatePenalty: Number(item.finalGatePenalty || 0)
@@ -5232,95 +5216,51 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               analysisEligible: isAnalysisEligibleTicker(item),
               sector: normalizeOptionalText(item?.sectorTheme || item?.sector),
               aiVerdict: normalizeOptionalText(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict),
+              executionVerdict: normalizeOptionalText(item?.executionVerdict),
               finalDecision: normalizeOptionalText(item?.finalDecision),
               decisionReason: normalizeOptionalText(item?.decisionReason || item?.executionReason),
               executionBucket:
                   normalizeOptionalText(item?.executionBucket)?.toUpperCase() || 'WATCHLIST',
               executionReason: normalizeOptionalText(item?.executionReason || item?.tradePlanStatusShadow),
-              entryAnchorPrice: Number.isFinite(Number(item?.entryAnchorPrice))
-                  && Number(item.entryAnchorPrice) > 0
-                  ? Number(item.entryAnchorPrice)
-                  : null,
-              entryExecPrice: Number.isFinite(Number(item?.entryExecPrice ?? item?.entryExecPriceShadow))
-                  && Number(item.entryExecPrice ?? item.entryExecPriceShadow) > 0
-                  ? Number(item.entryExecPrice ?? item.entryExecPriceShadow)
-                  : null,
-              targetPrice: Number.isFinite(Number(item?.targetPrice ?? item?.targetMeanPrice))
-                  && Number(item.targetPrice ?? item.targetMeanPrice) > 0
-                  ? Number(item.targetPrice ?? item.targetMeanPrice)
-                  : null,
-              stopPrice: Number.isFinite(Number(item?.stopLoss ?? item?.ictStopLoss))
-                  && Number(item.stopLoss ?? item.ictStopLoss) > 0
-                  ? Number(item.stopLoss ?? item.ictStopLoss)
-                  : null,
-              entryDistancePct: Number.isFinite(Number(item?.entryDistancePct ?? item?.entryDistancePctShadow))
-                  ? Number(item.entryDistancePct ?? item.entryDistancePctShadow)
-                  : null,
-              stopDistancePct: Number.isFinite(Number(item?.stopDistancePct))
-                  ? Number(item.stopDistancePct)
-                  : null,
-              targetDistancePct: Number.isFinite(Number(item?.targetDistancePct))
-                  ? Number(item.targetDistancePct)
-                  : null,
-              anchorExecGapPct: Number.isFinite(Number(item?.anchorExecGapPct))
-                  ? Number(item.anchorExecGapPct)
-                  : null,
-              rankRaw: Number.isFinite(Number(item?.rankRaw)) ? Number(item.rankRaw) : null,
-              rankFinal: Number.isFinite(Number(item?.rankFinal)) ? Number(item.rankFinal) : null,
-              modelRank: Number.isFinite(Number(item?.modelRank)) ? Number(item.modelRank) : null,
-              executionRank: Number.isFinite(Number(item?.executionRank)) ? Number(item.executionRank) : null,
-              qualityScore: Number.isFinite(Number(item?.qualityScore)) ? Number(item.qualityScore) : null,
-              executionScoreBase: Number.isFinite(Number(item?.executionScoreBase)) ? Number(item.executionScoreBase) : null,
-              qualityScoreBase: Number.isFinite(Number(item?.qualityScoreBase)) ? Number(item.qualityScoreBase) : null,
+              price: toPositiveFiniteNumber(item?.price),
+              entryAnchorPrice: toPositiveFiniteNumber(item?.entryAnchorPrice),
+              entryExecPrice: toPositiveFiniteNumber(item?.entryExecPrice, item?.entryExecPriceShadow),
+              targetPrice: toPositiveFiniteNumber(item?.targetPrice, item?.targetMeanPrice),
+              stopPrice: toPositiveFiniteNumber(item?.stopLoss, item?.ictStopLoss),
+              entryDistancePct: toOptionalFiniteNumber(item?.entryDistancePct ?? item?.entryDistancePctShadow),
+              stopDistancePct: toOptionalFiniteNumber(item?.stopDistancePct),
+              targetDistancePct: toOptionalFiniteNumber(item?.targetDistancePct),
+              anchorExecGapPct: toOptionalFiniteNumber(item?.anchorExecGapPct),
+              rankRaw: toOptionalFiniteNumber(item?.rankRaw),
+              rankFinal: toOptionalFiniteNumber(item?.rankFinal),
+              modelRank: toOptionalFiniteNumber(item?.modelRank),
+              executionRank: toOptionalFiniteNumber(item?.executionRank),
+              qualityScore: toOptionalFiniteNumber(item?.qualityScore),
+              executionScoreBase: toOptionalFiniteNumber(item?.executionScoreBase),
+              qualityScoreBase: toOptionalFiniteNumber(item?.qualityScoreBase),
               hfBlendApplied: Boolean(item?.hfBlendApplied),
-              hfBlendDeltaExecution: Number.isFinite(Number(item?.hfBlendDeltaExecution))
-                  ? Number(item.hfBlendDeltaExecution)
-                  : null,
-              hfBlendDeltaQuality: Number.isFinite(Number(item?.hfBlendDeltaQuality))
-                  ? Number(item.hfBlendDeltaQuality)
-                  : null,
+              hfBlendDeltaExecution: toOptionalFiniteNumber(item?.hfBlendDeltaExecution),
+              hfBlendDeltaQuality: toOptionalFiniteNumber(item?.hfBlendDeltaQuality),
               hfBlendReason: normalizeOptionalText(item?.hfBlendReason),
-              hfBlendShadowRankWithBlend: Number.isFinite(Number(item?.hfBlendShadowRankWithBlend))
-                  ? Number(item.hfBlendShadowRankWithBlend)
-                  : null,
-              hfBlendShadowRankNoBlend: Number.isFinite(Number(item?.hfBlendShadowRankNoBlend))
-                  ? Number(item.hfBlendShadowRankNoBlend)
-                  : null,
-              hfBlendShadowRankShift: Number.isFinite(Number(item?.hfBlendShadowRankShift))
-                  ? Number(item.hfBlendShadowRankShift)
-                  : null,
-              convictionScore: Number.isFinite(Number(item?.convictionScore))
-                  ? Number(item.convictionScore)
-                  : null,
-              rawConvictionScore: Number.isFinite(Number(item?.rawConvictionScore))
-                  ? Number(item.rawConvictionScore)
-                  : Number.isFinite(Number(item?.convictionScore))
-                      ? Number(item.convictionScore)
-                      : null,
+              hfBlendShadowRankWithBlend: toOptionalFiniteNumber(item?.hfBlendShadowRankWithBlend),
+              hfBlendShadowRankNoBlend: toOptionalFiniteNumber(item?.hfBlendShadowRankNoBlend),
+              hfBlendShadowRankShift: toOptionalFiniteNumber(item?.hfBlendShadowRankShift),
+              convictionScore: toOptionalFiniteNumber(item?.convictionScore),
+              rawConvictionScore: toOptionalFiniteNumber(item?.rawConvictionScore) ?? toOptionalFiniteNumber(item?.convictionScore),
               stage6Tier: String(item?.stage6Tier || 'NONE').toUpperCase(),
               stage6TierReason: normalizeOptionalText(item?.stage6TierReason) || 'tier_none',
-              stage6TierMultiplier: Number.isFinite(Number(item?.stage6TierMultiplier))
-                  ? Number(item.stage6TierMultiplier)
-                  : 1,
-              displacement: Number.isFinite(Number(item?.stage6Displacement ?? item?.ictMetrics?.displacement))
-                  ? Number(item.stage6Displacement ?? item.ictMetrics?.displacement)
-                  : null,
-              ictPos: Number.isFinite(Number(item?.stage6IctPos ?? item?.ictPos))
-                  ? Number(item.stage6IctPos ?? item.ictPos)
-                  : null,
+              stage6TierMultiplier: toOptionalFiniteNumber(item?.stage6TierMultiplier) ?? 1,
+              displacement: toOptionalFiniteNumber(item?.stage6Displacement ?? item?.ictMetrics?.displacement),
+              ictPos: toOptionalFiniteNumber(item?.stage6IctPos ?? item?.ictPos),
               trendAlignment:
                   typeof item?.stage6TrendAlignment === 'string' && item.stage6TrendAlignment.trim()
                       ? item.stage6TrendAlignment.trim().toUpperCase()
                       : typeof item?.techMetrics?.trendAlignment === 'string' && item.techMetrics.trendAlignment.trim()
                           ? item.techMetrics.trendAlignment.trim().toUpperCase()
                           : null,
-              executionScore: Number.isFinite(Number(item?.executionScore)) ? Number(item.executionScore) : null,
-              riskRewardRatioValue: Number.isFinite(Number(item?.riskRewardRatioValue))
-                  ? Number(item.riskRewardRatioValue)
-                  : null,
-              expectedReturnPct: Number.isFinite(Number(item?.expectedReturnPct))
-                  ? Number(item.expectedReturnPct)
-                  : null,
+              executionScore: toOptionalFiniteNumber(item?.executionScore),
+              riskRewardRatioValue: toOptionalFiniteNumber(item?.riskRewardRatioValue),
+              expectedReturnPct: toOptionalFiniteNumber(item?.expectedReturnPct),
               hfAdvisoryEnabled: Boolean(item?.hfAdvisoryEnabled),
               hfSentimentLabel: normalizeOptionalText(item?.hfSentimentLabel),
               hfSentimentScore: (() => {
@@ -5343,15 +5283,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   return null;
               })(),
               hfSentimentTextKind: normalizeOptionalText(item?.hfSentimentTextKind),
-              hfSentimentArticleCount: Number.isFinite(Number(item?.hfSentimentArticleCount))
+              hfSentimentArticleCount: toOptionalFiniteNumber(item?.hfSentimentArticleCount) != null
                   ? Math.max(0, Math.round(Number(item.hfSentimentArticleCount)))
                   : null,
-              hfSentimentNewestAgeHours: Number.isFinite(Number(item?.hfSentimentNewestAgeHours))
+              hfSentimentNewestAgeHours: toOptionalFiniteNumber(item?.hfSentimentNewestAgeHours) != null
                   ? Number(Number(item.hfSentimentNewestAgeHours).toFixed(2))
                   : null,
-              earningsDaysToEvent: Number.isFinite(Number(item?.earningsDaysToEvent))
-                  ? Number(item.earningsDaysToEvent)
-                  : null,
+              earningsDaysToEvent: toOptionalFiniteNumber(item?.earningsDaysToEvent),
               verdictConflict: Boolean(item?.verdictConflict),
               stateVerdictConflict: Boolean(item?.stateVerdictConflict),
               ...attachShadowIntel(item)

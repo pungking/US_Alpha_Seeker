@@ -23,6 +23,7 @@
     "ops:alpaca:cli:health:strict": "ALPACA_CLI_HEALTH_STRICT=true node scripts/alpaca-cli-healthcheck.mjs",
     "ops:sidecar:drift:audit": "node scripts/audit-sidecar-workflow-drift.mjs",
     "ops:notion:pipeline:sync": "node scripts/sync-pipeline-notion.mjs",
+    "ops:stage6:exec:audit": "node scripts/build-stage6-execution-gate-audit.mjs",
     "ops:knowledge:sync": "node scripts/sync-knowledge-routines.mjs",
     "ops:knowledge:notebooklm": "node scripts/notebooklm-mcp-collect.mjs",
     "ops:knowledge:bridge": "node scripts/notebooklm-intake-bridge.mjs",
