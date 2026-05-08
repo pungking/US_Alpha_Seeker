@@ -128,6 +128,7 @@ HF verification shortcuts:
 - `npm run dashboard:perf`: build simulation/live dashboard snapshot (`state/performance-dashboard.json`, `.md`).
 - `npm run ops:fillability`: build candidate-wide order fillability evidence (`state/fillability-report.json`, `.md`).
 - `npm run ops:exec:blockers`: build multi-run execution blocker audit (`state/execution-blocker-audit.json`, `.md`). Use `EXEC_BLOCKER_AUDIT_ROOT=/path/to/downloaded-runs` for GitHub artifact folders.
+- No-order diagnosis includes `stage6BlockerSamples` so `STAGE6_ZERO_EXECUTABLE` days show the actual Stage6 symbols/reasons before any broker-submit tuning is attempted.
 - `npm run ops:health`: build ops health snapshot (`state/ops-health-report.json`, `.md`) with perf-gate vs dashboard consistency checks.
 - `OPS_HEALTH_STATE_DIR=/path/to/artifact npm run ops:health`: rebuild ops health from a downloaded sidecar artifact without mutating local `state/`.
 - `npm run ops:health:dry-run`: build dry-run focused health snapshot.
