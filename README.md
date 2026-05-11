@@ -60,6 +60,7 @@ Recommended production envs:
 - `VITE_STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT=8`
 - `VITE_STAGE6_EARNINGS_BLACKOUT_DAYS=5`
 - `VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED=false`
+- `VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED=false`
 - `VITE_STAGE6_CURRENT_ENTRY_MIN_RR=1.8`
 - `VITE_STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT=2`
 - `VITE_STAGE6_BREAKOUT_RETEST_DISTANCE_PCT=10`
@@ -82,6 +83,10 @@ adds diagnostics (`entryTactic`, `rrAtCurrentPrice`, `targetBufferFromCurrentPct
 `tradePlanDecision`) and does not convert deep pullback candidates into orders.
 If enabled later, it must pass current-price RR and target-buffer floors before a
 candidate can move from pullback wait to executable current-entry.
+Stop recalculation for current-entry is also default-off. Its first job is to
+show the required invalidation stop (`currentEntryRequiredStopPrice`) and whether
+that stop is within allowed distance bands; it is not a broker order trigger by
+itself.
 
 ## Optional: Performance Dashboard API (Simulation/Live)
 

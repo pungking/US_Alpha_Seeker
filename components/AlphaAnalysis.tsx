@@ -49,9 +49,11 @@ interface AlphaCandidate {
     | 'executable_pullback'
     | 'executable_earnings_data_missing_haircut'
     | 'executable_adaptive_current'
+    | 'executable_current_recalculated_stop'
     | 'wait_pullback_not_reached'
     | 'wait_pullback_too_deep_valid_thesis'
     | 'wait_breakout_retest_required'
+    | 'wait_recalculated_stop_required'
     | 'wait_target_near_current'
     | 'wait_current_rr_below_min'
     | 'wait_earnings_data_missing'
@@ -74,16 +76,21 @@ interface AlphaCandidate {
     | 'blocked_earnings_window'
     | 'blocked_state_verdict_conflict'
     | 'blocked_verdict_risk_off';
-  chosenPlanType?: 'PULLBACK' | 'BREAKOUT' | 'ADAPTIVE_CURRENT' | 'NO_TRADE';
+  chosenPlanType?: 'PULLBACK' | 'BREAKOUT' | 'ADAPTIVE_CURRENT' | 'ADAPTIVE_RECALC_STOP' | 'NO_TRADE';
   entryTactic?:
     | 'PULLBACK_LIMIT'
     | 'CONFIRMED_ADAPTIVE_ENTRY'
+    | 'CONFIRMED_RECALCULATED_STOP_ENTRY'
+    | 'RECALCULATED_STOP_REVIEW'
     | 'BREAKOUT_RETEST'
     | 'NO_TRADE_CURRENT_RR_BAD'
     | 'OBSERVE_ONLY';
   rrAtCurrentPrice?: number | null;
   targetBufferFromCurrentPct?: number | null;
   currentPriceStopDistancePct?: number | null;
+  currentEntryRequiredStopPrice?: number | null;
+  currentEntryRequiredStopDistancePct?: number | null;
+  currentEntryRecalcFeasible?: boolean | null;
   tradePlanDecision?: string | null;
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
@@ -637,6 +644,10 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         title: "✅ Reason: executable_adaptive_current",
         desc: "현재가 기준 손익비와 목표 버퍼가 모두 살아 있어, 명시적 설정이 켜진 경우에만 현재가 적응형 진입 후보로 인정합니다."
     },
+    'REASON_EXECUTABLE_CURRENT_RECALCULATED_STOP': {
+        title: "✅ Reason: executable_current_recalculated_stop",
+        desc: "현재가 진입을 위해 필요한 손절 재산정값이 허용 범위 안에 있습니다. 명시적 설정이 켜진 경우에만 실행 후보로 인정합니다."
+    },
     'REASON_WAIT_PULLBACK_NOT_REACHED': {
         title: "⏳ Reason: wait_pullback_not_reached",
         desc: "PULLBACK 진입 기준 대비 현재 가격 괴리가 커서, **진입 타점 미도달** 상태입니다."
@@ -648,6 +659,10 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
     'REASON_WAIT_BREAKOUT_RETEST_REQUIRED': {
         title: "⏳ Reason: wait_breakout_retest_required",
         desc: "깊은 눌림목 진입은 비현실적이므로, 추격 매수가 아니라 돌파 후 재테스트 구조가 확인될 때까지 대기합니다."
+    },
+    'REASON_WAIT_RECALCULATED_STOP_REQUIRED': {
+        title: "⏳ Reason: wait_recalculated_stop_required",
+        desc: "현재가 기준 진입은 원래 손절가로는 RR이 부족하지만, 더 가까운 구조적 손절 재산정이 가능해 보이는 검토 대상입니다."
     },
     'REASON_WAIT_TARGET_NEAR_CURRENT': {
         title: "⏳ Reason: wait_target_near_current",
@@ -938,9 +953,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const key = String(reason || '').toLowerCase().trim();
       if (key === 'executable_pullback') return 'REASON_EXECUTABLE_PULLBACK';
       if (key === 'executable_adaptive_current') return 'REASON_EXECUTABLE_ADAPTIVE_CURRENT';
+      if (key === 'executable_current_recalculated_stop') return 'REASON_EXECUTABLE_CURRENT_RECALCULATED_STOP';
       if (key === 'wait_pullback_not_reached') return 'REASON_WAIT_PULLBACK_NOT_REACHED';
       if (key === 'wait_pullback_too_deep_valid_thesis') return 'REASON_WAIT_PULLBACK_TOO_DEEP_VALID_THESIS';
       if (key === 'wait_breakout_retest_required') return 'REASON_WAIT_BREAKOUT_RETEST_REQUIRED';
+      if (key === 'wait_recalculated_stop_required') return 'REASON_WAIT_RECALCULATED_STOP_REQUIRED';
       if (key === 'wait_target_near_current') return 'REASON_WAIT_TARGET_NEAR_CURRENT';
       if (key === 'wait_current_rr_below_min') return 'REASON_WAIT_CURRENT_RR_BELOW_MIN';
       if (key === 'wait_earnings_data_missing') return 'REASON_WAIT_EARNINGS_DATA_MISSING';
@@ -968,9 +985,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const key = String(reason || '').toLowerCase().trim();
       if (key === 'executable_pullback') return 'Pullback Confirmed';
       if (key === 'executable_adaptive_current') return 'Adaptive Current Entry';
+      if (key === 'executable_current_recalculated_stop') return 'Current Entry / Recalculated Stop';
       if (key === 'wait_pullback_not_reached') return 'Pullback Not Reached';
       if (key === 'wait_pullback_too_deep_valid_thesis') return 'Pullback Too Deep / Valid Thesis';
       if (key === 'wait_breakout_retest_required') return 'Breakout Retest Required';
+      if (key === 'wait_recalculated_stop_required') return 'Recalculated Stop Required';
       if (key === 'wait_target_near_current') return 'Target Near Current';
       if (key === 'wait_current_rr_below_min') return 'Current RR Below Min';
       if (key === 'wait_earnings_data_missing') return 'Awaiting Earnings Data';
@@ -3797,6 +3816,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           (import.meta as any)?.env?.VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED ?? 'false'
       );
       const STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED = parseBooleanFlag(stage6CurrentEntryEnabledRaw);
+      const stage6CurrentStopRecalcEnabledRaw = String(
+          (import.meta as any)?.env?.VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED ?? 'false'
+      );
+      const STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED = parseBooleanFlag(stage6CurrentStopRecalcEnabledRaw);
       const stage6CurrentMinRrRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_CURRENT_ENTRY_MIN_RR ?? STAGE6_MIN_RR_HARD_GATE
       );
@@ -4415,6 +4438,36 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               livePrice != null && mirroredStop != null && livePrice > 0 && mirroredStop > 0
                   ? Number((((livePrice - mirroredStop) / livePrice) * 100).toFixed(2))
                   : null;
+          const currentEntryRequiredStopPrice =
+              livePrice != null &&
+              mirroredTarget != null &&
+              livePrice > 0 &&
+              mirroredTarget > livePrice &&
+              STAGE6_CURRENT_ENTRY_MIN_RR > 0
+                  ? Number((livePrice - ((mirroredTarget - livePrice) / STAGE6_CURRENT_ENTRY_MIN_RR)).toFixed(4))
+                  : null;
+          const currentEntryRequiredStopDistancePct =
+              livePrice != null &&
+              currentEntryRequiredStopPrice != null &&
+              livePrice > 0 &&
+              currentEntryRequiredStopPrice > 0 &&
+              currentEntryRequiredStopPrice < livePrice
+                  ? Number((((livePrice - currentEntryRequiredStopPrice) / livePrice) * 100).toFixed(2))
+                  : null;
+          const currentEntryRecalcFeasible = Boolean(
+              hasGeometry &&
+              livePrice != null &&
+              mirroredStop != null &&
+              currentEntryRequiredStopPrice != null &&
+              currentEntryRequiredStopDistancePct != null &&
+              currentEntryRequiredStopPrice > mirroredStop &&
+              currentEntryRequiredStopPrice < livePrice &&
+              targetBufferFromCurrentPct != null &&
+              Number.isFinite(targetBufferFromCurrentPct) &&
+              targetBufferFromCurrentPct >= STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT &&
+              currentEntryRequiredStopDistancePct >= STAGE6_MIN_STOP_DISTANCE_PCT &&
+              currentEntryRequiredStopDistancePct <= STAGE6_MAX_STOP_DISTANCE_PCT
+          );
           const expectedReturnPct = parseExpectedReturnPct(
               item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
           );
@@ -4565,6 +4618,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           } else if (
               riskRewardRatioValue != null &&
               Number.isFinite(riskRewardRatioValue) &&
+              riskRewardRatioValue < STAGE6_MIN_RR_HARD_GATE &&
+              currentEntryRecalcFeasible
+          ) {
+              finalDecision = 'WAIT_PRICE';
+              decisionReason = 'wait_recalculated_stop_required';
+          } else if (
+              riskRewardRatioValue != null &&
+              Number.isFinite(riskRewardRatioValue) &&
               riskRewardRatioValue < STAGE6_MIN_RR_HARD_GATE
           ) {
               finalDecision = 'BLOCKED_RISK';
@@ -4597,6 +4658,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           } else if (
               executionReason === 'WAIT_PULLBACK_TOO_DEEP' &&
               STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED &&
+              STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED &&
+              currentEntryRecalcFeasible &&
+              currentEntryRequiredStopPrice != null &&
+              currentEntryRequiredStopDistancePct != null
+          ) {
+              finalDecision = 'EXECUTABLE_NOW';
+              decisionReason = 'executable_current_recalculated_stop';
+          } else if (
+              executionReason === 'WAIT_PULLBACK_TOO_DEEP' &&
+              STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED &&
               rrAtCurrentPrice != null &&
               Number.isFinite(rrAtCurrentPrice) &&
               rrAtCurrentPrice >= STAGE6_CURRENT_ENTRY_MIN_RR &&
@@ -4622,7 +4693,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   !Number.isFinite(rrAtCurrentPrice) ||
                   rrAtCurrentPrice < STAGE6_CURRENT_ENTRY_MIN_RR
               ) {
-                  decisionReason = 'wait_current_rr_below_min';
+                  decisionReason = currentEntryRecalcFeasible ? 'wait_recalculated_stop_required' : 'wait_current_rr_below_min';
               } else if (
                   entryDistancePctShadow != null &&
                   Number.isFinite(entryDistancePctShadow) &&
@@ -4638,27 +4709,45 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const executionBucket: AlphaCandidate["executionBucket"] =
               finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST';
           const useAdaptiveCurrentEntry = decisionReason === 'executable_adaptive_current' && livePrice != null;
-          const contractEntryExecPrice = useAdaptiveCurrentEntry ? livePrice : entryExecPriceShadow;
-          const contractEntryDistancePct = useAdaptiveCurrentEntry ? 0 : entryDistancePctShadow;
-          const contractStopDistancePct = useAdaptiveCurrentEntry ? currentPriceStopDistancePct : stopDistancePct;
-          const contractTargetDistancePct = useAdaptiveCurrentEntry ? targetBufferFromCurrentPct : targetDistancePct;
-          const contractRiskRewardRatioValue = useAdaptiveCurrentEntry ? rrAtCurrentPrice : riskRewardRatioValue;
-          const contractEntryFeasible = useAdaptiveCurrentEntry ? true : entryFeasibleShadow;
+          const useRecalculatedCurrentEntry =
+              decisionReason === 'executable_current_recalculated_stop' &&
+              livePrice != null &&
+              currentEntryRequiredStopPrice != null;
+          const contractEntryExecPrice = useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? livePrice : entryExecPriceShadow;
+          const contractStopPrice = useRecalculatedCurrentEntry ? currentEntryRequiredStopPrice : mirroredStop;
+          const contractEntryDistancePct = useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? 0 : entryDistancePctShadow;
+          const contractStopDistancePct = useRecalculatedCurrentEntry
+              ? currentEntryRequiredStopDistancePct
+              : useAdaptiveCurrentEntry
+                  ? currentPriceStopDistancePct
+                  : stopDistancePct;
+          const contractTargetDistancePct = useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? targetBufferFromCurrentPct : targetDistancePct;
+          const contractRiskRewardRatioValue =
+              useRecalculatedCurrentEntry ? STAGE6_CURRENT_ENTRY_MIN_RR : useAdaptiveCurrentEntry ? rrAtCurrentPrice : riskRewardRatioValue;
+          const contractEntryFeasible = useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? true : entryFeasibleShadow;
           const contractTradePlanStatus: AlphaCandidate["tradePlanStatusShadow"] =
-              useAdaptiveCurrentEntry ? 'VALID_EXEC' : tradePlanStatusShadow;
+              useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? 'VALID_EXEC' : tradePlanStatusShadow;
           const contractExecutionReason: AlphaCandidate["executionReason"] =
-              useAdaptiveCurrentEntry ? 'VALID_EXEC' : executionReason;
+              useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? 'VALID_EXEC' : executionReason;
           const chosenPlanType: AlphaCandidate["chosenPlanType"] =
-              useAdaptiveCurrentEntry
+              useRecalculatedCurrentEntry
+                  ? 'ADAPTIVE_RECALC_STOP'
+                  : useAdaptiveCurrentEntry
                   ? 'ADAPTIVE_CURRENT'
+                  : decisionReason === 'wait_recalculated_stop_required'
+                      ? 'ADAPTIVE_RECALC_STOP'
                   : decisionReason === 'wait_breakout_retest_required'
                       ? 'BREAKOUT'
                       : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current'
                           ? 'NO_TRADE'
                           : 'PULLBACK';
           const entryTactic: AlphaCandidate["entryTactic"] =
-              useAdaptiveCurrentEntry
+              useRecalculatedCurrentEntry
+                  ? 'CONFIRMED_RECALCULATED_STOP_ENTRY'
+                  : useAdaptiveCurrentEntry
                   ? 'CONFIRMED_ADAPTIVE_ENTRY'
+                  : decisionReason === 'wait_recalculated_stop_required'
+                      ? 'RECALCULATED_STOP_REVIEW'
                   : decisionReason === 'wait_breakout_retest_required'
                       ? 'BREAKOUT_RETEST'
                       : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current'
@@ -4689,7 +4778,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return {
               mirroredEntry,
               mirroredTarget,
-              mirroredStop,
+              mirroredStop: contractStopPrice,
               entryAnchorPrice,
               entryExecPriceShadow: contractEntryExecPrice,
               entryDistancePctShadow: contractEntryDistancePct,
@@ -4707,9 +4796,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice,
               targetBufferFromCurrentPct,
               currentPriceStopDistancePct,
+              currentEntryRequiredStopPrice,
+              currentEntryRequiredStopDistancePct,
+              currentEntryRecalcFeasible,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,
               tradePlanReason:
-                  useAdaptiveCurrentEntry
+                  useRecalculatedCurrentEntry
+                      ? 'current_price_requires_recalculated_stop_and_explicit_enable'
+                      : useAdaptiveCurrentEntry
                       ? 'current_price_rr_and_target_buffer_passed'
                       : decisionReason,
               executionScore,
@@ -4783,6 +4877,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice: executionContract.rrAtCurrentPrice,
               targetBufferFromCurrentPct: executionContract.targetBufferFromCurrentPct,
               currentPriceStopDistancePct: executionContract.currentPriceStopDistancePct,
+              currentEntryRequiredStopPrice: executionContract.currentEntryRequiredStopPrice,
+              currentEntryRequiredStopDistancePct: executionContract.currentEntryRequiredStopDistancePct,
+              currentEntryRecalcFeasible: executionContract.currentEntryRecalcFeasible,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -5139,6 +5236,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice: executionContract.rrAtCurrentPrice,
               targetBufferFromCurrentPct: executionContract.targetBufferFromCurrentPct,
               currentPriceStopDistancePct: executionContract.currentPriceStopDistancePct,
+              currentEntryRequiredStopPrice: executionContract.currentEntryRequiredStopPrice,
+              currentEntryRequiredStopDistancePct: executionContract.currentEntryRequiredStopDistancePct,
+              currentEntryRecalcFeasible: executionContract.currentEntryRecalcFeasible,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -5360,6 +5460,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice: toOptionalFiniteNumber(item.rrAtCurrentPrice),
               targetBufferFromCurrentPct: toOptionalFiniteNumber(item.targetBufferFromCurrentPct),
               currentPriceStopDistancePct: toOptionalFiniteNumber(item.currentPriceStopDistancePct),
+              currentEntryRequiredStopPrice: toOptionalFiniteNumber(item.currentEntryRequiredStopPrice),
+              currentEntryRequiredStopDistancePct: toOptionalFiniteNumber(item.currentEntryRequiredStopDistancePct),
+              currentEntryRecalcFeasible: Boolean(item.currentEntryRecalcFeasible),
               tradePlanDecision: normalizeOptionalText(item.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item.tradePlanReason),
               executionVerdict: normalizeOptionalText(item.executionVerdict),
@@ -5403,6 +5506,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice: toOptionalFiniteNumber(item?.rrAtCurrentPrice),
               targetBufferFromCurrentPct: toOptionalFiniteNumber(item?.targetBufferFromCurrentPct),
               currentPriceStopDistancePct: toOptionalFiniteNumber(item?.currentPriceStopDistancePct),
+              currentEntryRequiredStopPrice: toOptionalFiniteNumber(item?.currentEntryRequiredStopPrice),
+              currentEntryRequiredStopDistancePct: toOptionalFiniteNumber(item?.currentEntryRequiredStopDistancePct),
+              currentEntryRecalcFeasible: Boolean(item?.currentEntryRecalcFeasible),
               tradePlanDecision: normalizeOptionalText(item?.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item?.tradePlanReason),
               executionBucket:
@@ -5578,6 +5684,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       minTargetDistancePct: STAGE6_MIN_TARGET_DISTANCE_PCT,
                       maxAnchorExecGapPct: STAGE6_MAX_ANCHOR_EXEC_GAP_PCT,
                       adaptiveCurrentEntryEnabled: STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED,
+                      currentEntryStopRecalcEnabled: STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED,
                       currentEntryMinRr: STAGE6_CURRENT_ENTRY_MIN_RR,
                       currentEntryMinTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
                       breakoutRetestDistancePct: STAGE6_BREAKOUT_RETEST_DISTANCE_PCT,

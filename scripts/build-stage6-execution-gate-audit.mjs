@@ -85,6 +85,61 @@ function toPositiveNumber(...values) {
   return null;
 }
 
+function getCurrentEntryPolicy() {
+  const minRr = parseNumber(process.env.STAGE6_AUDIT_CURRENT_ENTRY_MIN_RR ?? process.env.VITE_STAGE6_CURRENT_ENTRY_MIN_RR, 1.8);
+  const minTargetBufferPct = parseNumber(
+    process.env.STAGE6_AUDIT_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT ?? process.env.VITE_STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
+    2
+  );
+  const minStopDistancePct = parseNumber(
+    process.env.STAGE6_AUDIT_CURRENT_ENTRY_MIN_STOP_DISTANCE_PCT ?? process.env.VITE_STAGE6_MIN_STOP_DISTANCE_PCT,
+    1.5
+  );
+  const maxStopDistancePct = parseNumber(
+    process.env.STAGE6_AUDIT_CURRENT_ENTRY_MAX_STOP_DISTANCE_PCT ?? process.env.VITE_STAGE6_MAX_STOP_DISTANCE_PCT,
+    22
+  );
+  return { minRr, minTargetBufferPct, minStopDistancePct, maxStopDistancePct };
+}
+
+function deriveCurrentEntryRecalc(row, metrics) {
+  const explicitStop = toOptionalNumber(row?.currentEntryRequiredStopPrice ?? row?.currentEntryRecalcStopPrice);
+  const explicitStopDistance = toOptionalNumber(row?.currentEntryRequiredStopDistancePct ?? row?.currentEntryRecalcStopDistancePct);
+  const explicitFeasible = typeof row?.currentEntryRecalcFeasible === 'boolean' ? row.currentEntryRecalcFeasible : null;
+  const policy = getCurrentEntryPolicy();
+  const { price, target, stop, targetBufferFromCurrentPct } = metrics;
+  const requiredStopPrice =
+    explicitStop ??
+    (price && target && target > price && policy.minRr > 0
+      ? price - ((target - price) / policy.minRr)
+      : null);
+  const requiredStopDistancePct =
+    explicitStopDistance ??
+    (price && requiredStopPrice && requiredStopPrice > 0 && requiredStopPrice < price
+      ? ((price - requiredStopPrice) / price) * 100
+      : null);
+  const feasible =
+    explicitFeasible ??
+    Boolean(
+      price &&
+      target &&
+      stop &&
+      requiredStopPrice &&
+      requiredStopDistancePct != null &&
+      requiredStopPrice > stop &&
+      requiredStopPrice < price &&
+      targetBufferFromCurrentPct != null &&
+      targetBufferFromCurrentPct >= policy.minTargetBufferPct &&
+      requiredStopDistancePct >= policy.minStopDistancePct &&
+      requiredStopDistancePct <= policy.maxStopDistancePct
+    );
+  return {
+    currentEntryRequiredStopPrice: requiredStopPrice == null ? null : Number(requiredStopPrice.toFixed(4)),
+    currentEntryRequiredStopDistancePct: requiredStopDistancePct == null ? null : Number(requiredStopDistancePct.toFixed(2)),
+    currentEntryRecalcFeasible: feasible
+  };
+}
+
 function normalizeText(value) {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
@@ -256,6 +311,12 @@ function extractRowsFromNotionPipelinePayload(filePath, payload) {
       const currentPriceStopDistancePct =
         toOptionalNumber(row?.currentPriceStopDistancePct) ??
         (price && stop ? ((price - stop) / price) * 100 : null);
+      const currentEntryRecalc = deriveCurrentEntryRecalc(row, {
+        price,
+        target,
+        stop,
+        targetBufferFromCurrentPct
+      });
       out.push({
         stage6File,
         stage6ModifiedTime: payload?.runDateIso || payload?.generatedAt || null,
@@ -285,6 +346,9 @@ function extractRowsFromNotionPipelinePayload(filePath, payload) {
         rrAtCurrentPrice: rrAtCurrentPrice == null ? null : Number(rrAtCurrentPrice.toFixed(2)),
         targetBufferFromCurrentPct: targetBufferFromCurrentPct == null ? null : Number(targetBufferFromCurrentPct.toFixed(2)),
         currentPriceStopDistancePct: currentPriceStopDistancePct == null ? null : Number(currentPriceStopDistancePct.toFixed(2)),
+        currentEntryRequiredStopPrice: currentEntryRecalc.currentEntryRequiredStopPrice,
+        currentEntryRequiredStopDistancePct: currentEntryRecalc.currentEntryRequiredStopDistancePct,
+        currentEntryRecalcFeasible: currentEntryRecalc.currentEntryRecalcFeasible,
         tradePlanDecision: normalizeText(row?.tradePlanDecision) || null,
         tradePlanReason: normalizeText(row?.tradePlanReason) || null,
         trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
@@ -355,6 +419,12 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
     const currentPriceStopDistancePct =
       toOptionalNumber(row?.currentPriceStopDistancePct ?? notion?.currentPriceStopDistancePct) ??
       (price && stop ? ((price - stop) / price) * 100 : null);
+    const currentEntryRecalc = deriveCurrentEntryRecalc({ ...notion, ...row }, {
+      price,
+      target,
+      stop,
+      targetBufferFromCurrentPct
+    });
     const finalDecision = normalizeText(row?.finalDecision || notion?.finalDecision) || 'UNKNOWN';
     const decisionReason = normalizeText(row?.decisionReason || notion?.decisionReason || row?.executionReason) || 'unknown';
     const executionBucket = normalizeText(row?.executionBucket || notion?.executionBucket) || 'UNKNOWN';
@@ -393,6 +463,9 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
       rrAtCurrentPrice: rrAtCurrentPrice == null ? null : Number(rrAtCurrentPrice.toFixed(2)),
       targetBufferFromCurrentPct: targetBufferFromCurrentPct == null ? null : Number(targetBufferFromCurrentPct.toFixed(2)),
       currentPriceStopDistancePct: currentPriceStopDistancePct == null ? null : Number(currentPriceStopDistancePct.toFixed(2)),
+      currentEntryRequiredStopPrice: currentEntryRecalc.currentEntryRequiredStopPrice,
+      currentEntryRequiredStopDistancePct: currentEntryRecalc.currentEntryRequiredStopDistancePct,
+      currentEntryRecalcFeasible: currentEntryRecalc.currentEntryRecalcFeasible,
       tradePlanDecision: normalizeText(row?.tradePlanDecision || notion?.tradePlanDecision) || null,
       tradePlanReason: normalizeText(row?.tradePlanReason || notion?.tradePlanReason) || null,
       trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
@@ -425,6 +498,13 @@ function classifyRow(row) {
     };
   }
   if (reason === 'wait_current_rr_below_min') {
+    if (row.currentEntryRecalcFeasible) {
+      return {
+        class: 'CURRENT_STOP_RECALC_REQUIRED',
+        severity: 'high',
+        fixLane: 'stage6_current_entry_stop_recalibration'
+      };
+    }
     return {
       class: 'CURRENT_RR_BAD',
       severity: 'medium',
@@ -440,6 +520,13 @@ function classifyRow(row) {
   }
   if (reason === 'wait_pullback_not_reached') {
     const severeDistance = row.entryDistancePct != null && row.entryDistancePct > 10;
+    if (severeDistance && row.currentEntryRecalcFeasible) {
+      return {
+        class: 'CURRENT_STOP_RECALC_REQUIRED',
+        severity: 'high',
+        fixLane: 'stage6_current_entry_stop_recalibration'
+      };
+    }
     return {
       class: severeDistance ? 'ENTRY_MODEL_TOO_DEEP' : 'CONSERVATIVE_PULLBACK_WAIT',
       severity: severeDistance ? 'high' : 'medium',
@@ -477,7 +564,21 @@ function classifyRow(row) {
     return { class: 'VERDICT_NORMALIZATION_BLOCK', severity: 'high', fixLane: 'verdict_contract_normalization' };
   }
   if (reason === 'blocked_rr_below_min') {
+    if (row.currentEntryRecalcFeasible) {
+      return {
+        class: 'CURRENT_STOP_RECALC_REQUIRED',
+        severity: 'high',
+        fixLane: 'stage6_current_entry_stop_recalibration'
+      };
+    }
     return { class: 'NORMAL_RR_BLOCK', severity: 'ok', fixLane: 'none' };
+  }
+  if (reason === 'wait_recalculated_stop_required') {
+    return {
+      class: 'CURRENT_STOP_RECALC_REQUIRED',
+      severity: 'high',
+      fixLane: 'stage6_current_entry_stop_recalibration'
+    };
   }
   return { class: 'OTHER_BLOCK', severity: 'medium', fixLane: 'inspect' };
 }
@@ -499,6 +600,7 @@ function buildRunSummaries(rows) {
       (run.classes.DATA_POLICY_OVERBLOCK || 0) +
       (run.classes.ENTRY_MODEL_TOO_DEEP || 0) +
       (run.classes.BREAKOUT_RETEST_REQUIRED || 0) +
+      (run.classes.CURRENT_STOP_RECALC_REQUIRED || 0) +
       (run.classes.VERDICT_NORMALIZATION_BLOCK || 0);
     const normalSafetyCount = (run.classes.NORMAL_EVENT_BLACKOUT || 0) + (run.classes.NORMAL_RISK_BLOCK || 0) + (run.classes.NORMAL_RR_BLOCK || 0);
     const verdict = !zeroExecutable
@@ -545,8 +647,8 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Candidate Blocker Table');
   lines.push('');
-  lines.push('| File | Symbol | Decision | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |');
-  lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |');
+  lines.push('| File | Symbol | Decision | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | ReqStop | ReqStopDist% | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |');
+  lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |');
   for (const row of report.rows.slice(0, 120)) {
     lines.push([
       mdEscape(row.stage6File),
@@ -559,6 +661,8 @@ function buildMarkdown(report) {
       formatNumber(row.rrAtCurrentPrice),
       formatNumber(row.entryDistancePct),
       formatNumber(row.targetBufferFromCurrentPct),
+      formatNumber(row.currentEntryRequiredStopPrice),
+      formatNumber(row.currentEntryRequiredStopDistancePct),
       formatNumber(row.price),
       formatNumber(row.entry),
       formatNumber(row.target),
@@ -573,6 +677,7 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('- `EXECUTABLE_NOW`가 0개인 run 중 `DATA_POLICY_OVERBLOCK` 또는 `ENTRY_MODEL_TOO_DEEP`가 있으면 정상적인 보수 필터가 아니라 Stage6 정책/모델 설계 문제로 판정한다.');
   lines.push('- `BREAKOUT_RETEST_REQUIRED`는 종목을 즉시 매수하라는 뜻이 아니라, 기존 깊은 눌림목 단일 lane으로는 상승 추세 종목을 실행하지 못한다는 설계 신호다.');
+  lines.push('- `CURRENT_STOP_RECALC_REQUIRED`는 현재가 진입을 하려면 기존 손절이 아니라 더 가까운 구조적 손절을 재검증해야 한다는 뜻이다. 기본 설정에서는 주문으로 승격하지 않는다.');
   lines.push('- `CURRENT_RR_BAD` 또는 `TARGET_ALREADY_NEAR_CURRENT`는 추격매수 금지 신호다. 이 경우 sidecar chase가 아니라 Stage6 target/stop 재산정 또는 no-trade가 맞다.');
   lines.push('- 실적일이 진짜 임박한 `blocked_earnings_window`는 정상 차단이다. 단, null 실적일이 0으로 직렬화되면 잘못된 D-0 표시/판정이 되므로 optional number 직렬화는 반드시 null-safe여야 한다.');
   lines.push('- 진입거리 초과가 반복되면 sidecar chase 폭을 키우는 방식이 아니라 Stage6 진입가 산출/브레이크아웃 lane 재설계를 우선한다.');
