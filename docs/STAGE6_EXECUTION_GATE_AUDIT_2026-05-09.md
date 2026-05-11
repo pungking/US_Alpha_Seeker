@@ -1,15 +1,16 @@
 # Stage6 Execution Gate Audit
 
-- GeneratedAt: 2026-05-08T15:30:03.768Z
-- Source files: 12
-- Rows: 83
-- Zero executable runs: 2
+- GeneratedAt: 2026-05-11T13:09:21.144Z
+- Source files: 13
+- Rows: 89
+- Zero executable runs: 3
 - Overall verdict: **MODEL_OR_DATA_POLICY_ERROR**
 
 ## Run Verdicts
 
 | Stage6 File | Rows | Exec | Verdict | Top Reasons |
 | --- | ---: | ---: | --- | --- |
+| STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | 6 | 0 | MODEL_OR_DATA_POLICY_ERROR | wait_pullback_not_reached:4, blocked_stop_too_tight:1, blocked_rr_below_min:1 |
 | STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | 6 | 0 | MODEL_OR_DATA_POLICY_ERROR | wait_pullback_not_reached:2, blocked_earnings_window:2, blocked_stop_too_tight:1, wait_earnings_data_missing_quality_floor:1 |
 | STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | 7 | 2 | HAS_EXECUTABLE | wait_pullback_not_reached:4, blocked_stop_too_tight:1, executable_earnings_data_missing_haircut:1, executable_pullback:1 |
 | STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | 7 | 2 | HAS_EXECUTABLE | wait_pullback_not_reached:3, blocked_earnings_window:2, executable_earnings_data_missing_haircut:2 |
@@ -27,32 +28,38 @@
 
 | File | Symbol | Decision | Reason | ER% | RR | Dist% | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | CGEN | WAIT_PRICE | wait_pullback_not_reached | 137.00 | 129.70 | 26.40 | 2.86 | 2.10 | 6.20 | 2.07 | 10 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | CPRX | BLOCKED_EVENT | blocked_earnings_window | 32.00 | 5.18 | 19.05 | 31.16 | 25.23 | 34.14 | 23.51 | 3 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | DHT | BLOCKED_RISK | blocked_stop_too_tight | 22.00 | 34.69 | 13.19 | 19.02 | 16.51 | 20.20 | 16.40 | 0 | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
-| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | JHG | BLOCKED_EVENT | blocked_earnings_window | 5.00 | 3.91 | 3.74 | 51.68 | 49.75 | 52.67 | 49.00 | 0 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | PTC | WAIT_PRICE | wait_earnings_data_missing_quality_floor | 28.00 | 2.60 | 3.83 | 147.65 | 142.00 | 184.44 | 125.69 | 0 | DATA_POLICY_OVERBLOCK | earnings_missing_threshold_policy |
-| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | SPNT | WAIT_PRICE | wait_pullback_not_reached | 26.00 | 17.12 | 10.80 | 23.49 | 20.95 | 26.33 | 20.64 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | ASB | WAIT_PRICE | wait_pullback_not_reached | 21.00 | 14.28 | 11.88 | 28.88 | 25.45 | 30.90 | 25.07 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | DLO | BLOCKED_RISK | blocked_stop_too_tight | 45.00 | 40.25 | 13.45 | 14.03 | 12.14 | 17.65 | 12.01 | 7 | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | HNRG | WAIT_PRICE | wait_pullback_not_reached | 57.00 | 3.54 | 9.94 | 18.55 | 16.71 | 27.13 | 13.76 | 0 | CONSERVATIVE_PULLBACK_WAIT | sidecar_reprice_or_watch |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | INCY | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | 14.00 | 3.22 | 5.61 | 99.85 | 94.25 | 108.50 | 89.83 | 0 | EXECUTABLE | sidecar_fillability |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | MLI | WAIT_PRICE | wait_pullback_not_reached | 27.00 | 11.27 | 15.92 | 139.13 | 116.98 | 149.50 | 114.09 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | PDD | EXECUTABLE_NOW | executable_pullback | 44.00 | 8.05 | 3.08 | 102.31 | 99.16 | 142.87 | 93.73 | 20 | EXECUTABLE | sidecar_fillability |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | TGTX | WAIT_PRICE | wait_pullback_not_reached | 39.00 | 28.32 | 25.46 | 41.97 | 31.28 | 44.57 | 30.81 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | AUPH | BLOCKED_EVENT | blocked_earnings_window | 16.00 | 12.95 | 10.09 | 16.14 | 14.51 | 17.00 | 14.32 | 4 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | CSTM | WAIT_PRICE | wait_pullback_not_reached | 39.00 | 31.47 | 24.14 | 33.62 | 25.51 | 37.54 | 25.12 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | DAVE | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | 55.00 | 3.38 | 13.21 | 227.54 | 197.47 | 325.50 | 159.54 | 0 | EXECUTABLE | sidecar_fillability |
-| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | HNRG | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | 57.00 | 3.59 | 10.08 | 18.58 | 16.71 | 27.13 | 13.81 | 0 | EXECUTABLE | sidecar_fillability |
-| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | JHG | BLOCKED_EVENT | blocked_earnings_window | 5.00 | 3.91 | 3.66 | 51.64 | 49.75 | 52.67 | 49.00 | 1 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | MLI | WAIT_PRICE | wait_pullback_not_reached | 25.00 | 7.55 | 16.16 | 139.35 | 116.83 | 149.50 | 112.50 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | TGTX | WAIT_PRICE | wait_pullback_not_reached | 44.00 | 31.76 | 21.04 | 38.23 | 30.19 | 44.57 | 29.74 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | AUPH | BLOCKED_EVENT | blocked_earnings_window | 16.00 | 12.95 | 9.53 | 16.04 | 14.51 | 17.00 | 14.32 | 5 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | CPRX | BLOCKED_EVENT | blocked_earnings_window | 32.00 | 5.23 | 18.25 | 30.86 | 25.23 | 34.14 | 23.52 | 5 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | JHG | BLOCKED_EVENT | blocked_earnings_window | 5.00 | 3.91 | 3.59 | 51.60 | 49.75 | 52.67 | 49.00 | 2 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | MLI | WAIT_PRICE | wait_earnings_data_missing | 25.00 | 7.55 | 14.26 | 136.26 | 116.83 | 149.50 | 112.50 | 0 | EARNINGS_DATA_GAP | earnings_data_collection |
-| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | SN | BLOCKED_EVENT | blocked_earnings_window | 33.00 | 24.96 | 8.17 | 117.41 | 107.81 | 149.01 | 106.16 | 0 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | VIRT | WAIT_PRICE | wait_earnings_data_missing | 24.00 | 16.73 | 18.32 | 50.61 | 41.34 | 51.71 | 40.72 | 0 | EARNINGS_DATA_GAP | earnings_data_collection |
+| STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | CSTM | WAIT_PRICE | wait_pullback_not_reached | 42.00 | 32.25 | 24.65 | 33.88 | 25.53 | 37.88 | 25.15 | N/A | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | EXEL | BLOCKED_RISK | blocked_stop_too_tight | 14.00 | 11.59 | 11.90 | 48.16 | 42.43 | 48.82 | 41.88 | N/A | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
+| STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | MLI | WAIT_PRICE | wait_pullback_not_reached | 24.00 | 9.44 | 16.66 | 140.83 | 117.37 | 149.50 | 113.97 | N/A | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | TDC | BLOCKED_RISK | blocked_rr_below_min | 18.00 | 1.20 | 11.96 | 31.59 | 27.81 | 33.44 | 23.11 | N/A | NORMAL_RR_BLOCK | none |
+| STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | TGTX | WAIT_PRICE | wait_pullback_not_reached | 46.00 | 31.48 | 25.25 | 42.86 | 32.04 | 48.14 | 31.53 | N/A | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | VIRT | WAIT_PRICE | wait_pullback_not_reached | 25.00 | 16.73 | 19.43 | 51.31 | 41.34 | 51.71 | 40.72 | N/A | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | CGEN | WAIT_PRICE | wait_pullback_not_reached | 137.00 | 129.70 | 26.40 | N/A | 2.10 | 6.20 | 2.07 | 10 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | CPRX | BLOCKED_EVENT | blocked_earnings_window | 32.00 | 5.18 | 19.05 | N/A | 25.23 | 34.14 | 23.51 | 3 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
+| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | DHT | BLOCKED_RISK | blocked_stop_too_tight | 22.00 | 34.69 | 13.19 | N/A | 16.51 | 20.20 | 16.40 | 0 | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
+| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | JHG | BLOCKED_EVENT | blocked_earnings_window | 5.00 | 3.91 | 3.74 | N/A | 49.75 | 52.67 | 49.00 | 0 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
+| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | PTC | WAIT_PRICE | wait_earnings_data_missing_quality_floor | 28.00 | 2.60 | 3.83 | N/A | 142.00 | 184.44 | 125.69 | 0 | DATA_POLICY_OVERBLOCK | earnings_missing_threshold_policy |
+| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | SPNT | WAIT_PRICE | wait_pullback_not_reached | 26.00 | 17.12 | 10.80 | N/A | 20.95 | 26.33 | 20.64 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | ASB | WAIT_PRICE | wait_pullback_not_reached | 21.00 | 14.28 | 11.88 | N/A | 25.45 | 30.90 | 25.07 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | DLO | BLOCKED_RISK | blocked_stop_too_tight | 45.00 | 40.25 | 13.45 | N/A | 12.14 | 17.65 | 12.01 | 7 | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
+| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | HNRG | WAIT_PRICE | wait_pullback_not_reached | 57.00 | 3.54 | 9.94 | N/A | 16.71 | 27.13 | 13.76 | 0 | CONSERVATIVE_PULLBACK_WAIT | sidecar_reprice_or_watch |
+| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | INCY | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | 14.00 | 3.22 | 5.61 | N/A | 94.25 | 108.50 | 89.83 | 0 | EXECUTABLE | sidecar_fillability |
+| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | MLI | WAIT_PRICE | wait_pullback_not_reached | 27.00 | 11.27 | 15.92 | N/A | 116.98 | 149.50 | 114.09 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | PDD | EXECUTABLE_NOW | executable_pullback | 44.00 | 8.05 | 3.08 | N/A | 99.16 | 142.87 | 93.73 | 20 | EXECUTABLE | sidecar_fillability |
+| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | TGTX | WAIT_PRICE | wait_pullback_not_reached | 39.00 | 28.32 | 25.46 | N/A | 31.28 | 44.57 | 30.81 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | AUPH | BLOCKED_EVENT | blocked_earnings_window | 16.00 | 12.95 | 10.09 | N/A | 14.51 | 17.00 | 14.32 | 4 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
+| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | CSTM | WAIT_PRICE | wait_pullback_not_reached | 39.00 | 31.47 | 24.14 | N/A | 25.51 | 37.54 | 25.12 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | DAVE | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | 55.00 | 3.38 | 13.21 | N/A | 197.47 | 325.50 | 159.54 | 0 | EXECUTABLE | sidecar_fillability |
+| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | HNRG | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | 57.00 | 3.59 | 10.08 | N/A | 16.71 | 27.13 | 13.81 | 0 | EXECUTABLE | sidecar_fillability |
+| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | JHG | BLOCKED_EVENT | blocked_earnings_window | 5.00 | 3.91 | 3.66 | N/A | 49.75 | 52.67 | 49.00 | 1 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
+| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | MLI | WAIT_PRICE | wait_pullback_not_reached | 25.00 | 7.55 | 16.16 | N/A | 116.83 | 149.50 | 112.50 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-07_01-11-52.json | TGTX | WAIT_PRICE | wait_pullback_not_reached | 44.00 | 31.76 | 21.04 | N/A | 30.19 | 44.57 | 29.74 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | AUPH | BLOCKED_EVENT | blocked_earnings_window | 16.00 | 12.95 | 9.53 | N/A | 14.51 | 17.00 | 14.32 | 5 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
+| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | CPRX | BLOCKED_EVENT | blocked_earnings_window | 32.00 | 5.23 | 18.25 | N/A | 25.23 | 34.14 | 23.52 | 5 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
+| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | JHG | BLOCKED_EVENT | blocked_earnings_window | 5.00 | 3.91 | 3.59 | N/A | 49.75 | 52.67 | 49.00 | 2 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
+| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | MLI | WAIT_PRICE | wait_earnings_data_missing | 25.00 | 7.55 | 14.26 | N/A | 116.83 | 149.50 | 112.50 | 0 | EARNINGS_DATA_GAP | earnings_data_collection |
+| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | SN | BLOCKED_EVENT | blocked_earnings_window | 33.00 | 24.96 | 8.17 | N/A | 107.81 | 149.01 | 106.16 | 0 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
+| STAGE6_ALPHA_FINAL_2026-05-06_20-46-43.json | VIRT | WAIT_PRICE | wait_earnings_data_missing | 24.00 | 16.73 | 18.32 | N/A | 41.34 | 51.71 | 40.72 | 0 | EARNINGS_DATA_GAP | earnings_data_collection |
 | STAGE6_ALPHA_FINAL_2026-05-05_20-31-44.json | ADBE | EXECUTABLE_NOW | executable_pullback | 36.00 | 3.13 | 4.63 | N/A | 242.19 | 329.11 | 214.40 | 37 | EXECUTABLE | sidecar_fillability |
 | STAGE6_ALPHA_FINAL_2026-05-05_20-31-44.json | ALL | WAIT_PRICE | wait_earnings_data_missing | 18.00 | 20.19 | 7.10 | N/A | 204.26 | 241.71 | 202.40 | 0 | EARNINGS_DATA_GAP | earnings_data_collection |
 | STAGE6_ALPHA_FINAL_2026-05-05_20-31-44.json | AUPH | BLOCKED_RISK | blocked_stop_too_tight | 17.00 | 13.15 | 7.98 | N/A | 14.51 | 17.00 | 14.32 | 6 | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |

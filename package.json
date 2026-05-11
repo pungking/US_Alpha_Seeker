@@ -35,7 +35,8 @@
     "ops:knowledge:alert": "node scripts/knowledge-pipeline-alert.mjs",
     "webhook:setup": "node scripts/setup-telegram-webhook.mjs",
     "webhook:info": "node scripts/setup-telegram-webhook.mjs --info",
-    "webhook:delete": "node scripts/setup-telegram-webhook.mjs --delete"
+    "webhook:delete": "node scripts/setup-telegram-webhook.mjs --delete",
+    "ops:institutional:audit": "node scripts/build-institutional-applicability-audit.mjs"
   },
   "dependencies": {
     "@sentry/node": "^10.17.0",

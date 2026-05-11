@@ -44,6 +44,15 @@ treated as a hard blocker only when known to be inside the blackout window.
 Missing earnings data defaults to a stricter quality haircut instead of
 auto-moving every candidate to the watchlist.
 
+Institutional research enrichment is tracked separately from execution logic:
+- source prompt: `docs/prompts/INSTITUTIONAL_GLOBAL_EQUITY_RESEARCH_PROMPT.md`
+- integration plan: `docs/INSTITUTIONAL_RESEARCH_FRAMEWORK_INTEGRATION_2026-05-11.md`
+
+The institutional prompt is a research checklist, not an executable order
+instruction. Stage0-6 may convert it into versioned numeric/enum contract
+fields; the sidecar must consume only validated Stage6 fields for admission,
+reprice, target, stop, and monitoring.
+
 Recommended production envs:
 - `VITE_ENTRY_FEASIBILITY_MAX_DISTANCE_PCT=6`
 - `VITE_STAGE6_EARNINGS_MISSING_POLICY=haircut`

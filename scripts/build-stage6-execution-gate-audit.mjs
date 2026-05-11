@@ -209,6 +209,79 @@ function loadNotionRows(files) {
   return rowsByKey;
 }
 
+function inferFinalDecision(row) {
+  const explicit = normalizeText(row?.finalDecision || row?.decisionCode);
+  if (explicit) return explicit;
+  const bucket = String(row?.executionBucket || '').toUpperCase();
+  const reason = String(row?.decisionReason || row?.executionReason || '').toLowerCase();
+  if (bucket === 'EXECUTABLE' || reason.startsWith('executable_')) return 'EXECUTABLE_NOW';
+  if (reason.startsWith('wait_')) return 'WAIT_PRICE';
+  if (reason.startsWith('blocked_earnings') || reason.includes('event')) return 'BLOCKED_EVENT';
+  if (reason.startsWith('blocked_')) return 'BLOCKED_RISK';
+  return 'UNKNOWN';
+}
+
+function extractRowsFromNotionPipelinePayload(filePath, payload) {
+  const stage6File = normalizeText(payload?.stage6File) || `notion-pipeline-sync:${path.basename(filePath)}`;
+  const groups = [
+    ['notion_executable', payload?.executablePicks],
+    ['notion_watchlist', payload?.watchlist],
+    ['notion_final', payload?.finalPicks]
+  ];
+  const out = [];
+  const seenSymbols = new Set();
+  for (const [group, list] of groups) {
+    if (!Array.isArray(list)) continue;
+    for (const row of list) {
+      const symbol = normalizeSymbol(row?.symbol);
+      if (!symbol || seenSymbols.has(symbol)) continue;
+      seenSymbols.add(symbol);
+      const price = toPositiveNumber(row?.price, row?.currentPrice, row?.lastPrice);
+      const entry = toPositiveNumber(row?.entryExecPrice, row?.entryPrice, row?.entryAnchorPrice);
+      const target = toPositiveNumber(row?.targetPrice, row?.targetMeanPrice);
+      const stop = toPositiveNumber(row?.stopPrice, row?.stopLoss, row?.ictStopLoss);
+      const rr = toOptionalNumber(row?.riskRewardRatioValue) ?? (entry && target && stop && entry > stop ? (target - entry) / (entry - stop) : null);
+      const expectedReturnPct = toOptionalNumber(row?.expectedReturnPct);
+      const entryDistancePct =
+        toOptionalNumber(row?.entryDistancePct) ??
+        (price && entry ? Math.abs(price - entry) / price * 100 : null);
+      const targetUpsideFromPricePct = price && target ? ((target - price) / price) * 100 : null;
+      const stopRiskFromEntryPct = entry && stop ? ((entry - stop) / entry) * 100 : null;
+      out.push({
+        stage6File,
+        stage6ModifiedTime: payload?.runDateIso || payload?.generatedAt || null,
+        symbol,
+        groups: [group],
+        verdict: normalizeText(row?.aiVerdict || row?.verdictFinal || row?.finalVerdict || row?.verdict) || 'UNKNOWN',
+        finalDecision: inferFinalDecision(row),
+        decisionReason: normalizeText(row?.decisionReason || row?.executionReason) || 'unknown',
+        executionBucket: normalizeText(row?.executionBucket) || 'UNKNOWN',
+        executionReason: normalizeText(row?.executionReason) || 'UNKNOWN',
+        price,
+        entry,
+        target,
+        stop,
+        rr: rr == null ? null : Number(rr.toFixed(2)),
+        expectedReturnPct: expectedReturnPct == null ? null : Number(expectedReturnPct.toFixed(2)),
+        entryDistancePct: entryDistancePct == null ? null : Number(entryDistancePct.toFixed(2)),
+        targetUpsideFromPricePct: targetUpsideFromPricePct == null ? null : Number(targetUpsideFromPricePct.toFixed(2)),
+        stopRiskFromEntryPct: stopRiskFromEntryPct == null ? null : Number(stopRiskFromEntryPct.toFixed(2)),
+        earningsDaysToEvent: toOptionalNumber(row?.earningsDaysToEvent ?? row?.techMetrics?.daysToEarnings),
+        qualityScore: toOptionalNumber(row?.qualityScore),
+        executionScore: toOptionalNumber(row?.executionScore),
+        convictionScore: toOptionalNumber(row?.convictionScore),
+        stage6Tier: normalizeText(row?.stage6Tier) || null,
+        trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
+        verdictConflict: Boolean(row?.verdictConflict),
+        stateVerdictConflict: Boolean(row?.stateVerdictConflict),
+        hasNotionPrice: Boolean(row?.price),
+        sourcePath: path.relative(REPO_ROOT, filePath)
+      });
+    }
+  }
+  return out;
+}
+
 function extractRowsFromStage6(filePath, payload, notionRows) {
   const fileName = path.basename(filePath);
   const contract = payload?.execution_contract || {};
@@ -456,6 +529,16 @@ async function main() {
     const payload = readJson(file);
     if (!payload) continue;
     rows.push(...extractRowsFromStage6(file, payload, notionRows));
+  }
+  const notionPayloadFiles = files
+    .filter((file) => path.basename(file) === 'notion-pipeline-sync-payload.json')
+    .sort((a, b) => b.localeCompare(a));
+  for (const file of notionPayloadFiles) {
+    const payload = readJson(file);
+    const stage6File = normalizeText(payload?.stage6File);
+    if (!payload || !stage6File || seen.has(stage6File)) continue;
+    seen.add(stage6File);
+    rows.push(...extractRowsFromNotionPipelinePayload(file, payload));
   }
   const classifiedRows = rows.map((row) => {
     const cls = classifyRow(row);
