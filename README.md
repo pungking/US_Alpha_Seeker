@@ -59,6 +59,10 @@ Recommended production envs:
 - `VITE_STAGE6_EARNINGS_MISSING_MIN_RR=2.5`
 - `VITE_STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT=8`
 - `VITE_STAGE6_EARNINGS_BLACKOUT_DAYS=5`
+- `VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED=false`
+- `VITE_STAGE6_CURRENT_ENTRY_MIN_RR=1.8`
+- `VITE_STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT=2`
+- `VITE_STAGE6_BREAKOUT_RETEST_DISTANCE_PCT=10`
 
 Audit command:
 - `npm run ops:stage6:exec:audit`
@@ -72,6 +76,12 @@ Policy options:
 - `wait_price`: safe legacy mode; missing earnings data blocks execution.
 - `blocked_event`: hard-block missing earnings data as event risk.
 - `allow`: ignore missing earnings data in the execution decision.
+
+Adaptive current entry is intentionally default-off. When disabled, Stage6 only
+adds diagnostics (`entryTactic`, `rrAtCurrentPrice`, `targetBufferFromCurrentPct`,
+`tradePlanDecision`) and does not convert deep pullback candidates into orders.
+If enabled later, it must pass current-price RR and target-buffer floors before a
+candidate can move from pullback wait to executable current-entry.
 
 ## Optional: Performance Dashboard API (Simulation/Live)
 

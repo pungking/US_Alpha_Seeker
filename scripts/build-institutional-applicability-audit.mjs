@@ -16,6 +16,8 @@ function readJson(filePath) {
 }
 
 function numberOrNull(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'boolean') return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -31,10 +33,15 @@ function esc(value) {
 
 function classifyTradeReadiness(row) {
   const rr = numberOrNull(row.rr);
+  const rrAtCurrent = numberOrNull(row.rrAtCurrentPrice);
   const er = numberOrNull(row.expectedReturnPct);
   const dist = numberOrNull(row.entryDistancePct);
   const reason = String(row.decisionReason || '').toLowerCase();
   if (row.finalDecision === 'EXECUTABLE_NOW') return 'SIDE_CAR_FILLABILITY_TEST';
+  if (reason === 'wait_pullback_too_deep_valid_thesis') return 'GOOD_STOCK_BAD_ENTRY';
+  if (reason === 'wait_breakout_retest_required') return 'BREAKOUT_RETEST_REQUIRED';
+  if (reason === 'wait_current_rr_below_min' || (rrAtCurrent != null && rrAtCurrent < 1.8)) return 'CURRENT_RR_BAD';
+  if (reason === 'wait_target_near_current') return 'TARGET_ALREADY_NEAR_CURRENT';
   if (reason === 'blocked_rr_below_min' || (rr != null && rr < 1.8)) return 'BAD_RR_GEOMETRY';
   if (reason === 'blocked_stop_too_tight') return 'STOP_GEOMETRY_REVIEW';
   if (dist != null && dist > 10 && er != null && er >= 15 && rr != null && rr >= 1.8) return 'GOOD_STOCK_BAD_ENTRY';
@@ -52,16 +59,21 @@ function institutionalGaps(row) {
   if (row.price == null) gaps.push('current_price_missing');
   if (row.rr == null) gaps.push('rr_missing');
   if (row.entryDistancePct == null) gaps.push('entry_distance_missing');
+  if (row.rrAtCurrentPrice == null) gaps.push('current_price_rr_missing');
+  if (row.targetBufferFromCurrentPct == null) gaps.push('current_target_buffer_missing');
   // These fields do not exist yet in the Stage6 contract; keep them explicit so schema work is not hand-waved.
   gaps.push('source_quality_contract_missing');
   gaps.push('peer_valuation_contract_missing');
   gaps.push('macro_policy_risk_contract_missing');
-  gaps.push('trade_plan_contract_missing');
+  if (!row.entryTactic || !row.tradePlanDecision || !row.tradePlanReason) gaps.push('trade_plan_contract_missing');
   return gaps;
 }
 
 function recommendedFix(row, readiness, gaps) {
   if (readiness === 'GOOD_STOCK_BAD_ENTRY') return 'Add Stage6 breakout/retest or nearer-entry lane; do not widen sidecar chase first.';
+  if (readiness === 'BREAKOUT_RETEST_REQUIRED') return 'Route to confirmed breakout/retest monitoring lane; keep execution blocked until confirmation.';
+  if (readiness === 'CURRENT_RR_BAD') return 'Do not chase current price; recompute target/stop thesis or keep watchlist.';
+  if (readiness === 'TARGET_ALREADY_NEAR_CURRENT') return 'Target is too close to current price; refresh upside thesis or reject.';
   if (readiness === 'BAD_RR_GEOMETRY') return 'Keep blocked unless target/stop thesis is recalculated by Stage6.';
   if (readiness === 'STOP_GEOMETRY_REVIEW') return 'Review stop floor/tick/ATR buffer; current stop invalidates otherwise high RR names.';
   if (gaps.includes('earnings_date_missing')) return 'Fix earnings-date source and null-safe serialization before event gating.';
@@ -80,11 +92,17 @@ function buildReport(stage6Audit) {
       blockerClass: row.blockerClass,
       expectedReturnPct: row.expectedReturnPct,
       rr: row.rr,
+      rrAtCurrentPrice: row.rrAtCurrentPrice,
       entryDistancePct: row.entryDistancePct,
+      targetBufferFromCurrentPct: row.targetBufferFromCurrentPct,
       price: row.price,
       entry: row.entry,
       target: row.target,
       stop: row.stop,
+      chosenPlanType: row.chosenPlanType,
+      entryTactic: row.entryTactic,
+      tradePlanDecision: row.tradePlanDecision,
+      tradePlanReason: row.tradePlanReason,
       earningsDaysToEvent: row.earningsDaysToEvent,
       readiness,
       institutionalGaps: gaps,
@@ -119,6 +137,8 @@ function buildReport(stage6Audit) {
 
 function buildMarkdown(report) {
   const lines = [];
+  const latestDominantReadiness = Object.entries(report.summary.latestReadiness)
+    .sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
   lines.push('# Institutional Applicability Audit');
   lines.push('');
   lines.push(`- GeneratedAt: ${report.generatedAt}`);
@@ -140,16 +160,19 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Latest Candidate Table');
   lines.push('');
-  lines.push('| Symbol | Reason | ER% | RR | Dist% | Price | Entry | Target | Stop | Readiness | Fix |');
-  lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |');
+  lines.push('| Symbol | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | Price | Entry | Target | Stop | Readiness | Fix |');
+  lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |');
   for (const row of report.rows.filter((item) => item.stage6File === report.latestStage6File)) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.decisionReason)} | ${fmt(row.expectedReturnPct)} | ${fmt(row.rr)} | ${fmt(row.entryDistancePct)} | ${fmt(row.price)} | ${fmt(row.entry)} | ${fmt(row.target)} | ${fmt(row.stop)} | ${esc(row.readiness)} | ${esc(row.recommendedFix)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.decisionReason)} | ${esc(row.entryTactic || row.chosenPlanType || 'N/A')} | ${fmt(row.expectedReturnPct)} | ${fmt(row.rr)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${fmt(row.targetBufferFromCurrentPct)} | ${fmt(row.price)} | ${fmt(row.entry)} | ${fmt(row.target)} | ${fmt(row.stop)} | ${esc(row.readiness)} | ${esc(row.recommendedFix)} |`);
   }
   lines.push('');
   lines.push('## Policy Conclusion');
   lines.push('');
   lines.push('- Today is not an Alpaca/order-submit failure. Stage6 emitted zero executable candidates before sidecar could build payloads.');
-  lines.push('- The dominant current problem is `GOOD_STOCK_BAD_ENTRY`: high ER/RR names with entry targets 16-25% below current price.');
+  lines.push(`- Latest dominant readiness: \`${latestDominantReadiness}\`.`);
+  lines.push('- `BREAKOUT_RETEST_REQUIRED`, `CURRENT_RR_BAD`, and `TARGET_ALREADY_NEAR_CURRENT` are distinct from broker/order failures and must not be fixed with a wider sidecar chase.');
+  lines.push('- If `CURRENT_RR_BAD` dominates, the correct fix is Stage6 trade-box recalibration or no-trade, not sidecar price chasing.');
+  lines.push('- If `GOOD_STOCK_BAD_ENTRY` dominates, add a Stage6 breakout/retest or nearer-entry lane with RR preserved.');
   lines.push('- The institutional prompt should be applied first to Stage6 contract fields: evidence quality, peer valuation, macro/policy risk, thesis invalidation, and trade plan.');
   lines.push('- Do not fix this by widening sidecar chase. That would convert a model-entry problem into uncontrolled execution risk.');
   lines.push('');
