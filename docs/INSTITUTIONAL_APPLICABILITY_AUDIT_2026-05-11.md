@@ -1,6 +1,6 @@
 # Institutional Applicability Audit
 
-- GeneratedAt: 2026-05-11T14:21:08.644Z
+- GeneratedAt: 2026-05-11T17:38:52.090Z
 - Source: state/stage6-execution-gate-audit.json
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json
 - Rows: 89

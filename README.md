@@ -61,6 +61,12 @@ Recommended production envs:
 - `VITE_STAGE6_EARNINGS_BLACKOUT_DAYS=5`
 - `VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED=false`
 - `VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED=false`
+
+Current-entry stop recalculation is diagnostic by default. Run
+`npm run ops:stage6:structure:audit` after `npm run ops:stage6:exec:audit` to
+verify whether any recalculated stop has OHLCV/ATR structure support before it
+is considered for execution review. Missing OHLCV data must remain a no-order
+state; do not solve it by widening sidecar chase.
 - `VITE_STAGE6_CURRENT_ENTRY_MIN_RR=1.8`
 - `VITE_STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT=2`
 - `VITE_STAGE6_BREAKOUT_RETEST_DISTANCE_PCT=10`
