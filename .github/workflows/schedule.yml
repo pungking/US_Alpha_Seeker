@@ -416,7 +416,7 @@ jobs:
                 `- ai_alpha_analysis: \`${pick(r.aiAnalysis)}\``,
                 `- portfolio_watchlist: \`${pick(r.watchlist)}\``
               ];
-              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\\n")}\\n`);
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
             '
           else
             echo "## Notion Pipeline Sync" >> "$GITHUB_STEP_SUMMARY"
