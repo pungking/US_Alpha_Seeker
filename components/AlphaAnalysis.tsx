@@ -54,6 +54,7 @@ interface AlphaCandidate {
     | 'wait_pullback_too_deep_valid_thesis'
     | 'wait_breakout_retest_required'
     | 'wait_recalculated_stop_required'
+    | 'wait_structure_confirmation_required'
     | 'wait_target_near_current'
     | 'wait_current_rr_below_min'
     | 'wait_earnings_data_missing'
@@ -91,6 +92,9 @@ interface AlphaCandidate {
   currentEntryRequiredStopPrice?: number | null;
   currentEntryRequiredStopDistancePct?: number | null;
   currentEntryRecalcFeasible?: boolean | null;
+  currentEntryStructureVerdict?: string | null;
+  currentEntryStructureConfirmed?: boolean | null;
+  currentEntryStructureReasons?: string[] | null;
   tradePlanDecision?: string | null;
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
@@ -664,6 +668,10 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         title: "⏳ Reason: wait_recalculated_stop_required",
         desc: "현재가 기준 진입은 원래 손절가로는 RR이 부족하지만, 더 가까운 구조적 손절 재산정이 가능해 보이는 검토 대상입니다."
     },
+    'REASON_WAIT_STRUCTURE_CONFIRMATION_REQUIRED': {
+        title: "⏳ Reason: wait_structure_confirmation_required",
+        desc: "현재가/재계산 손절 후보가 있어도 OHLCV/ATR/지지선 구조 검증이 아직 통과되지 않아 실행 후보로 승격하지 않습니다."
+    },
     'REASON_WAIT_TARGET_NEAR_CURRENT': {
         title: "⏳ Reason: wait_target_near_current",
         desc: "현재가가 이미 목표가에 가까워 신규 진입 보상 여력이 부족합니다. 보유자 관리와 신규 진입 판단을 분리해야 합니다."
@@ -958,6 +966,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_pullback_too_deep_valid_thesis') return 'REASON_WAIT_PULLBACK_TOO_DEEP_VALID_THESIS';
       if (key === 'wait_breakout_retest_required') return 'REASON_WAIT_BREAKOUT_RETEST_REQUIRED';
       if (key === 'wait_recalculated_stop_required') return 'REASON_WAIT_RECALCULATED_STOP_REQUIRED';
+      if (key === 'wait_structure_confirmation_required') return 'REASON_WAIT_STRUCTURE_CONFIRMATION_REQUIRED';
       if (key === 'wait_target_near_current') return 'REASON_WAIT_TARGET_NEAR_CURRENT';
       if (key === 'wait_current_rr_below_min') return 'REASON_WAIT_CURRENT_RR_BELOW_MIN';
       if (key === 'wait_earnings_data_missing') return 'REASON_WAIT_EARNINGS_DATA_MISSING';
@@ -990,6 +999,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_pullback_too_deep_valid_thesis') return 'Pullback Too Deep / Valid Thesis';
       if (key === 'wait_breakout_retest_required') return 'Breakout Retest Required';
       if (key === 'wait_recalculated_stop_required') return 'Recalculated Stop Required';
+      if (key === 'wait_structure_confirmation_required') return 'Structure Confirmation Required';
       if (key === 'wait_target_near_current') return 'Target Near Current';
       if (key === 'wait_current_rr_below_min') return 'Current RR Below Min';
       if (key === 'wait_earnings_data_missing') return 'Awaiting Earnings Data';
@@ -3820,6 +3830,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           (import.meta as any)?.env?.VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED ?? 'false'
       );
       const STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED = parseBooleanFlag(stage6CurrentStopRecalcEnabledRaw);
+      const stage6CurrentStructureGateRaw = String(
+          (import.meta as any)?.env?.VITE_STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED ?? 'true'
+      );
+      const STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED = parseBooleanFlag(stage6CurrentStructureGateRaw);
       const stage6CurrentMinRrRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_CURRENT_ENTRY_MIN_RR ?? STAGE6_MIN_RR_HARD_GATE
       );
@@ -4468,6 +4482,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRequiredStopDistancePct >= STAGE6_MIN_STOP_DISTANCE_PCT &&
               currentEntryRequiredStopDistancePct <= STAGE6_MAX_STOP_DISTANCE_PCT
           );
+          const currentEntryStructureVerdict = normalizeOptionalText(
+              item?.currentEntryStructureVerdict || item?.structureVerdict || item?.currentEntryStructure?.verdict
+          );
+          const currentEntryStructureConfirmed = Boolean(
+              currentEntryStructureVerdict === 'STRUCTURE_CONFIRMED_RECALC_CANDIDATE' ||
+              item?.currentEntryStructureConfirmed === true ||
+              item?.currentEntryStructure?.confirmed === true
+          );
+          const currentEntryStructureReasons = Array.isArray(item?.currentEntryStructureReasons)
+              ? item.currentEntryStructureReasons.map((reason: any) => String(reason)).filter(Boolean)
+              : Array.isArray(item?.currentEntryStructure?.reasons)
+                  ? item.currentEntryStructure.reasons.map((reason: any) => String(reason)).filter(Boolean)
+                  : null;
+          const currentEntryStructureGatePassed = !STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED || currentEntryStructureConfirmed;
           const expectedReturnPct = parseExpectedReturnPct(
               item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
           );
@@ -4622,7 +4650,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRecalcFeasible
           ) {
               finalDecision = 'WAIT_PRICE';
-              decisionReason = 'wait_recalculated_stop_required';
+              decisionReason = currentEntryStructureGatePassed ? 'wait_recalculated_stop_required' : 'wait_structure_confirmation_required';
           } else if (
               riskRewardRatioValue != null &&
               Number.isFinite(riskRewardRatioValue) &&
@@ -4660,6 +4688,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED &&
               STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED &&
               currentEntryRecalcFeasible &&
+              currentEntryStructureGatePassed &&
               currentEntryRequiredStopPrice != null &&
               currentEntryRequiredStopDistancePct != null
           ) {
@@ -4693,7 +4722,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   !Number.isFinite(rrAtCurrentPrice) ||
                   rrAtCurrentPrice < STAGE6_CURRENT_ENTRY_MIN_RR
               ) {
-                  decisionReason = currentEntryRecalcFeasible ? 'wait_recalculated_stop_required' : 'wait_current_rr_below_min';
+                  decisionReason = currentEntryRecalcFeasible
+                      ? (currentEntryStructureGatePassed ? 'wait_recalculated_stop_required' : 'wait_structure_confirmation_required')
+                      : 'wait_current_rr_below_min';
               } else if (
                   entryDistancePctShadow != null &&
                   Number.isFinite(entryDistancePctShadow) &&
@@ -4734,7 +4765,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   ? 'ADAPTIVE_RECALC_STOP'
                   : useAdaptiveCurrentEntry
                   ? 'ADAPTIVE_CURRENT'
-                  : decisionReason === 'wait_recalculated_stop_required'
+                  : (decisionReason === 'wait_recalculated_stop_required' || decisionReason === 'wait_structure_confirmation_required')
                       ? 'ADAPTIVE_RECALC_STOP'
                   : decisionReason === 'wait_breakout_retest_required'
                       ? 'BREAKOUT'
@@ -4746,7 +4777,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   ? 'CONFIRMED_RECALCULATED_STOP_ENTRY'
                   : useAdaptiveCurrentEntry
                   ? 'CONFIRMED_ADAPTIVE_ENTRY'
-                  : decisionReason === 'wait_recalculated_stop_required'
+                  : (decisionReason === 'wait_recalculated_stop_required' || decisionReason === 'wait_structure_confirmation_required')
                       ? 'RECALCULATED_STOP_REVIEW'
                   : decisionReason === 'wait_breakout_retest_required'
                       ? 'BREAKOUT_RETEST'
@@ -4799,10 +4830,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible,
+              currentEntryStructureVerdict,
+              currentEntryStructureConfirmed,
+              currentEntryStructureReasons,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,
               tradePlanReason:
                   useRecalculatedCurrentEntry
-                      ? 'current_price_requires_recalculated_stop_and_explicit_enable'
+                      ? 'current_price_requires_recalculated_stop_structure_confirmed_and_explicit_enable'
                       : useAdaptiveCurrentEntry
                       ? 'current_price_rr_and_target_buffer_passed'
                       : decisionReason,
@@ -4880,6 +4914,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRequiredStopPrice: executionContract.currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct: executionContract.currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible: executionContract.currentEntryRecalcFeasible,
+              currentEntryStructureVerdict: executionContract.currentEntryStructureVerdict,
+              currentEntryStructureConfirmed: executionContract.currentEntryStructureConfirmed,
+              currentEntryStructureReasons: executionContract.currentEntryStructureReasons,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -5239,6 +5276,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRequiredStopPrice: executionContract.currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct: executionContract.currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible: executionContract.currentEntryRecalcFeasible,
+              currentEntryStructureVerdict: executionContract.currentEntryStructureVerdict,
+              currentEntryStructureConfirmed: executionContract.currentEntryStructureConfirmed,
+              currentEntryStructureReasons: executionContract.currentEntryStructureReasons,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -5463,6 +5503,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRequiredStopPrice: toOptionalFiniteNumber(item.currentEntryRequiredStopPrice),
               currentEntryRequiredStopDistancePct: toOptionalFiniteNumber(item.currentEntryRequiredStopDistancePct),
               currentEntryRecalcFeasible: Boolean(item.currentEntryRecalcFeasible),
+              currentEntryStructureVerdict: normalizeOptionalText(item.currentEntryStructureVerdict),
+              currentEntryStructureConfirmed: Boolean(item.currentEntryStructureConfirmed),
+              currentEntryStructureReasons: Array.isArray(item.currentEntryStructureReasons) ? item.currentEntryStructureReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               tradePlanDecision: normalizeOptionalText(item.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item.tradePlanReason),
               executionVerdict: normalizeOptionalText(item.executionVerdict),
@@ -5509,6 +5552,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRequiredStopPrice: toOptionalFiniteNumber(item?.currentEntryRequiredStopPrice),
               currentEntryRequiredStopDistancePct: toOptionalFiniteNumber(item?.currentEntryRequiredStopDistancePct),
               currentEntryRecalcFeasible: Boolean(item?.currentEntryRecalcFeasible),
+              currentEntryStructureVerdict: normalizeOptionalText(item?.currentEntryStructureVerdict),
+              currentEntryStructureConfirmed: Boolean(item?.currentEntryStructureConfirmed),
+              currentEntryStructureReasons: Array.isArray(item?.currentEntryStructureReasons) ? item.currentEntryStructureReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               tradePlanDecision: normalizeOptionalText(item?.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item?.tradePlanReason),
               executionBucket:
@@ -5685,6 +5731,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       maxAnchorExecGapPct: STAGE6_MAX_ANCHOR_EXEC_GAP_PCT,
                       adaptiveCurrentEntryEnabled: STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED,
                       currentEntryStopRecalcEnabled: STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED,
+                      currentEntryStructureGateRequired: STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED,
                       currentEntryMinRr: STAGE6_CURRENT_ENTRY_MIN_RR,
                       currentEntryMinTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
                       breakoutRetestDistancePct: STAGE6_BREAKOUT_RETEST_DISTANCE_PCT,

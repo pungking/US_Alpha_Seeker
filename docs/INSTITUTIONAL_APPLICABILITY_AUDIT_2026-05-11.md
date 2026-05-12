@@ -1,6 +1,6 @@
 # Institutional Applicability Audit
 
-- GeneratedAt: 2026-05-11T17:38:52.090Z
+- GeneratedAt: 2026-05-12T00:16:16.740Z
 - Source: state/stage6-execution-gate-audit.json
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json
 - Rows: 89
@@ -42,7 +42,7 @@
 
 - Today is not an Alpaca/order-submit failure. Stage6 emitted zero executable candidates before sidecar could build payloads.
 - Latest dominant readiness: `CURRENT_STOP_RECALC_REQUIRED`.
-- `BREAKOUT_RETEST_REQUIRED`, `CURRENT_STOP_RECALC_REQUIRED`, `CURRENT_RR_BAD`, and `TARGET_ALREADY_NEAR_CURRENT` are distinct from broker/order failures and must not be fixed with a wider sidecar chase.
+- `BREAKOUT_RETEST_REQUIRED`, `STRUCTURE_CONFIRMATION_REQUIRED`, `CURRENT_STOP_RECALC_REQUIRED`, `CURRENT_RR_BAD`, and `TARGET_ALREADY_NEAR_CURRENT` are distinct from broker/order failures and must not be fixed with a wider sidecar chase.
 - If `CURRENT_STOP_RECALC_REQUIRED` dominates, current-entry may become viable only after ATR/structure validates the required stop; default action remains no-order.
 - If `CURRENT_RR_BAD` dominates, the correct fix is Stage6 trade-box recalibration or no-trade, not sidecar price chasing.
 - If `GOOD_STOCK_BAD_ENTRY` dominates, add a Stage6 breakout/retest or nearer-entry lane with RR preserved.

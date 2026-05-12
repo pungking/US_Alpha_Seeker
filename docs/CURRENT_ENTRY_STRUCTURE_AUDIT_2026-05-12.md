@@ -1,6 +1,6 @@
 # Current Entry Structure Audit
 
-- GeneratedAt: 2026-05-11T17:39:00.850Z
+- GeneratedAt: 2026-05-12T00:16:26.205Z
 - Source: state/stage6-execution-gate-audit.json
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json
 - Rows: 6

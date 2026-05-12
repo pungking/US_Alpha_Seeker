@@ -154,6 +154,24 @@ function normalizeSymbol(value) {
   return text ? text.replace(/[^A-Za-z0-9.\-]/g, '').toUpperCase() : null;
 }
 
+
+function normalizeReasonArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
+function extractCurrentEntryStructure(row, fallback = {}) {
+  const verdict = normalizeText(row?.currentEntryStructureVerdict ?? row?.structureVerdict ?? row?.currentEntryStructure?.verdict ?? fallback?.currentEntryStructureVerdict);
+  const reasons = normalizeReasonArray(row?.currentEntryStructureReasons ?? row?.currentEntryStructure?.reasons ?? fallback?.currentEntryStructureReasons);
+  const confirmed = Boolean(
+    row?.currentEntryStructureConfirmed === true ||
+    row?.currentEntryStructure?.confirmed === true ||
+    fallback?.currentEntryStructureConfirmed === true ||
+    verdict === 'STRUCTURE_CONFIRMED_RECALC_CANDIDATE'
+  );
+  return { verdict, confirmed, reasons };
+}
+
 function hashText(text) {
   return crypto.createHash('sha256').update(text).digest('hex');
 }
@@ -317,6 +335,7 @@ function extractRowsFromNotionPipelinePayload(filePath, payload) {
         stop,
         targetBufferFromCurrentPct
       });
+      const currentEntryStructure = extractCurrentEntryStructure(row);
       out.push({
         stage6File,
         stage6ModifiedTime: payload?.runDateIso || payload?.generatedAt || null,
@@ -349,6 +368,9 @@ function extractRowsFromNotionPipelinePayload(filePath, payload) {
         currentEntryRequiredStopPrice: currentEntryRecalc.currentEntryRequiredStopPrice,
         currentEntryRequiredStopDistancePct: currentEntryRecalc.currentEntryRequiredStopDistancePct,
         currentEntryRecalcFeasible: currentEntryRecalc.currentEntryRecalcFeasible,
+        currentEntryStructureVerdict: currentEntryStructure.verdict,
+        currentEntryStructureConfirmed: currentEntryStructure.confirmed,
+        currentEntryStructureReasons: currentEntryStructure.reasons,
         tradePlanDecision: normalizeText(row?.tradePlanDecision) || null,
         tradePlanReason: normalizeText(row?.tradePlanReason) || null,
         trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
@@ -425,6 +447,7 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
       stop,
       targetBufferFromCurrentPct
     });
+    const currentEntryStructure = extractCurrentEntryStructure(row, notion);
     const finalDecision = normalizeText(row?.finalDecision || notion?.finalDecision) || 'UNKNOWN';
     const decisionReason = normalizeText(row?.decisionReason || notion?.decisionReason || row?.executionReason) || 'unknown';
     const executionBucket = normalizeText(row?.executionBucket || notion?.executionBucket) || 'UNKNOWN';
@@ -466,6 +489,9 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
       currentEntryRequiredStopPrice: currentEntryRecalc.currentEntryRequiredStopPrice,
       currentEntryRequiredStopDistancePct: currentEntryRecalc.currentEntryRequiredStopDistancePct,
       currentEntryRecalcFeasible: currentEntryRecalc.currentEntryRecalcFeasible,
+      currentEntryStructureVerdict: currentEntryStructure.verdict,
+      currentEntryStructureConfirmed: currentEntryStructure.confirmed,
+      currentEntryStructureReasons: currentEntryStructure.reasons,
       tradePlanDecision: normalizeText(row?.tradePlanDecision || notion?.tradePlanDecision) || null,
       tradePlanReason: normalizeText(row?.tradePlanReason || notion?.tradePlanReason) || null,
       trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
@@ -572,6 +598,13 @@ function classifyRow(row) {
       };
     }
     return { class: 'NORMAL_RR_BLOCK', severity: 'ok', fixLane: 'none' };
+  }
+  if (reason === 'wait_structure_confirmation_required') {
+    return {
+      class: 'STRUCTURE_CONFIRMATION_REQUIRED',
+      severity: 'high',
+      fixLane: 'current_entry_structure_validation'
+    };
   }
   if (reason === 'wait_recalculated_stop_required') {
     return {

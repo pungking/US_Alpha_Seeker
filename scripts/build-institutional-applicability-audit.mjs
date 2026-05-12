@@ -38,6 +38,7 @@ function classifyTradeReadiness(row) {
   const dist = numberOrNull(row.entryDistancePct);
   const reason = String(row.decisionReason || '').toLowerCase();
   if (row.finalDecision === 'EXECUTABLE_NOW') return 'SIDE_CAR_FILLABILITY_TEST';
+  if (reason === 'wait_structure_confirmation_required') return 'STRUCTURE_CONFIRMATION_REQUIRED';
   if (reason === 'blocked_earnings_window') return 'EVENT_BLACKOUT';
   if (reason === 'blocked_stop_too_tight') return 'STOP_GEOMETRY_REVIEW';
   if (reason === 'wait_pullback_too_deep_valid_thesis') return 'GOOD_STOCK_BAD_ENTRY';
@@ -79,6 +80,7 @@ function institutionalGaps(row) {
 function recommendedFix(row, readiness, gaps) {
   if (readiness === 'GOOD_STOCK_BAD_ENTRY') return 'Add Stage6 breakout/retest or nearer-entry lane; do not widen sidecar chase first.';
   if (readiness === 'BREAKOUT_RETEST_REQUIRED') return 'Route to confirmed breakout/retest monitoring lane; keep execution blocked until confirmation.';
+  if (readiness === 'STRUCTURE_CONFIRMATION_REQUIRED') return 'Run current-entry OHLCV/ATR structure audit before any order; default remains no-order.';
   if (readiness === 'CURRENT_STOP_RECALC_REQUIRED') return 'Recompute current-entry stop from structure/ATR before any order; default remains no-order until confirmed.';
   if (readiness === 'CURRENT_RR_BAD') return 'Do not chase current price; recompute target/stop thesis or keep watchlist.';
   if (readiness === 'TARGET_ALREADY_NEAR_CURRENT') return 'Target is too close to current price; refresh upside thesis or reject.';
@@ -107,6 +109,9 @@ function buildReport(stage6Audit) {
       currentEntryRequiredStopPrice: row.currentEntryRequiredStopPrice,
       currentEntryRequiredStopDistancePct: row.currentEntryRequiredStopDistancePct,
       currentEntryRecalcFeasible: row.currentEntryRecalcFeasible,
+      currentEntryStructureVerdict: row.currentEntryStructureVerdict,
+      currentEntryStructureConfirmed: row.currentEntryStructureConfirmed,
+      currentEntryStructureReasons: row.currentEntryStructureReasons,
       price: row.price,
       entry: row.entry,
       target: row.target,
@@ -182,7 +187,7 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('- Today is not an Alpaca/order-submit failure. Stage6 emitted zero executable candidates before sidecar could build payloads.');
   lines.push(`- Latest dominant readiness: \`${latestDominantReadiness}\`.`);
-  lines.push('- `BREAKOUT_RETEST_REQUIRED`, `CURRENT_STOP_RECALC_REQUIRED`, `CURRENT_RR_BAD`, and `TARGET_ALREADY_NEAR_CURRENT` are distinct from broker/order failures and must not be fixed with a wider sidecar chase.');
+  lines.push('- `BREAKOUT_RETEST_REQUIRED`, `STRUCTURE_CONFIRMATION_REQUIRED`, `CURRENT_STOP_RECALC_REQUIRED`, `CURRENT_RR_BAD`, and `TARGET_ALREADY_NEAR_CURRENT` are distinct from broker/order failures and must not be fixed with a wider sidecar chase.');
   lines.push('- If `CURRENT_STOP_RECALC_REQUIRED` dominates, current-entry may become viable only after ATR/structure validates the required stop; default action remains no-order.');
   lines.push('- If `CURRENT_RR_BAD` dominates, the correct fix is Stage6 trade-box recalibration or no-trade, not sidecar price chasing.');
   lines.push('- If `GOOD_STOCK_BAD_ENTRY` dominates, add a Stage6 breakout/retest or nearer-entry lane with RR preserved.');
