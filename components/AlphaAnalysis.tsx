@@ -4859,6 +4859,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision = 'BLOCKED_RISK';
               decisionReason = 'blocked_anchor_exec_gap';
           } else if (
+              executionReason === 'WAIT_PULLBACK_TOO_DEEP' &&
+              STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED &&
+              STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED &&
+              currentEntryRecalcFeasible &&
+              currentEntryStructureGatePassed &&
+              currentEntryRequiredStopPrice != null &&
+              currentEntryRequiredStopDistancePct != null
+          ) {
+              finalDecision = 'EXECUTABLE_NOW';
+              decisionReason = 'executable_current_recalculated_stop';
+          } else if (
               riskRewardRatioValue != null &&
               Number.isFinite(riskRewardRatioValue) &&
               riskRewardRatioValue < STAGE6_MIN_RR_HARD_GATE &&
@@ -4898,17 +4909,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           ) {
               finalDecision = 'WAIT_PRICE';
               decisionReason = 'wait_earnings_data_missing_quality_floor';
-          } else if (
-              executionReason === 'WAIT_PULLBACK_TOO_DEEP' &&
-              STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED &&
-              STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED &&
-              currentEntryRecalcFeasible &&
-              currentEntryStructureGatePassed &&
-              currentEntryRequiredStopPrice != null &&
-              currentEntryRequiredStopDistancePct != null
-          ) {
-              finalDecision = 'EXECUTABLE_NOW';
-              decisionReason = 'executable_current_recalculated_stop';
           } else if (
               executionReason === 'WAIT_PULLBACK_TOO_DEEP' &&
               STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED &&
