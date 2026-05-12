@@ -95,6 +95,14 @@ interface AlphaCandidate {
   currentEntryStructureVerdict?: string | null;
   currentEntryStructureConfirmed?: boolean | null;
   currentEntryStructureReasons?: string[] | null;
+  currentEntryStructureSource?: string | null;
+  currentEntryStructureLatestBarDate?: string | null;
+  currentEntryStructureLatestClose?: number | null;
+  currentEntryStructureAtr14?: number | null;
+  currentEntryStructureStopAtr?: number | null;
+  currentEntryStructureSupportDate?: string | null;
+  currentEntryStructureSupportLow?: number | null;
+  currentEntryStructurePriceDriftPct?: number | null;
   tradePlanDecision?: string | null;
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
@@ -457,6 +465,192 @@ const toPositiveFiniteNumber = (...values: any[]): number | null => {
     if (parsed != null && parsed > 0) return parsed;
   }
   return null;
+};
+
+type Stage6StructureBar = {
+  date: string | null;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  timeMs: number | null;
+};
+
+type CurrentEntryStructurePayload = {
+  verdict: string | null;
+  confirmed: boolean;
+  reasons: string[];
+  source: string;
+  latestBarDate: string | null;
+  latestClose: number | null;
+  atr14: number | null;
+  stopAtr: number | null;
+  supportDate: string | null;
+  supportLow: number | null;
+  priceDriftPct: number | null;
+};
+
+const CURRENT_ENTRY_STRUCTURE_POLICY = {
+  minBars: 60,
+  atrWindow: 14,
+  swingLookback: 50,
+  minStopAtr: 0.75,
+  maxStopAtr: 3.0,
+  supportBufferAtr: 0.35,
+  maxPriceDriftPct: 5.0
+};
+
+const roundOrNull = (value: number | null, digits: number): number | null => {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Number(value.toFixed(digits));
+};
+
+const average = (values: number[]): number | null => {
+  const finite = values.filter((value) => Number.isFinite(value));
+  if (!finite.length) return null;
+  return finite.reduce((sum, value) => sum + value, 0) / finite.length;
+};
+
+const normalizeStage6StructureBar = (raw: any): Stage6StructureBar | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const close = toPositiveFiniteNumber(raw.close, raw.c, raw.adjClose, raw.adjustedClose, raw.price);
+  const high = toPositiveFiniteNumber(raw.high, raw.h);
+  const low = toPositiveFiniteNumber(raw.low, raw.l);
+  const open = toPositiveFiniteNumber(raw.open, raw.o, close);
+  if (!(close != null && high != null && low != null && open != null)) return null;
+  if (high < low || close <= 0 || high <= 0 || low <= 0) return null;
+  const dateRaw = raw.date ?? raw.datetime ?? raw.timestamp ?? raw.time ?? raw.t ?? null;
+  const date = dateRaw == null ? null : String(dateRaw);
+  const timeMs = dateRaw == null ? null : Date.parse(String(dateRaw));
+  return {
+    date,
+    open,
+    high,
+    low,
+    close,
+    timeMs: Number.isFinite(timeMs) ? timeMs : null
+  };
+};
+
+const normalizeStage6StructureBars = (history: any): Stage6StructureBar[] => {
+  const source = Array.isArray(history) ? history : [];
+  const bars = source.map(normalizeStage6StructureBar).filter(Boolean) as Stage6StructureBar[];
+  const sortable = bars.filter((bar) => bar.timeMs != null).length >= Math.max(3, Math.floor(bars.length * 0.8));
+  if (!sortable) return bars;
+  return [...bars].sort((a, b) => (a.timeMs ?? 0) - (b.timeMs ?? 0));
+};
+
+const trueRangeForBar = (bar: Stage6StructureBar, previous: Stage6StructureBar | null): number | null => {
+  if (!previous || previous.close <= 0) return bar.high - bar.low;
+  return Math.max(
+    bar.high - bar.low,
+    Math.abs(bar.high - previous.close),
+    Math.abs(bar.low - previous.close)
+  );
+};
+
+const averageTrueRangeForBars = (bars: Stage6StructureBar[], windowSize: number): number | null => {
+  if (bars.length < windowSize + 1) return null;
+  const slice = bars.slice(-windowSize);
+  const start = bars.length - windowSize;
+  const ranges = slice
+    .map((bar, idx) => trueRangeForBar(bar, bars[start + idx - 1] || null))
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  return ranges.length === windowSize ? average(ranges) : null;
+};
+
+const nearestSupportBelowPrice = (
+  bars: Stage6StructureBar[],
+  price: number,
+  lookback: number
+): Stage6StructureBar | null => {
+  const recent = bars.slice(-lookback);
+  const swings: Stage6StructureBar[] = [];
+  for (let i = 1; i < recent.length - 1; i += 1) {
+    if (recent[i].low <= recent[i - 1].low && recent[i].low <= recent[i + 1].low && recent[i].low < price) {
+      swings.push(recent[i]);
+    }
+  }
+  const candidates = swings.length ? swings : recent.filter((bar) => bar.low < price);
+  if (!candidates.length) return null;
+  return candidates.reduce((best, bar) => (bar.low > best.low ? bar : best), candidates[0]);
+};
+
+const deriveCurrentEntryStructure = (input: {
+  price: number | null;
+  requiredStop: number | null;
+  recalcFeasible: boolean;
+  priceHistory: any;
+}): CurrentEntryStructurePayload => {
+  const policy = CURRENT_ENTRY_STRUCTURE_POLICY;
+  const bars = normalizeStage6StructureBars(input.priceHistory);
+  const latest = bars[bars.length - 1] || null;
+  const atr = averageTrueRangeForBars(bars, policy.atrWindow);
+  const price = input.price;
+  const requiredStop = input.requiredStop;
+  const basePayload = {
+    source: 'stage6_price_history',
+    latestBarDate: latest?.date ?? null,
+    latestClose: roundOrNull(latest?.close ?? null, 4),
+    atr14: roundOrNull(atr, 4),
+    stopAtr:
+      price != null && requiredStop != null && atr != null && atr > 0
+        ? roundOrNull((price - requiredStop) / atr, 2)
+        : null,
+    supportDate: null as string | null,
+    supportLow: null as number | null,
+    priceDriftPct:
+      latest && price != null && price > 0
+        ? roundOrNull(Math.abs(((latest.close - price) / price) * 100), 2)
+        : null
+  };
+
+  if (!input.recalcFeasible) {
+    return { verdict: 'NOT_RECALC_CANDIDATE', confirmed: false, reasons: ['recalc_not_feasible'], ...basePayload };
+  }
+  if (!bars.length) {
+    return { verdict: 'STRUCTURE_DATA_MISSING', confirmed: false, reasons: ['ohlcv_bars_missing'], ...basePayload };
+  }
+  if (bars.length < policy.minBars) {
+    return { verdict: 'STRUCTURE_DATA_INSUFFICIENT', confirmed: false, reasons: [`bars_lt_${policy.minBars}`], ...basePayload };
+  }
+  if (price == null || requiredStop == null || !(price > 0) || !(requiredStop > 0) || requiredStop >= price) {
+    return { verdict: 'STRUCTURE_INPUT_MISSING', confirmed: false, reasons: ['price_or_required_stop_missing'], ...basePayload };
+  }
+  if (atr == null || !(atr > 0) || !latest) {
+    return { verdict: 'STRUCTURE_ATR_UNAVAILABLE', confirmed: false, reasons: ['atr_unavailable'], ...basePayload };
+  }
+
+  const support = nearestSupportBelowPrice(bars, price, policy.swingLookback);
+  const stopAtr = (price - requiredStop) / atr;
+  const driftPct = Math.abs(((latest.close - price) / price) * 100);
+  const close20 = bars.slice(-20).map((bar) => bar.close);
+  const sma20 = close20.length >= 20 ? average(close20) : null;
+  const supportGapAtr = support?.low ? (support.low - requiredStop) / atr : null;
+  const reasons: string[] = [];
+  if (driftPct > policy.maxPriceDriftPct) reasons.push('price_drift_high');
+  if (stopAtr < policy.minStopAtr || stopAtr > policy.maxStopAtr) reasons.push('stop_atr_out_of_band');
+  if (!support || support.low <= 0) reasons.push('support_missing');
+  if (support?.low && requiredStop > support.low) reasons.push('stop_above_support');
+  if (supportGapAtr != null && supportGapAtr > policy.supportBufferAtr) reasons.push('stop_too_far_below_support');
+  if (sma20 != null && latest.close < sma20) reasons.push('close_below_sma20');
+
+  const verdict = reasons.length
+    ? `STRUCTURE_REJECT_${reasons[0].toUpperCase()}`
+    : 'STRUCTURE_CONFIRMED_RECALC_CANDIDATE';
+  return {
+    verdict,
+    confirmed: verdict === 'STRUCTURE_CONFIRMED_RECALC_CANDIDATE',
+    reasons,
+    source: 'stage6_price_history',
+    latestBarDate: latest.date ?? null,
+    latestClose: roundOrNull(latest.close, 4),
+    atr14: roundOrNull(atr, 4),
+    stopAtr: roundOrNull(stopAtr, 2),
+    supportDate: support?.date ?? null,
+    supportLow: roundOrNull(support?.low ?? null, 4),
+    priceDriftPct: roundOrNull(driftPct, 2)
+  };
 };
 
 const toNonNegativeInt = (value: any, fallback = 0): number => {
@@ -4482,19 +4676,40 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRequiredStopDistancePct >= STAGE6_MIN_STOP_DISTANCE_PCT &&
               currentEntryRequiredStopDistancePct <= STAGE6_MAX_STOP_DISTANCE_PCT
           );
-          const currentEntryStructureVerdict = normalizeOptionalText(
+          const derivedCurrentEntryStructure = deriveCurrentEntryStructure({
+              price: livePrice,
+              requiredStop: currentEntryRequiredStopPrice,
+              recalcFeasible: currentEntryRecalcFeasible,
+              priceHistory: item?.priceHistory || item?.fullHistory || item?.history || []
+          });
+          const providedCurrentEntryStructureVerdict = normalizeOptionalText(
               item?.currentEntryStructureVerdict || item?.structureVerdict || item?.currentEntryStructure?.verdict
           );
+          const currentEntryStructureVerdict =
+              providedCurrentEntryStructureVerdict || derivedCurrentEntryStructure.verdict;
           const currentEntryStructureConfirmed = Boolean(
               currentEntryStructureVerdict === 'STRUCTURE_CONFIRMED_RECALC_CANDIDATE' ||
               item?.currentEntryStructureConfirmed === true ||
-              item?.currentEntryStructure?.confirmed === true
+              item?.currentEntryStructure?.confirmed === true ||
+              derivedCurrentEntryStructure.confirmed
           );
-          const currentEntryStructureReasons = Array.isArray(item?.currentEntryStructureReasons)
+          const providedCurrentEntryStructureReasons = Array.isArray(item?.currentEntryStructureReasons)
               ? item.currentEntryStructureReasons.map((reason: any) => String(reason)).filter(Boolean)
               : Array.isArray(item?.currentEntryStructure?.reasons)
                   ? item.currentEntryStructure.reasons.map((reason: any) => String(reason)).filter(Boolean)
                   : null;
+          const currentEntryStructureReasons =
+              providedCurrentEntryStructureReasons && providedCurrentEntryStructureReasons.length
+                  ? providedCurrentEntryStructureReasons
+                  : derivedCurrentEntryStructure.reasons;
+          const currentEntryStructureSource = providedCurrentEntryStructureVerdict ? 'input_contract' : derivedCurrentEntryStructure.source;
+          const currentEntryStructureLatestBarDate = derivedCurrentEntryStructure.latestBarDate;
+          const currentEntryStructureLatestClose = derivedCurrentEntryStructure.latestClose;
+          const currentEntryStructureAtr14 = derivedCurrentEntryStructure.atr14;
+          const currentEntryStructureStopAtr = derivedCurrentEntryStructure.stopAtr;
+          const currentEntryStructureSupportDate = derivedCurrentEntryStructure.supportDate;
+          const currentEntryStructureSupportLow = derivedCurrentEntryStructure.supportLow;
+          const currentEntryStructurePriceDriftPct = derivedCurrentEntryStructure.priceDriftPct;
           const currentEntryStructureGatePassed = !STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED || currentEntryStructureConfirmed;
           const expectedReturnPct = parseExpectedReturnPct(
               item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
@@ -4833,6 +5048,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureVerdict,
               currentEntryStructureConfirmed,
               currentEntryStructureReasons,
+              currentEntryStructureSource,
+              currentEntryStructureLatestBarDate,
+              currentEntryStructureLatestClose,
+              currentEntryStructureAtr14,
+              currentEntryStructureStopAtr,
+              currentEntryStructureSupportDate,
+              currentEntryStructureSupportLow,
+              currentEntryStructurePriceDriftPct,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,
               tradePlanReason:
                   useRecalculatedCurrentEntry
@@ -4917,6 +5140,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureVerdict: executionContract.currentEntryStructureVerdict,
               currentEntryStructureConfirmed: executionContract.currentEntryStructureConfirmed,
               currentEntryStructureReasons: executionContract.currentEntryStructureReasons,
+              currentEntryStructureSource: executionContract.currentEntryStructureSource,
+              currentEntryStructureLatestBarDate: executionContract.currentEntryStructureLatestBarDate,
+              currentEntryStructureLatestClose: executionContract.currentEntryStructureLatestClose,
+              currentEntryStructureAtr14: executionContract.currentEntryStructureAtr14,
+              currentEntryStructureStopAtr: executionContract.currentEntryStructureStopAtr,
+              currentEntryStructureSupportDate: executionContract.currentEntryStructureSupportDate,
+              currentEntryStructureSupportLow: executionContract.currentEntryStructureSupportLow,
+              currentEntryStructurePriceDriftPct: executionContract.currentEntryStructurePriceDriftPct,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -5279,6 +5510,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureVerdict: executionContract.currentEntryStructureVerdict,
               currentEntryStructureConfirmed: executionContract.currentEntryStructureConfirmed,
               currentEntryStructureReasons: executionContract.currentEntryStructureReasons,
+              currentEntryStructureSource: executionContract.currentEntryStructureSource,
+              currentEntryStructureLatestBarDate: executionContract.currentEntryStructureLatestBarDate,
+              currentEntryStructureLatestClose: executionContract.currentEntryStructureLatestClose,
+              currentEntryStructureAtr14: executionContract.currentEntryStructureAtr14,
+              currentEntryStructureStopAtr: executionContract.currentEntryStructureStopAtr,
+              currentEntryStructureSupportDate: executionContract.currentEntryStructureSupportDate,
+              currentEntryStructureSupportLow: executionContract.currentEntryStructureSupportLow,
+              currentEntryStructurePriceDriftPct: executionContract.currentEntryStructurePriceDriftPct,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -5506,6 +5745,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureVerdict: normalizeOptionalText(item.currentEntryStructureVerdict),
               currentEntryStructureConfirmed: Boolean(item.currentEntryStructureConfirmed),
               currentEntryStructureReasons: Array.isArray(item.currentEntryStructureReasons) ? item.currentEntryStructureReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              currentEntryStructureSource: normalizeOptionalText(item.currentEntryStructureSource),
+              currentEntryStructureLatestBarDate: normalizeOptionalText(item.currentEntryStructureLatestBarDate),
+              currentEntryStructureLatestClose: toOptionalFiniteNumber(item.currentEntryStructureLatestClose),
+              currentEntryStructureAtr14: toOptionalFiniteNumber(item.currentEntryStructureAtr14),
+              currentEntryStructureStopAtr: toOptionalFiniteNumber(item.currentEntryStructureStopAtr),
+              currentEntryStructureSupportDate: normalizeOptionalText(item.currentEntryStructureSupportDate),
+              currentEntryStructureSupportLow: toOptionalFiniteNumber(item.currentEntryStructureSupportLow),
+              currentEntryStructurePriceDriftPct: toOptionalFiniteNumber(item.currentEntryStructurePriceDriftPct),
               tradePlanDecision: normalizeOptionalText(item.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item.tradePlanReason),
               executionVerdict: normalizeOptionalText(item.executionVerdict),
@@ -5555,6 +5802,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureVerdict: normalizeOptionalText(item?.currentEntryStructureVerdict),
               currentEntryStructureConfirmed: Boolean(item?.currentEntryStructureConfirmed),
               currentEntryStructureReasons: Array.isArray(item?.currentEntryStructureReasons) ? item.currentEntryStructureReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              currentEntryStructureSource: normalizeOptionalText(item?.currentEntryStructureSource),
+              currentEntryStructureLatestBarDate: normalizeOptionalText(item?.currentEntryStructureLatestBarDate),
+              currentEntryStructureLatestClose: toOptionalFiniteNumber(item?.currentEntryStructureLatestClose),
+              currentEntryStructureAtr14: toOptionalFiniteNumber(item?.currentEntryStructureAtr14),
+              currentEntryStructureStopAtr: toOptionalFiniteNumber(item?.currentEntryStructureStopAtr),
+              currentEntryStructureSupportDate: normalizeOptionalText(item?.currentEntryStructureSupportDate),
+              currentEntryStructureSupportLow: toOptionalFiniteNumber(item?.currentEntryStructureSupportLow),
+              currentEntryStructurePriceDriftPct: toOptionalFiniteNumber(item?.currentEntryStructurePriceDriftPct),
               tradePlanDecision: normalizeOptionalText(item?.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item?.tradePlanReason),
               executionBucket:

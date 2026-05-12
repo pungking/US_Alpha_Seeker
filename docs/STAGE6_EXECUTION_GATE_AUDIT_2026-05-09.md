@@ -1,8 +1,8 @@
 # Stage6 Execution Gate Audit
 
-- GeneratedAt: 2026-05-12T00:16:16.154Z
-- Source files: 13
-- Rows: 89
+- GeneratedAt: 2026-05-12T01:55:36.065Z
+- Source files: 14
+- Rows: 97
 - Zero executable runs: 3
 - Overall verdict: **MODEL_OR_DATA_POLICY_ERROR**
 
@@ -10,6 +10,7 @@
 
 | Stage6 File | Rows | Exec | Verdict | Top Reasons |
 | --- | ---: | ---: | --- | --- |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | 8 | 2 | HAS_EXECUTABLE | wait_target_near_current:2, executable_pullback:1, wait_breakout_retest_required:1, wait_recalculated_stop_required:1, blocked_stop_too_tight:1 |
 | STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | 6 | 0 | MODEL_OR_DATA_POLICY_ERROR | wait_pullback_not_reached:4, blocked_stop_too_tight:1, blocked_rr_below_min:1 |
 | STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | 6 | 0 | MODEL_OR_DATA_POLICY_ERROR | wait_pullback_not_reached:2, blocked_earnings_window:2, blocked_stop_too_tight:1, wait_earnings_data_missing_quality_floor:1 |
 | STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | 7 | 2 | HAS_EXECUTABLE | wait_pullback_not_reached:4, blocked_stop_too_tight:1, executable_earnings_data_missing_haircut:1, executable_pullback:1 |
@@ -28,6 +29,14 @@
 
 | File | Symbol | Decision | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | ReqStop | ReqStopDist% | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | BZ | EXECUTABLE_NOW | executable_pullback | PULLBACK_LIMIT | 47.00 | 4.65 | 4.56 | 0.18 | 51.64 | 10.62 | 25.82 | 14.31 | 14.28 | 21.70 | 12.69 | 8 | EXECUTABLE | sidecar_fillability |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | CARE | WAIT_PRICE | wait_target_near_current | NO_TRADE_CURRENT_RR_BAD | 21.00 | 15.44 | 0.03 | 18.25 | 0.68 | 26.48 | 0.34 | 26.57 | 21.72 | 26.75 | 21.39 | N/A | TARGET_ALREADY_NEAR_CURRENT | target_recalibration_or_no_trade |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | IMPP | WAIT_PRICE | wait_breakout_retest_required | BREAKOUT_RETEST | 86.00 | 57.55 | 2.46 | 22.00 | 57.48 | 3.62 | 28.74 | 5.08 | 3.96 | 8.00 | 3.89 | N/A | BREAKOUT_RETEST_REQUIRED | stage6_breakout_retest_lane |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | INCY | WAIT_PRICE | wait_recalculated_stop_required | RECALCULATED_STOP_REVIEW | 16.00 | 3.92 | 0.78 | 6.73 | 8.15 | 96.23 | 4.08 | 100.32 | 93.57 | 108.50 | 89.77 | N/A | CURRENT_STOP_RECALC_REQUIRED | stage6_current_entry_stop_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | SKYT | BLOCKED_RISK | blocked_stop_too_tight | PULLBACK_LIMIT | 20.00 | 22.84 | N/A | 18.43 | -0.26 | N/A | N/A | 35.09 | 28.62 | 35.00 | 28.34 | N/A | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | TDC | WAIT_PRICE | wait_earnings_data_missing_quality_floor | PULLBACK_LIMIT | 23.00 | 2.27 | 0.13 | 17.03 | 3.51 | 31.74 | 1.76 | 32.31 | 26.81 | 33.44 | 23.89 | N/A | EARNINGS_MISSING_CONSERVATIVE_WAIT | earnings_data_collection |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | TFPM | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | PULLBACK_LIMIT | 28.00 | 2.55 | 1.28 | 5.74 | 20.35 | 31.91 | 10.18 | 35.52 | 33.48 | 42.75 | 29.85 | N/A | EXECUTABLE | sidecar_fillability |
+| STAGE6_ALPHA_FINAL_2026-05-12_10-51-55.json | VIRT | WAIT_PRICE | wait_target_near_current | NO_TRADE_CURRENT_RR_BAD | 24.00 | 16.11 | 0.02 | 19.19 | 0.34 | 51.45 | 0.17 | 51.54 | 41.65 | 51.71 | 41.02 | N/A | TARGET_ALREADY_NEAR_CURRENT | target_recalibration_or_no_trade |
 | STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | CSTM | WAIT_PRICE | wait_pullback_not_reached | N/A | 42.00 | 32.25 | 0.46 | 24.65 | 11.80 | 31.66 | 6.56 | 33.88 | 25.53 | 37.88 | 25.15 | N/A | CURRENT_STOP_RECALC_REQUIRED | stage6_current_entry_stop_recalibration |
 | STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | EXEL | BLOCKED_RISK | blocked_stop_too_tight | N/A | 14.00 | 11.59 | 0.11 | 11.90 | 1.38 | 47.79 | 0.77 | 48.16 | 42.43 | 48.82 | 41.88 | N/A | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
 | STAGE6_ALPHA_FINAL_2026-05-11_22-01-52.json | MLI | WAIT_PRICE | wait_pullback_not_reached | N/A | 24.00 | 9.44 | 0.32 | 16.66 | 6.16 | 136.01 | 3.42 | 140.83 | 117.37 | 149.50 | 113.97 | N/A | CURRENT_STOP_RECALC_REQUIRED | stage6_current_entry_stop_recalibration |

@@ -8,6 +8,12 @@ dist/
 build/
 state/
 
+# Local automation evidence artifacts
+alpha_dashboard_individual_analysis.png
+alpha_report_success.png
+notion-pipeline-sync-payload.json
+stage6-dispatch-payload.json
+
 # Local GitHub Actions self-hosted runner files
 .github-runner/
 .DS_Store
