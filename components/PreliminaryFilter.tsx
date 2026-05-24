@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS, PERPLEXITY_CONFIG } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
@@ -457,8 +457,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
                       body: JSON.stringify({
-                          model: 'sonar-pro', 
-                          messages: [{ role: "user", content: prompt + " Return JSON only." }]
+                          model: PERPLEXITY_CONFIG.MODEL_CHAIN[0] || 'sonar',
+                          messages: [{ role: "user", content: prompt + " Return JSON only." }],
+                          max_tokens: PERPLEXITY_CONFIG.AUDIT_MAX_TOKENS
                       })
                   });
 

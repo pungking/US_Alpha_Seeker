@@ -40,6 +40,7 @@
     "ops:stage6:structure:audit": "node scripts/build-current-entry-structure-audit.mjs",
     "ops:stage6:current-entry:review": "node scripts/build-current-entry-execution-review.mjs",
     "ops:stage6:current-entry:canary": "node scripts/canary-stage6-current-entry-promotion.mjs",
+    "ops:ai-provider:cost-audit": "node scripts/build-ai-provider-cost-audit.mjs",
     "ops:safety:symbol-agnostic": "node scripts/check-symbol-agnostic-runtime.mjs"
   },
   "dependencies": {

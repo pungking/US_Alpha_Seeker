@@ -20,6 +20,15 @@ const getEnvVar = (key: string): string => {
         GEMINI_API_KEY: process.env.GEMINI_API_KEY,
         API_KEY: process.env.API_KEY,
         PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
+        PERPLEXITY_MODEL_CHAIN: process.env.PERPLEXITY_MODEL_CHAIN,
+        PERPLEXITY_STAGE2_SHARD_SIZE: process.env.PERPLEXITY_STAGE2_SHARD_SIZE,
+        PERPLEXITY_STAGE2_REPAIR_CHUNK_SIZE: process.env.PERPLEXITY_STAGE2_REPAIR_CHUNK_SIZE,
+        PERPLEXITY_STAGE2_FULL_FALLBACK_ENABLED: process.env.PERPLEXITY_STAGE2_FULL_FALLBACK_ENABLED,
+        PERPLEXITY_STAGE2_MAX_TOKENS: process.env.PERPLEXITY_STAGE2_MAX_TOKENS,
+        PERPLEXITY_TOP6_MAX_TOKENS: process.env.PERPLEXITY_TOP6_MAX_TOKENS,
+        PERPLEXITY_AUDIT_MAX_TOKENS: process.env.PERPLEXITY_AUDIT_MAX_TOKENS,
+        PERPLEXITY_MACRO_MAX_TOKENS: process.env.PERPLEXITY_MACRO_MAX_TOKENS,
+        PERPLEXITY_TOKEN_WARN_THRESHOLD: process.env.PERPLEXITY_TOKEN_WARN_THRESHOLD,
         RAPID_API_KEY: process.env.RAPID_API_KEY,
         POLYGON_API_KEY: process.env.POLYGON_API_KEY,
         ALPACA_KEY: process.env.ALPACA_KEY,
@@ -117,6 +126,19 @@ const parseBooleanEnv = (keys: string[], fallback: boolean): boolean => {
     if (!raw) continue;
     if (raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on') return true;
     if (raw === 'false' || raw === '0' || raw === 'no' || raw === 'off') return false;
+  }
+  return fallback;
+};
+
+const parseStringListEnv = (keys: string[], fallback: string[]): string[] => {
+  for (const key of keys) {
+    const raw = String(getEnvVar(key) || '').trim();
+    if (!raw) continue;
+    const values = raw
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
+    if (values.length > 0) return Array.from(new Set(values));
   }
   return fallback;
 };
@@ -225,6 +247,19 @@ export const API_CONFIGS: ApiConfig[] = [
     category: 'Infrastructure'
   }
 ];
+
+export const PERPLEXITY_CONFIG = {
+  // Default to `sonar` first; `sonar-pro` remains a fallback for coverage, not the default burn path.
+  MODEL_CHAIN: parseStringListEnv(['PERPLEXITY_MODEL_CHAIN', 'VITE_PERPLEXITY_MODEL_CHAIN'], ['sonar', 'sonar-pro']),
+  STAGE2_SHARD_SIZE: Math.max(1, Math.floor(parseNumberEnv(['PERPLEXITY_STAGE2_SHARD_SIZE', 'VITE_PERPLEXITY_STAGE2_SHARD_SIZE'], 4))),
+  STAGE2_REPAIR_CHUNK_SIZE: Math.max(1, Math.floor(parseNumberEnv(['PERPLEXITY_STAGE2_REPAIR_CHUNK_SIZE', 'VITE_PERPLEXITY_STAGE2_REPAIR_CHUNK_SIZE'], 2))),
+  STAGE2_FULL_FALLBACK_ENABLED: parseBooleanEnv(['PERPLEXITY_STAGE2_FULL_FALLBACK_ENABLED', 'VITE_PERPLEXITY_STAGE2_FULL_FALLBACK_ENABLED'], false),
+  STAGE2_MAX_TOKENS: Math.max(800, Math.floor(parseNumberEnv(['PERPLEXITY_STAGE2_MAX_TOKENS', 'VITE_PERPLEXITY_STAGE2_MAX_TOKENS'], 2200))),
+  TOP6_MAX_TOKENS: Math.max(1200, Math.floor(parseNumberEnv(['PERPLEXITY_TOP6_MAX_TOKENS', 'VITE_PERPLEXITY_TOP6_MAX_TOKENS'], 3200))),
+  AUDIT_MAX_TOKENS: Math.max(600, Math.floor(parseNumberEnv(['PERPLEXITY_AUDIT_MAX_TOKENS', 'VITE_PERPLEXITY_AUDIT_MAX_TOKENS'], 1800))),
+  MACRO_MAX_TOKENS: Math.max(200, Math.floor(parseNumberEnv(['PERPLEXITY_MACRO_MAX_TOKENS', 'VITE_PERPLEXITY_MACRO_MAX_TOKENS'], 600))),
+  TOKEN_WARN_THRESHOLD: Math.max(1000, Math.floor(parseNumberEnv(['PERPLEXITY_TOKEN_WARN_THRESHOLD', 'VITE_PERPLEXITY_TOKEN_WARN_THRESHOLD'], 12000)))
+} as const;
 
 // [HF READY] Keep Hugging Face settings isolated until service integration is enabled.
 export const HUGGINGFACE_CONFIG = {

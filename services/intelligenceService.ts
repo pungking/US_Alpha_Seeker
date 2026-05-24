@@ -1,10 +1,11 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, STRATEGY_CONFIG } from "../constants";
+import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
 import { fetchPortalIndices } from "./portalIndicesService";
 
-const PERPLEXITY_MODELS = ['sonar-pro', 'sonar']; 
+const PERPLEXITY_MODELS = PERPLEXITY_CONFIG.MODEL_CHAIN;
+const DEFAULT_PERPLEXITY_MODEL = PERPLEXITY_MODELS[0] || 'sonar';
 
 export type TelegramBriefContractContext = {
   modelTop6?: any[];
@@ -30,6 +31,15 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
       if (!isError) current[key].requests += 1;
       current[key].status = isError ? 'ERR' : 'OK';
       current[key].lastError = errorMsg;
+    }
+    if (
+      provider === ApiProvider.PERPLEXITY &&
+      Number.isFinite(tokens) &&
+      tokens >= PERPLEXITY_CONFIG.TOKEN_WARN_THRESHOLD
+    ) {
+      console.warn(
+        `[AI_USAGE_BUDGET] provider=perplexity tokens=${tokens} threshold=${PERPLEXITY_CONFIG.TOKEN_WARN_THRESHOLD}`
+      );
     }
 
     sessionStorage.setItem(USAGE_KEY, JSON.stringify(current));
@@ -981,7 +991,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     
     let pRes;
     const body = JSON.stringify({
-        model: 'sonar-pro', 
+        model: DEFAULT_PERPLEXITY_MODEL,
         messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
     });
 
@@ -1173,7 +1183,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                   { role: "user", content: SYSTEM_INSTRUCTION + "\n\n" + prompt + "\n\n[CRITICAL INSTRUCTION]\nOutput ONLY the valid JSON array. Do not include 'I appreciate...', 'Here is the data...', or any other text. Start response IMMEDIATELY with '['." }
               ],
               temperature: 0.1,
-              max_tokens: 3200
+              max_tokens: PERPLEXITY_CONFIG.STAGE2_MAX_TOKENS
           });
           
           let res;
@@ -1356,13 +1366,20 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const executePerplexityAnalysis = async (chunkSize?: number) => {
     const requiredVerified = Math.max(1, Math.ceil(slimCandidates.length * 0.75));
-    const shardSize = Math.max(1, Math.floor(chunkSize ?? 6));
+    const shardSize = Math.max(1, Math.floor(chunkSize ?? PERPLEXITY_CONFIG.STAGE2_SHARD_SIZE));
 
     let baseResult = await runPerplexityShardedAnalysis(shardSize);
     if (!baseResult?.data || !Array.isArray(baseResult.data)) {
-      console.warn(`[Perplexity Coverage] Sharded pass failed. Falling back to full-pass. Reason: ${baseResult?.error || 'UNKNOWN'}`);
-      const fullFallback = await requestPerplexityForCandidates(slimCandidates, 'full_fallback');
-      return fullFallback;
+      const reason = baseResult?.error || 'UNKNOWN';
+      console.warn(`[Perplexity Coverage] Sharded pass failed. Reason: ${reason}`);
+      if (!PERPLEXITY_CONFIG.STAGE2_FULL_FALLBACK_ENABLED) {
+        return {
+          data: null,
+          error: `PERPLEXITY_SHARDED_FAILED_FULL_FALLBACK_DISABLED:${reason}`,
+          usedProvider: 'PERPLEXITY_SHARDED_FAILED'
+        };
+      }
+      return requestPerplexityForCandidates(slimCandidates, 'full_fallback');
     }
 
     const baseCoverage = computeCoverage(baseResult.data);
@@ -1371,7 +1388,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
 
     console.warn(`[Perplexity Coverage] Sharded verified ${baseCoverage.verified}/${slimCandidates.length} (<${requiredVerified}). Repairing unresolved symbols: ${baseCoverage.unresolvedSymbols.join(', ')}`);
-    const repair = await repairPerplexitySymbols(baseCoverage.unresolvedSymbols, 2);
+    const repair = await repairPerplexitySymbols(
+      baseCoverage.unresolvedSymbols,
+      PERPLEXITY_CONFIG.STAGE2_REPAIR_CHUNK_SIZE
+    );
 
     if (repair.data.length > 0) {
       const mergedMap = new Map<string, any>();
@@ -1405,6 +1425,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
       baseResult = repairedResult;
       console.warn(`[Perplexity Coverage] Repair pass still below threshold: ${repairedCoverage.verified}/${slimCandidates.length}.`);
+    }
+
+    if (!PERPLEXITY_CONFIG.STAGE2_FULL_FALLBACK_ENABLED) {
+      return baseResult;
     }
 
     // Last fallback: full-pass once, then choose better coverage.
@@ -1884,7 +1908,7 @@ export async function generateTop6NeuralOutlook(candidates: any[], provider: Api
             { role: "user", content: `${DETAIL_SYSTEM_INSTRUCTION}\n\n${DETAIL_PROMPT}` }
           ],
           temperature: 0.1,
-          max_tokens: 4500
+          max_tokens: PERPLEXITY_CONFIG.TOP6_MAX_TOKENS
         });
 
         let res;
@@ -2084,9 +2108,10 @@ export async function analyzePipelineStatus(data: {
     
     // 2. Perplexity / Sonar
     const body = JSON.stringify({
-        model: 'sonar-pro', 
+        model: DEFAULT_PERPLEXITY_MODEL,
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-        temperature: 0.1
+        temperature: 0.1,
+        max_tokens: PERPLEXITY_CONFIG.AUDIT_MAX_TOKENS
     });
 
     let res;
@@ -2292,9 +2317,10 @@ export async function generateTelegramBrief(
               macroSection = res.text ? res.text.trim() : "";
           } else {
               const body = JSON.stringify({ 
-                  model: 'sonar-pro', 
+                  model: DEFAULT_PERPLEXITY_MODEL,
                   messages: [{ role: "user", content: macroPrompt + " Return plain text only." }],
-                  temperature: 0
+                  temperature: 0,
+                  max_tokens: PERPLEXITY_CONFIG.MACRO_MAX_TOKENS
               });
               
               let res;
