@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { ApiProvider } from '../types';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS, STRATEGY_CONFIG } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from '../constants';
 import { generateAlphaSynthesis, generateTop6NeuralOutlook, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, type TelegramBriefContractContext } from '../services/intelligenceService';
 import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage } from '../services/telegramService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
@@ -2622,6 +2622,46 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
+  const readAiUsageSnapshot = () => {
+      try {
+          const raw = window.sessionStorage.getItem('US_ALPHA_SEEKER_AI_USAGE');
+          return raw ? JSON.parse(raw) : null;
+      } catch {
+          return null;
+      }
+  };
+
+  const persistStage2AiUsageAudit = async (audit: Record<string, any>) => {
+      const payload = {
+          ...audit,
+          generatedAt: new Date().toISOString(),
+          usage: readAiUsageSnapshot(),
+          providerConfig: {
+              geminiModels: GEMINI_MODELS.CHAIN,
+              perplexityModelChain: PERPLEXITY_CONFIG.MODEL_CHAIN,
+              perplexityStage2ShardSize: PERPLEXITY_CONFIG.STAGE2_SHARD_SIZE,
+              perplexityStage2RepairChunkSize: PERPLEXITY_CONFIG.STAGE2_REPAIR_CHUNK_SIZE,
+              perplexityStage2FullFallbackEnabled: PERPLEXITY_CONFIG.STAGE2_FULL_FALLBACK_ENABLED,
+              perplexityStage2MaxTokens: PERPLEXITY_CONFIG.STAGE2_MAX_TOKENS,
+              perplexityTokenWarnThreshold: PERPLEXITY_CONFIG.TOKEN_WARN_THRESHOLD
+          }
+      };
+      try {
+          window.sessionStorage.setItem('US_ALPHA_SEEKER_STAGE2_AI_USAGE_AUDIT', JSON.stringify(payload));
+      } catch (error) {
+          console.warn('[STAGE2_AI_AUDIT] session persist failed', error);
+      }
+      if (!accessToken) return;
+      try {
+          const reportFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportSubFolder);
+          const fileName = `STAGE2_AI_USAGE_AUDIT_${getKstTimestamp()}.json`;
+          await uploadFile(accessToken, reportFolderId, fileName, payload);
+          addLog(`[STAGE2_AI_AUDIT] archived=${fileName} status=${payload.status || 'N/A'}`, "info");
+      } catch (error: any) {
+          addLog(`[STAGE2_AI_AUDIT] archive failed: ${error?.message || error}`, "warn");
+      }
+  };
+
   const resolveStage5LockOverride = (): Stage5LockOverrideConfig => {
     const envEnabled = parseBooleanFlag((import.meta as any)?.env?.VITE_STAGE5_LOCK_OVERRIDE);
     const envFileId = String((import.meta as any)?.env?.VITE_STAGE5_LOCK_FILE_ID || '').trim();
@@ -3495,6 +3535,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const requestedProvider = selectedBrain;
       let responseUsedProviderRaw = '';
       let aiFailed = false;
+      let primaryEngineFailed = false;
+      let primaryEngineError: string | null = null;
+      let failoverAttempted = false;
+      let failoverSucceeded = false;
+      let failoverError: string | null = null;
       const normalizeUsedProvider = (raw: any, fallback: ApiProvider): ApiProvider => {
           const t = String(raw || '').toUpperCase();
           if (t.includes('PERPLEXITY')) return ApiProvider.PERPLEXITY;
@@ -3523,42 +3568,48 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const isGeminiError = selectedBrain === ApiProvider.GEMINI;
           
           if (isGeminiError) {
-              // [CASE A: Manual Execution]
-              if (!autoStart) {
-                  addLog("Gemini 크레딧 초과로 엔진을 Sonar로 전환했습니다. 다시 실행 버튼을 눌러주세요.", "err");
-                  setSelectedBrain(ApiProvider.PERPLEXITY);
-                  setLoading(false);
-                  // [STOP] Throw Error to halt process
-                  throw new Error("MANUAL_STOP_REQUIRED");
-              } 
-              // [CASE B: Autopilot Execution]
-              else {
-                  addLog(`Primary Engine (Gemini) Failed: ${err.message}. Engaging Sonar Failover...`, "warn");
-                  
-                  // [FAILOVER] Switch to Perplexity immediately
-                  usedProvider = ApiProvider.PERPLEXITY;
-                  setSelectedBrain(ApiProvider.PERPLEXITY);
-                  
-                  try {
-                      // [RETRY] Execute with Perplexity
-                      response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY, autoStart);
-                      responseUsedProviderRaw = String(response?.usedProvider || '').toUpperCase();
-                      usedProvider = normalizeUsedProvider(response?.usedProvider, ApiProvider.PERPLEXITY);
-                      stage2ProviderRef.current = usedProvider;
-                      if (usedProvider !== selectedBrain) {
-                          setSelectedBrain(usedProvider);
-                      }
-                      if (response.error) throw new Error(response.error);
-                      
-                      addLog("Sonar Failover Successful. Continuing Analysis...", "ok");
-                  } catch (retryErr: any) {
-                      addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
-                      aiFailed = true;
+              primaryEngineFailed = true;
+              primaryEngineError = err?.message || String(err);
+              failoverAttempted = true;
+              addLog(`Primary Engine (Gemini) Failed: ${primaryEngineError}. Engaging bounded Sonar Failover...`, "warn");
+              await persistStage2AiUsageAudit({
+                  status: 'primary_failed_failover_started',
+                  phase: 'stage2_alpha_synthesis',
+                  autoStart,
+                  requestedProvider,
+                  primaryProvider: ApiProvider.GEMINI,
+                  primaryEngineFailed,
+                  primaryEngineError,
+                  failoverProvider: ApiProvider.PERPLEXITY,
+                  candidateCount: candidates.length,
+                  sourceStage5File: stage5SourceRef.current?.fileName || null,
+                  sourceStage5Hash: stage5SourceRef.current?.hash || null,
+                  sourceStage5Count: stage5SourceRef.current?.count ?? null
+              });
+
+              usedProvider = ApiProvider.PERPLEXITY;
+              setSelectedBrain(ApiProvider.PERPLEXITY);
+
+              try {
+                  response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY, autoStart);
+                  responseUsedProviderRaw = String(response?.usedProvider || '').toUpperCase();
+                  usedProvider = normalizeUsedProvider(response?.usedProvider, ApiProvider.PERPLEXITY);
+                  stage2ProviderRef.current = usedProvider;
+                  if (usedProvider !== selectedBrain) {
+                      setSelectedBrain(usedProvider);
                   }
+                  if (response.error) throw new Error(response.error);
+                  failoverSucceeded = true;
+                  addLog("Bounded Sonar Failover Successful. Continuing Analysis...", "ok");
+              } catch (retryErr: any) {
+                  failoverError = retryErr?.message || String(retryErr);
+                  addLog(`Failover Engine (Perplexity) also failed: ${failoverError}`, "err");
+                  aiFailed = true;
               }
           } else {
               // Non-Gemini Error (e.g. Perplexity failed directly)
               addLog(`Engine Failed: ${err.message}`, "err");
+              failoverError = err?.message || String(err);
               aiFailed = true;
           }
       }
@@ -3748,6 +3799,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       } else {
           addLog("AI Analysis Failed. Using Quantitative Fallback.", "warn");
       }
+
+      const stage2AiAudit = {
+          status: aiFailed ? 'failed' : 'completed',
+          phase: 'stage2_alpha_synthesis',
+          autoStart,
+          requestedProvider,
+          responseProviderRaw: responseUsedProviderRaw || null,
+          actualProvider: usedProvider,
+          primaryEngineFailed,
+          primaryEngineError,
+          failoverAttempted,
+          failoverSucceeded,
+          failoverError,
+          candidateCount: candidates.length,
+          matchedAiCount,
+          verifiedAiCount,
+          fallbackAiCount,
+          usage: readAiUsageSnapshot(),
+          sourceStage5File: stage5SourceRef.current?.fileName || null,
+          sourceStage5Hash: stage5SourceRef.current?.hash || null,
+          sourceStage5Count: stage5SourceRef.current?.count ?? null
+      };
+      await persistStage2AiUsageAudit(stage2AiAudit);
 
       if (aiFailed) {
           addLog("AI Synthesis Unavailable. Final dump aborted to avoid quant-only contamination.", "err");
@@ -5941,6 +6015,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   engineFallbackUsed,
                   engineExecutionMode,
                   engineResponseSharded,
+                  aiProviderAudit: stage2AiAudit,
                   engineFallbackPath:
                       engineProviderSwapped
                           ? `${requestedProvider} -> ${usedProvider}`
