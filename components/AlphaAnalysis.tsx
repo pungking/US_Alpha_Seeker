@@ -3570,6 +3570,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (isGeminiError) {
               primaryEngineFailed = true;
               primaryEngineError = err?.message || String(err);
+              usedProvider = ApiProvider.PERPLEXITY;
+              setSelectedBrain(ApiProvider.PERPLEXITY);
+
+              if (!autoStart) {
+                  addLog(
+                      `Primary Engine (Gemini) Failed: ${primaryEngineError}. Switched to Sonar; click Execute to retry manually.`,
+                      "warn"
+                  );
+                  await persistStage2AiUsageAudit({
+                      status: 'primary_failed_manual_handoff',
+                      phase: 'stage2_alpha_synthesis',
+                      autoStart,
+                      requestedProvider,
+                      primaryProvider: ApiProvider.GEMINI,
+                      primaryEngineFailed,
+                      primaryEngineError,
+                      failoverProvider: ApiProvider.PERPLEXITY,
+                      failoverAttempted: false,
+                      failoverSucceeded: false,
+                      failoverError: null,
+                      manualHandoffRequired: true,
+                      candidateCount: candidates.length,
+                      sourceStage5File: stage5SourceRef.current?.fileName || null,
+                      sourceStage5Hash: stage5SourceRef.current?.hash || null,
+                      sourceStage5Count: stage5SourceRef.current?.count ?? null
+                  });
+                  return [];
+              }
+
               failoverAttempted = true;
               addLog(`Primary Engine (Gemini) Failed: ${primaryEngineError}. Engaging bounded Sonar Failover...`, "warn");
               await persistStage2AiUsageAudit({
@@ -3586,9 +3615,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   sourceStage5Hash: stage5SourceRef.current?.hash || null,
                   sourceStage5Count: stage5SourceRef.current?.count ?? null
               });
-
-              usedProvider = ApiProvider.PERPLEXITY;
-              setSelectedBrain(ApiProvider.PERPLEXITY);
 
               try {
                   response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY, autoStart);
