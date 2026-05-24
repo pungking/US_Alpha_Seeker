@@ -431,6 +431,16 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           );
       };
 
+      const isGeminiCredentialHardStop = (error: any): boolean => {
+          const msg = String(error?.message || error || '').toLowerCase();
+          return (
+              msg.includes('api_key_invalid') ||
+              msg.includes('api key expired') ||
+              msg.includes('api key not valid') ||
+              msg.includes('invalid api key')
+          );
+      };
+
       const geminiNodeName = (model: string): string => {
           if (model.includes('pro')) return 'Gemini Pro';
           if (model.includes('lite')) return 'Gemini Flash Lite';
@@ -511,6 +521,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       throw new Error(`${model} returned empty payload`);
                   } catch (geminiError: any) {
                       const message = compactGeminiError(geminiError);
+
+                      if (isGeminiCredentialHardStop(geminiError)) {
+                          throw new Error(`GEMINI_CREDENTIAL_HARD_STOP:${message}`);
+                      }
 
                       if (isGeminiQuotaHardStop(geminiError)) {
                           throw new Error(`GEMINI_QUOTA_HARD_STOP:${message}`);

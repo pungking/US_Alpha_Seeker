@@ -3837,6 +3837,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog("AI Analysis Failed. Using Quantitative Fallback.", "warn");
       }
 
+      const providerResponseAudit = response?.audit || null;
+      const providerPrimaryError = providerResponseAudit?.geminiPrimaryError || null;
+      const providerBoundedSonarResult = providerResponseAudit?.boundedSonarFailoverResult || null;
+      const effectiveBoundedSonarResult = providerBoundedSonarResult || boundedSonarFailoverResult();
+      const effectivePrimaryEngineError = primaryEngineError || providerPrimaryError;
+      const effectiveFailoverAttempted =
+          failoverAttempted ||
+          Boolean(providerBoundedSonarResult && !String(providerBoundedSonarResult).startsWith('not_attempted'));
+      const effectiveFailoverSucceeded =
+          failoverSucceeded || providerBoundedSonarResult === 'succeeded';
+      const effectiveFailoverError =
+          failoverError || (providerBoundedSonarResult === 'failed' ? providerPrimaryError : null);
+
       const stage2AiAudit = {
           status: aiFailed ? 'failed' : 'completed',
           phase: 'stage2_alpha_synthesis',
@@ -3844,12 +3857,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           requestedProvider,
           responseProviderRaw: responseUsedProviderRaw || null,
           actualProvider: usedProvider,
-          primaryEngineFailed,
-          primaryEngineError,
-          failoverAttempted,
-          failoverSucceeded,
-          failoverError,
-          boundedSonarFailoverResult: boundedSonarFailoverResult(),
+          providerResponseAudit,
+          primaryEngineFailed: primaryEngineFailed || Boolean(providerPrimaryError),
+          primaryEngineError: effectivePrimaryEngineError,
+          failoverAttempted: effectiveFailoverAttempted,
+          failoverSucceeded: effectiveFailoverSucceeded,
+          failoverError: effectiveFailoverError,
+          boundedSonarFailoverResult: effectiveBoundedSonarResult,
           candidateCount: candidates.length,
           matchedAiCount,
           verifiedAiCount,

@@ -245,6 +245,16 @@ const isGeminiQuotaHardStop = (error: any): boolean => {
   );
 };
 
+const isGeminiCredentialHardStop = (error: any): boolean => {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return (
+    msg.includes('api_key_invalid') ||
+    msg.includes('api key expired') ||
+    msg.includes('api key not valid') ||
+    msg.includes('invalid api key')
+  );
+};
+
 const normalizeAiResultArray = (aiInput: any): { items: any[]; wrapperType: string } => {
   if (Array.isArray(aiInput)) return { items: aiInput, wrapperType: 'array' };
   if (aiInput?.alpha_candidates && Array.isArray(aiInput.alpha_candidates)) {
@@ -1038,8 +1048,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const hfSmokeAudit = await runHuggingFaceSmokeTest();
   let hfAdvisoryAudit: HfAdvisoryAudit | null = null;
+  let geminiPrimaryError: string | null = null;
+  let boundedSonarFailoverResult: string | null = null;
   const mergeAudit = (base?: any) => ({
     ...(base || {}),
+    ...(geminiPrimaryError
+      ? { geminiPrimaryError, boundedSonarFailoverResult: boundedSonarFailoverResult || 'unknown' }
+      : {}),
     hfSmoke: hfSmokeAudit,
     ...(hfAdvisoryAudit ? { hfAdvisory: hfAdvisoryAudit } : {})
   });
@@ -1563,6 +1578,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       let allProcessedCandidates: any[] = [];
       let hasAnySuccess = false;
       let forcePerplexityFallback = false;
+      let geminiHardStopError: string | null = null;
       const geminiChain = GEMINI_MODELS.CHAIN;
 
       console.log(`[Gemini] Starting batch processing. Total items: ${slimCandidates.length}, Batches: ${batches.length}`);
@@ -1659,9 +1675,22 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             } catch (modelError: any) {
               const errorMessage = compactGeminiError(modelError);
 
+              if (isGeminiCredentialHardStop(modelError)) {
+                trackUsage(ApiProvider.GEMINI, 0, true, errorMessage);
+                forcePerplexityFallback = true;
+                geminiHardStopError = `GEMINI_CREDENTIAL_INVALID:${errorMessage}`;
+                geminiPrimaryError = geminiHardStopError;
+                boundedSonarFailoverResult = isAutoMode ? 'started' : 'not_attempted_manual_handoff';
+                console.warn(`[HARD_STOP] Batch ${i + 1}: Gemini credential hard-stop (${errorMessage}). Switching to Perplexity immediately.`);
+                break;
+              }
+
               if (isGeminiQuotaHardStop(modelError)) {
                 trackUsage(ApiProvider.GEMINI, 0, true, errorMessage);
                 forcePerplexityFallback = true;
+                geminiHardStopError = `GEMINI_QUOTA_EXCEEDED:${errorMessage}`;
+                geminiPrimaryError = geminiHardStopError;
+                boundedSonarFailoverResult = isAutoMode ? 'started' : 'not_attempted_manual_handoff';
                 console.warn(`[HARD_STOP] Batch ${i + 1}: Gemini quota hard-stop (${errorMessage}). Switching to Perplexity immediately.`);
                 break;
               }
@@ -1693,7 +1722,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
       // If ALL batches failed, proceed to Perplexity Fallback
       if (!isAutoMode) {
-          throw new Error('GEMINI_QUOTA_EXCEEDED');
+          throw new Error(geminiHardStopError || 'GEMINI_PRIMARY_UNAVAILABLE');
       }
 
       console.warn("[FALLBACK] Gemini Ecosystem Down -> Engaging Perplexity Sonar...");
@@ -1702,12 +1731,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
              try {
                 const pResult = await executePerplexityAnalysis();
                 if (pResult.data) {
+                    boundedSonarFailoverResult = geminiPrimaryError ? 'succeeded' : boundedSonarFailoverResult;
                     const hydratedData = hydrateAndValidate(pResult.data, 'PERPLEXITY_FALLBACK');
                     return { data: hydratedData, usedProvider: 'PERPLEXITY_FALLBACK', error: null, audit: mergeAudit(pResult.audit) };
                 }
                 throw new Error(pResult.error || "Perplexity Fallback Failed");
              } catch (pError: any) {
                  // [FINAL SAFETY NET]
+                 boundedSonarFailoverResult = geminiPrimaryError ? 'failed' : boundedSonarFailoverResult;
                  console.error("All AI Nodes Failed. Returning Static Fallback.");
                  const fallbackData = candidates.map(c => ({
                      symbol: c.symbol,
