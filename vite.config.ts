@@ -10,6 +10,8 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const geminiApiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || env.VITE_API_KEY || env.API_KEY;
+  const geminiAliasKey = env.VITE_API_KEY || env.API_KEY || geminiApiKey;
   return {
     server: {
       port: 3000,
@@ -17,7 +19,10 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react()],
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.GEMINI_API_KEY': JSON.stringify(geminiApiKey),
+      'process.env.VITE_GEMINI_API_KEY': JSON.stringify(geminiApiKey),
+      'process.env.API_KEY': JSON.stringify(geminiAliasKey),
+      'process.env.VITE_API_KEY': JSON.stringify(geminiAliasKey),
       'process.env.PERPLEXITY_API_KEY': JSON.stringify(env.PERPLEXITY_API_KEY),
       'process.env.HUGGINGFACE_API_KEY': JSON.stringify(env.HUGGINGFACE_API_KEY),
       'process.env.HUGGINGFACE_ENABLE_ADVISORY': JSON.stringify(env.HUGGINGFACE_ENABLE_ADVISORY),
@@ -45,7 +50,6 @@ export default defineConfig(({ mode }) => {
       'process.env.APPROVAL_REQUIRED': JSON.stringify(env.APPROVAL_REQUIRED),      
       'process.env.GDRIVE_CLIENT_ID': JSON.stringify(env.GDRIVE_CLIENT_ID),
       // Fallback for direct API Key usage if needed, though Client ID is preferred for OAuth
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY)
     },
     resolve: {
       alias: {

@@ -1,0 +1,30 @@
+name: Gemini Env Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gemini-env-smoke:
+    name: Gemini API key smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      API_KEY: ${{ secrets.API_KEY || secrets.GEMINI_API_KEY }}
+      VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY || secrets.GEMINI_API_KEY }}
+      VITE_API_KEY: ${{ secrets.VITE_API_KEY || secrets.API_KEY || secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm install
+
+      - name: Gemini env smoke
+        run: GEMINI_SMOKE_REQUIRE_ALIASES=true npm run ops:gemini:smoke
