@@ -3540,6 +3540,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       let failoverAttempted = false;
       let failoverSucceeded = false;
       let failoverError: string | null = null;
+      const boundedSonarFailoverResult = () => {
+          if (!failoverAttempted) return autoStart ? 'not_attempted' : 'not_attempted_manual_handoff';
+          if (failoverSucceeded) return 'succeeded';
+          if (failoverError) return 'failed';
+          return 'started';
+      };
       const normalizeUsedProvider = (raw: any, fallback: ApiProvider): ApiProvider => {
           const t = String(raw || '').toUpperCase();
           if (t.includes('PERPLEXITY')) return ApiProvider.PERPLEXITY;
@@ -3590,6 +3596,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       failoverAttempted: false,
                       failoverSucceeded: false,
                       failoverError: null,
+                      boundedSonarFailoverResult: 'not_attempted_manual_handoff',
                       manualHandoffRequired: true,
                       candidateCount: candidates.length,
                       sourceStage5File: stage5SourceRef.current?.fileName || null,
@@ -3610,6 +3617,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   primaryEngineFailed,
                   primaryEngineError,
                   failoverProvider: ApiProvider.PERPLEXITY,
+                  failoverAttempted,
+                  failoverSucceeded,
+                  failoverError,
+                  boundedSonarFailoverResult: 'started',
                   candidateCount: candidates.length,
                   sourceStage5File: stage5SourceRef.current?.fileName || null,
                   sourceStage5Hash: stage5SourceRef.current?.hash || null,
@@ -3838,6 +3849,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           failoverAttempted,
           failoverSucceeded,
           failoverError,
+          boundedSonarFailoverResult: boundedSonarFailoverResult(),
           candidateCount: candidates.length,
           matchedAiCount,
           verifiedAiCount,
