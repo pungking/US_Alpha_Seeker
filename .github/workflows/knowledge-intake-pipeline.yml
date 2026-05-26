@@ -135,7 +135,7 @@ jobs:
       OPS_KNOWLEDGE_HANDOFF_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_PATH || 'state/ops-knowledge-handoff.json' }}
       OPS_KNOWLEDGE_HANDOFF_MD_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_MD_PATH || 'state/ops-knowledge-handoff.md' }}
       OPS_KNOWLEDGE_HANDOFF_HISTORY_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_HISTORY_PATH || 'state/ops-knowledge-handoff-history.jsonl' }}
-      GITHUB_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
       OBSIDIAN_BASE_URL: ${{ vars.OBSIDIAN_BASE_URL || 'http://127.0.0.1:27123' }}
       OBSIDIAN_API_KEY: ${{ secrets.OBSIDIAN_API_KEY }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -144,6 +144,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          token: ${{ github.token }}
 
       - name: Setup Node
         uses: actions/setup-node@v5
