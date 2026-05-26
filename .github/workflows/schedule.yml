@@ -125,7 +125,7 @@ jobs:
       VITE_APPROVAL_REQUIRED: ${{ vars.APPROVAL_REQUIRED || 'true' }}      
 
       # GitHub Dispatch (Stage3 -> Harvester)
-      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       VITE_GITHUB_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       GITHUB_PAT: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       VITE_GITHUB_PAT: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
@@ -141,7 +141,7 @@ jobs:
       - name: 1. 소스 코드 가져오기 (Checkout)
         uses: actions/checkout@v5
         with:
-          token: ${{ github.token }}
+          token: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
 
       - name: 2. Node.js 환경 설정
         uses: actions/setup-node@v5
