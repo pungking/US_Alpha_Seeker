@@ -2,6 +2,8 @@ import fs from "node:fs";
 
 const NOTION_VERSION = "2022-06-28";
 const OUTPUT_PATH = "state/notion-pipeline-sync.json";
+const NOTION_TIMEOUT_MS = 15000;
+const NOTION_MAX_ATTEMPTS = 3;
 
 const env = (name, fallback = "") => String(process.env[name] ?? fallback).trim();
 
@@ -37,20 +39,67 @@ const notionHeaders = (token) => ({
   "Content-Type": "application/json"
 });
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isRetryableStatus = (status) => [408, 409, 425, 429, 500, 502, 503, 504].includes(status);
+
 const notionRequest = async (token, path, init = {}) => {
-  const response = await fetch(`https://api.notion.com${path}`, {
-    ...init,
-    headers: {
-      ...notionHeaders(token),
-      ...(init.headers || {})
+  let lastError = null;
+  for (let attempt = 1; attempt <= NOTION_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), NOTION_TIMEOUT_MS);
+    try {
+      const response = await fetch(`https://api.notion.com${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          ...notionHeaders(token),
+          ...(init.headers || {})
+        }
+      });
+      const raw = await response.text();
+      const contentType = String(response.headers.get("content-type") || "");
+      let data = {};
+      if (raw) {
+        if (contentType.includes("application/json")) {
+          try {
+            data = JSON.parse(raw);
+          } catch (error) {
+            throw new Error(`Notion ${path} returned invalid JSON (${response.status}): ${short(raw, 400)}`);
+          }
+        } else {
+          const retryableHtml = isRetryableStatus(response.status);
+          const message = `Notion ${path} returned non-json (${response.status}, ${contentType || "unknown"}): ${short(raw, 400)}`;
+          if (!retryableHtml || attempt === NOTION_MAX_ATTEMPTS) {
+            throw new Error(message);
+          }
+          lastError = new Error(message);
+          await sleep(attempt * 1000);
+          continue;
+        }
+      }
+      if (!response.ok) {
+        const message = `Notion ${path} failed (${response.status}): ${short(JSON.stringify(data), 400)}`;
+        if (!isRetryableStatus(response.status) || attempt === NOTION_MAX_ATTEMPTS) {
+          throw new Error(message);
+        }
+        lastError = new Error(message);
+        await sleep(attempt * 1000);
+        continue;
+      }
+      return data;
+    } catch (error) {
+      const isAbort = error?.name === "AbortError";
+      lastError = isAbort
+        ? new Error(`Notion ${path} timed out after ${NOTION_TIMEOUT_MS}ms`)
+        : error;
+      if (!isAbort && attempt === NOTION_MAX_ATTEMPTS) break;
+      if (!isAbort && !String(error?.message || "").includes("fetch failed")) break;
+      await sleep(attempt * 1000);
+    } finally {
+      clearTimeout(timer);
     }
-  });
-  const raw = await response.text();
-  const data = raw ? JSON.parse(raw) : {};
-  if (!response.ok) {
-    throw new Error(`Notion ${path} failed (${response.status}): ${short(JSON.stringify(data), 400)}`);
   }
-  return data;
+  throw lastError || new Error(`Notion ${path} failed: unknown_error`);
 };
 
 const titleProp = (value) => ({
