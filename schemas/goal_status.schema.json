@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://us-alpha-seeker.local/schemas/goal_status.schema.json",
+  "title": "US Alpha Seeker Goal Status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "goal_id",
+    "goal_version",
+    "goal_hash",
+    "repo",
+    "run_id",
+    "checkpoint",
+    "status",
+    "generated_at",
+    "evidence"
+  ],
+  "properties": {
+    "goal_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "goal_version": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "goal_hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "repo": {
+      "type": "string",
+      "enum": [
+        "US_Alpha_Seeker",
+        "US_Alpha_Seeker_Harvester",
+        "alpha-exec-engine"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checkpoint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "WARN",
+        "BLOCK",
+        "FAIL",
+        "UNKNOWN"
+      ]
+    },
+    "artifact_hash": {
+      "type": "string",
+      "pattern": "^(sha256:[a-f0-9]{64}|N/A)$"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

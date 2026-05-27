@@ -42,7 +42,8 @@
     "ops:stage6:current-entry:canary": "node scripts/canary-stage6-current-entry-promotion.mjs",
     "ops:ai-provider:cost-audit": "node scripts/build-ai-provider-cost-audit.mjs",
     "ops:gemini:smoke": "node scripts/gemini-env-smoke.mjs",
-    "ops:safety:symbol-agnostic": "node scripts/check-symbol-agnostic-runtime.mjs"
+    "ops:safety:symbol-agnostic": "node scripts/check-symbol-agnostic-runtime.mjs",
+    "ops:goal:validate": "node scripts/validate-goal-contract.mjs"
   },
   "dependencies": {
     "@sentry/node": "^10.17.0",

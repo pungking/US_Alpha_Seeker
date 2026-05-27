@@ -1,0 +1,39 @@
+goal_id: us-alpha-seeker-e2e-paper-loop
+goal_version: 2026-05-28
+north_star: >
+  Build a contract-driven autonomous US equities alpha operating system
+  that preserves stage contracts, keeps execution safe by default, proves
+  paper execution with broker-side evidence, and only promotes broader
+  execution behavior after explicit approval and measurable evidence.
+operational_goal: >
+  Make the Stage3-to-Harvester-to-Stage6-to-Sidecar loop reproducible,
+  hash-verified, observable, and safe-by-default across the three
+  repositories.
+constraints:
+  - analysis_repo_must_not_enable_execution_by_default
+  - stage6_artifact_is_canonical
+  - latest_stage4_ready_is_the_stage4_handshake
+  - cross_repo_dispatch_should_carry_goal_hash_and_artifact_hash
+  - safe_default_must_remain_the_default_verification_mode
+  - broker_mutation_requires_explicit_CONFIRM_LIVE_EXECUTION_scope
+done_when:
+  - harvester_summary_contains_goal_metadata
+  - stage6_dispatch_contains_goal_hash_and_stage6_hash
+  - sidecar_blocks_on_goal_hash_mismatch
+  - performance_guard_logs_expose_goal_status
+  - safe_default_never_submits_broker_orders
+owners:
+  harvester: US_Alpha_Seeker_Harvester
+  analysis: US_Alpha_Seeker
+  execution: alpha-exec-engine
+status_contract:
+  file_name: goal_status.json
+  required_fields:
+    - goal_id
+    - goal_version
+    - goal_hash
+    - repo
+    - run_id
+    - checkpoint
+    - status
+    - generated_at

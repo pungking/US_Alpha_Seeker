@@ -93,6 +93,18 @@ Downstream systems must not bypass it or recompute the final signal independentl
 
 `LATEST_STAGE4_READY.json` is an inter-repository handshake contract. Stage 4 must not start unless the `trigger_file` matches the expected upstream artifact.
 
+## 3.4 Goal Contract
+
+Before work that affects cross-repository pipeline contracts, read `goal/goal.yaml`.
+
+Treat `goal_id`, `goal_version`, `goal_hash`, and `done_when` as repository-level
+invariants for planning and status reporting. Goal metadata may be propagated to
+dispatch payloads and runtime status artifacts, but it must not change execution
+behavior or safe defaults from this analysis repository.
+
+If a change would violate repository boundaries, Stage6 canonical ownership, or
+execution safety defaults, stop and mark the goal as blocked.
+
 ---
 
 ## 4. Non-Negotiable Repository Boundary

@@ -1,0 +1,15 @@
+{
+  "goal_id": "us-alpha-seeker-e2e-paper-loop",
+  "goal_version": "2026-05-28",
+  "goal_hash": "sha256:e8578779060f866421906dd83ae92573b8bc8c2531b021de1acb5db57ebed2fe",
+  "repo": "US_Alpha_Seeker",
+  "run_id": "manual-or-gha-run-id",
+  "checkpoint": "analysis-goal-contract",
+  "status": "UNKNOWN",
+  "artifact_hash": "N/A",
+  "evidence": [
+    "goal contract loaded",
+    "safe defaults unchanged"
+  ],
+  "generated_at": "2026-05-28T00:00:00Z"
+}
