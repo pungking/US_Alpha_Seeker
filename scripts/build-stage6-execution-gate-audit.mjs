@@ -616,14 +616,108 @@ function classifyRow(row) {
   return { class: 'OTHER_BLOCK', severity: 'medium', fixLane: 'inspect' };
 }
 
+function isBuyOrStrongBuy(row) {
+  const verdict = String(row?.verdict || '').trim().toUpperCase();
+  return verdict === 'BUY' || verdict === 'STRONG_BUY';
+}
+
+function classifyEntryDistance(row) {
+  const distance = toOptionalNumber(row?.entryDistancePct);
+  if (distance == null) return 'DISTANCE_UNKNOWN';
+  if (distance <= 6) return 'DISTANCE_EXECUTION_WINDOW';
+  if (distance <= 12) return 'DISTANCE_MODERATE_WAIT';
+  return 'DISTANCE_DEEP_PULLBACK';
+}
+
+function assessTradeGeometry(row) {
+  const price = toOptionalNumber(row?.price);
+  const entry = toOptionalNumber(row?.entry);
+  const target = toOptionalNumber(row?.target);
+  const stop = toOptionalNumber(row?.stop);
+  const reasons = [];
+  if (entry == null) reasons.push('missing_entry');
+  if (target == null) reasons.push('missing_target');
+  if (stop == null) reasons.push('missing_stop');
+  if (price == null) reasons.push('missing_current_price');
+  if (reasons.length > 0) return { status: 'MISSING_GEOMETRY', reasons };
+  if (!(target > entry)) reasons.push('target_not_above_entry');
+  if (!(entry > stop)) reasons.push('entry_not_above_stop');
+  if (!(target > price)) reasons.push('target_not_above_current');
+  if (!(price > stop)) reasons.push('current_not_above_stop');
+  return {
+    status: reasons.length > 0 ? 'INVALID_OR_STALE_GEOMETRY' : 'VALID_GEOMETRY',
+    reasons
+  };
+}
+
+function classifyCurrentRr(row) {
+  const rr = toOptionalNumber(row?.rrAtCurrentPrice);
+  const targetBuffer = toOptionalNumber(row?.targetBufferFromCurrentPct);
+  const geometry = assessTradeGeometry(row);
+  if (geometry.status === 'MISSING_GEOMETRY') return 'RR_CURRENT_UNKNOWN_GEOMETRY_MISSING';
+  if (geometry.reasons.includes('target_not_above_current')) return 'RR_CURRENT_TARGET_ALREADY_REACHED';
+  if (geometry.reasons.includes('current_not_above_stop')) return 'RR_CURRENT_STOP_INVALID';
+  if (rr == null) return 'RR_CURRENT_UNKNOWN';
+  if (rr >= 1.8 && (targetBuffer == null || targetBuffer >= 2)) return 'RR_CURRENT_ACCEPTABLE';
+  return 'RR_CURRENT_WEAK';
+}
+
+function classifyWatchlistOnlyAction(row) {
+  const decision = String(row?.finalDecision || '').toUpperCase();
+  const reason = String(row?.decisionReason || '').toLowerCase();
+  if (decision === 'EXECUTABLE_NOW') return 'EXECUTABLE_NO_ACTION';
+  if (!isBuyOrStrongBuy(row)) return 'NON_BUY_VERDICT_REVIEW';
+  if (reason === 'wait_breakout_retest_required') return 'BREAKOUT_RETEST_LANE_REVIEW';
+  if (reason === 'wait_structure_confirmation_required') return 'STRUCTURE_CONFIRMATION_LANE_REVIEW';
+  if (reason === 'wait_earnings_data_missing_quality_floor' || reason === 'wait_earnings_data_missing') {
+    return 'EARNINGS_DATA_FRESHNESS_REVIEW';
+  }
+  if (reason === 'wait_target_near_current') return 'TARGET_NEAR_CURRENT_NO_CHASE_REVIEW';
+  if (reason.startsWith('blocked_quality_')) return 'QUALITY_VERDICT_NORMALIZATION_REVIEW';
+  if (reason.startsWith('blocked_stop_') || reason.startsWith('blocked_rr_')) return 'RISK_GEOMETRY_REVIEW';
+  return 'MANUAL_STAGE6_POLICY_REVIEW';
+}
+
+function incrementCount(bucket, key) {
+  bucket[key] = (bucket[key] || 0) + 1;
+}
+
 function buildRunSummaries(rows) {
   const byRun = new Map();
   for (const row of rows) {
-    const info = byRun.get(row.stage6File) || { stage6File: row.stage6File, total: 0, executable: 0, reasonCounts: {}, classes: {}, rows: [] };
+    const info = byRun.get(row.stage6File) || {
+      stage6File: row.stage6File,
+      total: 0,
+      executable: 0,
+      waitPrice: 0,
+      buyStrongBuyRows: 0,
+      buyStrongBuyWatchlist: 0,
+      confirmationGateRows: 0,
+      reasonCounts: {},
+      classes: {},
+      geometryCounts: {},
+      currentRrCounts: {},
+      entryDistanceCounts: {},
+      watchlistActionCounts: {},
+      rows: []
+    };
     info.total += 1;
     if (row.finalDecision === 'EXECUTABLE_NOW') info.executable += 1;
-    info.reasonCounts[row.decisionReason] = (info.reasonCounts[row.decisionReason] || 0) + 1;
-    info.classes[row.blockerClass] = (info.classes[row.blockerClass] || 0) + 1;
+    if (String(row.finalDecision || '').toUpperCase() === 'WAIT_PRICE') info.waitPrice += 1;
+    if (isBuyOrStrongBuy(row)) info.buyStrongBuyRows += 1;
+    if (isBuyOrStrongBuy(row) && String(row.executionBucket || '').toUpperCase() !== 'EXECUTABLE') {
+      info.buyStrongBuyWatchlist += 1;
+    }
+    const reason = String(row.decisionReason || '').toLowerCase();
+    if (reason === 'wait_structure_confirmation_required' || reason === 'wait_breakout_retest_required') {
+      info.confirmationGateRows += 1;
+    }
+    incrementCount(info.reasonCounts, row.decisionReason);
+    incrementCount(info.classes, row.blockerClass);
+    incrementCount(info.geometryCounts, row.geometryStatus);
+    incrementCount(info.currentRrCounts, row.currentRrStatus);
+    incrementCount(info.entryDistanceCounts, row.entryDistanceStatus);
+    incrementCount(info.watchlistActionCounts, row.watchlistOnlyAction);
     info.rows.push(row);
     byRun.set(row.stage6File, info);
   }
@@ -636,14 +730,34 @@ function buildRunSummaries(rows) {
       (run.classes.CURRENT_STOP_RECALC_REQUIRED || 0) +
       (run.classes.VERDICT_NORMALIZATION_BLOCK || 0);
     const normalSafetyCount = (run.classes.NORMAL_EVENT_BLACKOUT || 0) + (run.classes.NORMAL_RISK_BLOCK || 0) + (run.classes.NORMAL_RR_BLOCK || 0);
+    const confirmationConcentration = run.total > 0 ? run.confirmationGateRows / run.total : 0;
     const verdict = !zeroExecutable
       ? 'HAS_EXECUTABLE'
-      : overblockCount > 0
-        ? 'MODEL_OR_DATA_POLICY_ERROR'
-        : normalSafetyCount >= Math.max(1, Math.ceil(run.total * 0.6))
-          ? 'NORMAL_CONSERVATIVE_FILTER'
-          : 'MIXED_REVIEW_REQUIRED';
-    return { ...run, zeroExecutable, overblockCount, normalSafetyCount, verdict };
+      : run.buyStrongBuyWatchlist > 0 && confirmationConcentration >= 0.5
+        ? 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW'
+        : overblockCount > 0
+          ? 'MODEL_OR_DATA_POLICY_ERROR'
+          : normalSafetyCount >= Math.max(1, Math.ceil(run.total * 0.6))
+            ? 'NORMAL_CONSERVATIVE_FILTER'
+            : 'MIXED_REVIEW_REQUIRED';
+    const nextAction = verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW'
+      ? 'Audit breakout/structure confirmation lanes before touching sidecar order policy.'
+      : verdict === 'MODEL_OR_DATA_POLICY_ERROR'
+        ? 'Inspect Stage6 data/model policy classes and fix producer-side classification.'
+        : verdict === 'NORMAL_CONSERVATIVE_FILTER'
+          ? 'Keep no-order behavior; continue monitoring for fresh executable candidates.'
+          : verdict === 'HAS_EXECUTABLE'
+            ? 'Use sidecar safe run to verify payload/preflight/idempotency, not Stage6 policy tuning.'
+            : 'Manual Stage6 policy review required.';
+    return {
+      ...run,
+      zeroExecutable,
+      overblockCount,
+      normalSafetyCount,
+      confirmationConcentration: Number(confirmationConcentration.toFixed(4)),
+      verdict,
+      nextAction
+    };
   });
 }
 
@@ -663,29 +777,47 @@ function buildMarkdown(report) {
   lines.push(`- Source files: ${report.summary.stage6Files}`);
   lines.push(`- Rows: ${report.summary.rows}`);
   lines.push(`- Zero executable runs: ${report.summary.zeroExecutableRuns}`);
+  lines.push(`- Watchlist-only policy review runs: ${report.summary.watchlistOnlyPolicyReviewRuns}`);
+  lines.push(`- BUY/STRONG_BUY watchlist rows: ${report.summary.buyStrongBuyWatchlistRows}`);
   lines.push(`- Overall verdict: **${report.summary.overallVerdict}**`);
   lines.push('');
   lines.push('## Run Verdicts');
   lines.push('');
-  lines.push('| Stage6 File | Rows | Exec | Verdict | Top Reasons |');
-  lines.push('| --- | ---: | ---: | --- | --- |');
+  lines.push('| Stage6 File | Rows | Exec | BUY/SB Watch | Confirm Gates | Verdict | Top Reasons | Next Action |');
+  lines.push('| --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
   for (const run of report.runSummaries) {
     const topReasons = Object.entries(run.reasonCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([key, count]) => `${key}:${count}`)
       .join(', ');
-    lines.push(`| ${mdEscape(run.stage6File)} | ${run.total} | ${run.executable} | ${run.verdict} | ${mdEscape(topReasons)} |`);
+    lines.push(`| ${mdEscape(run.stage6File)} | ${run.total} | ${run.executable} | ${run.buyStrongBuyWatchlist} | ${run.confirmationGateRows} | ${run.verdict} | ${mdEscape(topReasons)} | ${mdEscape(run.nextAction)} |`);
+  }
+  lines.push('');
+  lines.push('## Latest Watchlist-Only Diagnosis');
+  lines.push('');
+  if (report.latestRun) {
+    lines.push(`- Latest Stage6: ${report.latestRun.stage6File}`);
+    lines.push(`- Latest Verdict: **${report.latestRun.verdict}**`);
+    lines.push(`- Latest Action: ${report.latestRun.nextAction}`);
+    lines.push(`- Reason Counts: ${mdEscape(Object.entries(report.latestRun.reasonCounts || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}`);
+    lines.push(`- Geometry Counts: ${mdEscape(Object.entries(report.latestRun.geometryCounts || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}`);
+    lines.push(`- Current RR Counts: ${mdEscape(Object.entries(report.latestRun.currentRrCounts || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}`);
+    lines.push(`- Entry Distance Counts: ${mdEscape(Object.entries(report.latestRun.entryDistanceCounts || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}`);
+    lines.push(`- Watchlist Action Counts: ${mdEscape(Object.entries(report.latestRun.watchlistActionCounts || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}`);
+  } else {
+    lines.push('- No Stage6 runs were available.');
   }
   lines.push('');
   lines.push('## Candidate Blocker Table');
   lines.push('');
-  lines.push('| File | Symbol | Decision | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | ReqStop | ReqStopDist% | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |');
-  lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |');
+  lines.push('| File | Symbol | Verdict | Decision | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR Status | Watchlist Action | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |');
+  lines.push('| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |');
   for (const row of report.rows.slice(0, 120)) {
     lines.push([
       mdEscape(row.stage6File),
       mdEscape(row.symbol),
+      mdEscape(row.verdict),
       mdEscape(row.finalDecision),
       mdEscape(row.decisionReason),
       mdEscape(row.entryTactic || row.chosenPlanType || 'N/A'),
@@ -694,8 +826,9 @@ function buildMarkdown(report) {
       formatNumber(row.rrAtCurrentPrice),
       formatNumber(row.entryDistancePct),
       formatNumber(row.targetBufferFromCurrentPct),
-      formatNumber(row.currentEntryRequiredStopPrice),
-      formatNumber(row.currentEntryRequiredStopDistancePct),
+      mdEscape(row.geometryStatus),
+      mdEscape(row.currentRrStatus),
+      mdEscape(row.watchlistOnlyAction),
       formatNumber(row.price),
       formatNumber(row.entry),
       formatNumber(row.target),
@@ -712,6 +845,8 @@ function buildMarkdown(report) {
   lines.push('- `BREAKOUT_RETEST_REQUIRED`는 종목을 즉시 매수하라는 뜻이 아니라, 기존 깊은 눌림목 단일 lane으로는 상승 추세 종목을 실행하지 못한다는 설계 신호다.');
   lines.push('- `CURRENT_STOP_RECALC_REQUIRED`는 현재가 진입을 하려면 기존 손절이 아니라 더 가까운 구조적 손절을 재검증해야 한다는 뜻이다. 기본 설정에서는 주문으로 승격하지 않는다.');
   lines.push('- `CURRENT_RR_BAD` 또는 `TARGET_ALREADY_NEAR_CURRENT`는 추격매수 금지 신호다. 이 경우 sidecar chase가 아니라 Stage6 target/stop 재산정 또는 no-trade가 맞다.');
+  lines.push('- `WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW`는 주문 경로 문제가 아니라 Stage6의 구조 확인/브레이크아웃 리테스트 lane이 실행 후보를 과도하게 0개로 만들 가능성이 있다는 뜻이다.');
+  lines.push('- `BREAKOUT_RETEST_LANE_REVIEW`와 `STRUCTURE_CONFIRMATION_LANE_REVIEW`는 즉시 매수 허가가 아니다. 구조 확인 실패와 실행 가능한 현재가 재산정 가능성을 분리해 다음 Stage6 producer 개선 대상으로 올린다.');
   lines.push('- 실적일이 진짜 임박한 `blocked_earnings_window`는 정상 차단이다. 단, null 실적일이 0으로 직렬화되면 잘못된 D-0 표시/판정이 되므로 optional number 직렬화는 반드시 null-safe여야 한다.');
   lines.push('- 진입거리 초과가 반복되면 sidecar chase 폭을 키우는 방식이 아니라 Stage6 진입가 산출/브레이크아웃 lane 재설계를 우선한다.');
   lines.push('');
@@ -749,12 +884,33 @@ async function main() {
   }
   const classifiedRows = rows.map((row) => {
     const cls = classifyRow(row);
-    return { ...row, blockerClass: cls.class, severity: cls.severity, fixLane: cls.fixLane };
+    const geometry = assessTradeGeometry(row);
+    return {
+      ...row,
+      blockerClass: cls.class,
+      severity: cls.severity,
+      fixLane: cls.fixLane,
+      isBuyOrStrongBuy: isBuyOrStrongBuy(row),
+      entryDistanceStatus: classifyEntryDistance(row),
+      geometryStatus: geometry.status,
+      geometryReasons: geometry.reasons,
+      currentRrStatus: classifyCurrentRr(row),
+      watchlistOnlyAction: classifyWatchlistOnlyAction(row)
+    };
   }).sort((a, b) => b.stage6File.localeCompare(a.stage6File) || a.symbol.localeCompare(b.symbol));
   const runSummaries = buildRunSummaries(classifiedRows);
   const zeroExecutableRuns = runSummaries.filter((run) => run.zeroExecutable).length;
   const designErrorRuns = runSummaries.filter((run) => run.verdict === 'MODEL_OR_DATA_POLICY_ERROR').length;
-  const overallVerdict = designErrorRuns > 0 ? 'MODEL_OR_DATA_POLICY_ERROR' : zeroExecutableRuns > 0 ? 'MIXED_OR_CONSERVATIVE' : 'HAS_EXECUTABLES';
+  const watchlistOnlyPolicyReviewRuns = runSummaries.filter((run) => run.verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW').length;
+  const buyStrongBuyWatchlistRows = classifiedRows.filter((row) => row.isBuyOrStrongBuy && String(row.executionBucket || '').toUpperCase() !== 'EXECUTABLE').length;
+  const latestRun = runSummaries[0] || null;
+  const overallVerdict = watchlistOnlyPolicyReviewRuns > 0
+    ? 'WATCHLIST_ONLY_POLICY_REVIEW'
+    : designErrorRuns > 0
+      ? 'MODEL_OR_DATA_POLICY_ERROR'
+      : zeroExecutableRuns > 0
+        ? 'MIXED_OR_CONSERVATIVE'
+        : 'HAS_EXECUTABLES';
   const report = {
     generatedAt: new Date().toISOString(),
     driveFetch,
@@ -763,8 +919,11 @@ async function main() {
       rows: classifiedRows.length,
       zeroExecutableRuns,
       designErrorRuns,
+      watchlistOnlyPolicyReviewRuns,
+      buyStrongBuyWatchlistRows,
       overallVerdict
     },
+    latestRun: latestRun ? { ...latestRun, rows: undefined } : null,
     runSummaries: runSummaries.map(({ rows: _rows, ...run }) => run),
     rows: classifiedRows
   };
