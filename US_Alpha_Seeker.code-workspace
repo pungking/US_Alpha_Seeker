@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../US_Alpha_Seeker_Harvester"
+		}
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
+}
