@@ -3,18 +3,94 @@ name: US Alpha Seeker Auto-Scheduler
 
 on:
   schedule:
-    # 매일 UTC 09:00 (한국 시간 18:00, 미국 동부 표준시 04:00/05:00) 실행
-    - cron: '0 9 * * 1-5'
+    # GitHub schedule jobs at minute 0 can be delayed or dropped under load.
+    # Run off the top of the hour: UTC 09:17 (KST 18:17, US ET 04:17/05:17).
+    - cron: '17 9 * * 1-5'
   workflow_dispatch: # 수동 실행 버튼 (테스트용)
+    inputs:
+      force:
+        description: "Bypass the same-market-day duplicate guard"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 concurrency:
   group: us-alpha-seeker-auto-scheduler-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  daily-run-gate:
+    name: Daily Run Gate
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.guard.outputs.should_run }}
+      reason: ${{ steps.guard.outputs.reason }}
+      market_date: ${{ steps.guard.outputs.market_date }}
+    steps:
+      - name: Check same-market-day Auto-Scheduler runs
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+          FORCE_RUN: ${{ github.event.inputs.force || 'false' }}
+          TARGET_WORKFLOW: US Alpha Seeker Auto-Scheduler
+        run: |
+          set -euo pipefail
+          market_date="$(TZ=America/New_York date +%F)"
+          since="$(node - <<'NODE'
+          const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+          }).formatToParts(new Date());
+          const get = (type) => parts.find((part) => part.type === type)?.value;
+          const marketDate = `${get("year")}-${get("month")}-${get("day")}`;
+          const noonUtc = new Date(`${marketDate}T12:00:00Z`);
+          const nyHour = Number(new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            hour: "2-digit",
+            hour12: false
+          }).format(noonUtc));
+          const offsetHours = 12 - nyHour;
+          console.log(new Date(`${marketDate}T00:00:00.000Z`).getTime() + offsetHours * 60 * 60 * 1000);
+          NODE
+          )"
+          since_iso="$(node -e 'console.log(new Date(Number(process.argv[1])).toISOString())' "$since")"
+          echo "market_date=$market_date" >> "$GITHUB_OUTPUT"
+          echo "[DAILY_GATE] marketDate=$market_date since=$since_iso currentRun=$GITHUB_RUN_ID force=${FORCE_RUN:-false}"
+
+          if [ "${FORCE_RUN:-false}" = "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=force_requested" >> "$GITHUB_OUTPUT"
+            echo "[DAILY_GATE] force=true; allowing run"
+            exit 0
+          fi
+
+          runs="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow "$TARGET_WORKFLOW" \
+            --created ">=$since_iso" \
+            --limit 30 \
+            --json databaseId,status,conclusion,event,createdAt,url)"
+          blocking="$(jq --arg current "$GITHUB_RUN_ID" '[.[] | select((.databaseId | tostring) != $current) | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success"))] | length' <<< "$runs")"
+          echo "[DAILY_GATE] same_day_blocking_runs=$blocking"
+          if [ "$blocking" -gt 0 ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=same_market_day_run_exists" >> "$GITHUB_OUTPUT"
+            echo "$runs" | jq -c '.[] | {databaseId,status,conclusion,event,createdAt,url}'
+            exit 0
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "reason=no_same_market_day_run" >> "$GITHUB_OUTPUT"
+
   alpha-mining:
     name: Alpha Seeking Pipeline
-    if: github.event_name != 'schedule' || github.event.schedule == '0 9 * * 1-5'
+    needs: daily-run-gate
+    if: needs.daily-run-gate.outputs.should_run == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 9 * * 1-5')
     runs-on: ubuntu-latest
     timeout-minutes: 120 # 비용 절감을 위한 타임아웃 설정 (120분으로 증설)
     

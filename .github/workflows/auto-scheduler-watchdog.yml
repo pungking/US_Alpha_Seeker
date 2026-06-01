@@ -1,0 +1,80 @@
+name: US Alpha Seeker Auto-Scheduler Watchdog
+
+on:
+  schedule:
+    # Recovery checks before regular US market hours. The target workflow has
+    # its own same-market-day gate, so late schedule arrivals become no-ops.
+    - cron: "47 10,12 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  recover-missed-auto-scheduler:
+    name: Recover Missed Auto-Scheduler
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_WORKFLOW_NAME: US Alpha Seeker Auto-Scheduler
+      TARGET_WORKFLOW_FILE: schedule.yml
+      TARGET_REF: main
+      GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+    steps:
+      - name: Check today's Auto-Scheduler status
+        id: check
+        run: |
+          set -euo pipefail
+          market_date="$(TZ=America/New_York date +%F)"
+          since_ms="$(node - <<'NODE'
+          const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+          }).formatToParts(new Date());
+          const get = (type) => parts.find((part) => part.type === type)?.value;
+          const marketDate = `${get("year")}-${get("month")}-${get("day")}`;
+          const noonUtc = new Date(`${marketDate}T12:00:00Z`);
+          const nyHour = Number(new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            hour: "2-digit",
+            hour12: false
+          }).format(noonUtc));
+          const offsetHours = 12 - nyHour;
+          console.log(new Date(`${marketDate}T00:00:00.000Z`).getTime() + offsetHours * 60 * 60 * 1000);
+          NODE
+          )"
+          since_iso="$(node -e 'console.log(new Date(Number(process.argv[1])).toISOString())' "$since_ms")"
+          echo "market_date=$market_date" >> "$GITHUB_OUTPUT"
+          echo "since_iso=$since_iso" >> "$GITHUB_OUTPUT"
+
+          runs="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow "$TARGET_WORKFLOW_NAME" \
+            --created ">=$since_iso" \
+            --limit 30 \
+            --json databaseId,status,conclusion,event,createdAt,url)"
+          blocking="$(jq '[.[] | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success"))] | length' <<< "$runs")"
+          echo "blocking_runs=$blocking" >> "$GITHUB_OUTPUT"
+          echo "## Auto-Scheduler Watchdog" >> "$GITHUB_STEP_SUMMARY"
+          echo "- market_date: \`$market_date\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- since: \`$since_iso\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- blocking_runs: \`$blocking\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$blocking" -gt 0 ]; then
+            echo "should_dispatch=false" >> "$GITHUB_OUTPUT"
+            echo "- action: \`skip_existing_run\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "$runs" | jq -c '.[] | {databaseId,status,conclusion,event,createdAt,url}'
+            exit 0
+          fi
+          echo "should_dispatch=true" >> "$GITHUB_OUTPUT"
+          echo "- action: \`dispatch_recovery\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch Auto-Scheduler recovery run
+        if: steps.check.outputs.should_dispatch == 'true'
+        run: |
+          set -euo pipefail
+          gh workflow run "$TARGET_WORKFLOW_FILE" --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+          echo "[WATCHDOG_DISPATCH_OK] workflow=$TARGET_WORKFLOW_FILE ref=$TARGET_REF marketDate=${{ steps.check.outputs.market_date }}"
+          echo "- dispatched: \`$TARGET_WORKFLOW_FILE@$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
