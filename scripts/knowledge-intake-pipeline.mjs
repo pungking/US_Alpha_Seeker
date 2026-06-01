@@ -2299,9 +2299,18 @@ const main = async () => {
     report.queue.lastGoodUpdated = true;
   }
 
+  const emptyQueueReason =
+    sourceMode === "notebooklm_json"
+      ? `approved queue is empty (${report.source.notebooklmStatus}${report.source.notebooklmReason ? `: ${report.source.notebooklmReason}` : ""})`
+      : "approved queue is empty";
+
   if (!obsidianApply) {
     report.obsidian.status = "skip_disabled";
     report.obsidian.reason = "KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=false";
+  } else if (queueItems.length === 0) {
+    report.obsidian.status = "ok_empty_queue";
+    report.obsidian.reason = emptyQueueReason;
+    report.obsidian.fallback = "no_queue_no_write";
   } else if (!obsidianApiKey || !obsidianBaseUrl) {
     report.obsidian.status = "skip_missing_env";
     report.obsidian.reason = "OBSIDIAN_API_KEY or OBSIDIAN_BASE_URL missing";
@@ -2819,16 +2828,8 @@ const main = async () => {
         report.obsidian.graphUploadedHub = obsidianGraphHubEnabled;
         report.obsidian.graphManifestWritten = true;
       }
-      if (queueItems.length === 0) {
-        report.obsidian.status = "ok_empty_queue";
-        report.obsidian.reason =
-          sourceMode === "notebooklm_json"
-            ? `approved queue is empty (${report.source.notebooklmStatus}${report.source.notebooklmReason ? `: ${report.source.notebooklmReason}` : ""})`
-            : "approved queue is empty";
-      } else {
-        report.obsidian.status = "ok";
-        report.obsidian.reason = "";
-      }
+      report.obsidian.status = "ok";
+      report.obsidian.reason = "";
       report.obsidian.uploaded = true;
       report.obsidian.bytes = totalBytes;
     } catch (error) {

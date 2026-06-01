@@ -354,11 +354,12 @@ const defaultRetryQuestions = [
 ];
 
 class JsonLineRpcClient {
-  constructor({ command, args, commandEnv, timeoutMs = 90000 }) {
+  constructor({ command, args, commandEnv, timeoutMs = 90000, startupTimeoutMs = 120000 }) {
     this.command = command;
     this.args = args;
     this.commandEnv = commandEnv;
     this.timeoutMs = timeoutMs;
+    this.startupTimeoutMs = startupTimeoutMs;
     this.proc = null;
     this.buffer = "";
     this.nextId = 1;
@@ -388,11 +389,15 @@ class JsonLineRpcClient {
       }
       this.pending.clear();
     });
-    await this.request("initialize", {
-      protocolVersion: "2025-03-26",
-      capabilities: {},
-      clientInfo: { name: "knowledge-intake-notebooklm", version: "1.0.0" }
-    });
+    await this.request(
+      "initialize",
+      {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "knowledge-intake-notebooklm", version: "1.0.0" }
+      },
+      { timeoutMs: this.startupTimeoutMs }
+    );
     this.notify("notifications/initialized", {});
   }
 
@@ -438,14 +443,15 @@ class JsonLineRpcClient {
     this.#send({ jsonrpc: "2.0", method, params });
   }
 
-  async request(method, params = {}) {
+  async request(method, params = {}, options = {}) {
     if (this.exitCode != null) throw new Error(`mcp_process_exit:${this.exitCode}`);
+    const timeoutMs = Math.max(1000, Number(options?.timeoutMs || this.timeoutMs) || this.timeoutMs);
     const id = this.nextId++;
     return await new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`timeout ${method}`));
-      }, this.timeoutMs);
+      }, timeoutMs);
       this.pending.set(id, (msg) => {
         clearTimeout(timer);
         if (msg.error) reject(new Error(msg.error?.message || JSON.stringify(msg.error)));
@@ -528,6 +534,11 @@ const main = async () => {
   const rpcTimeoutMsRaw = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS", 300000);
   const rpcTimeoutFloorMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_FLOOR_MS", 300000);
   const rpcTimeoutMs = clampMin(rpcTimeoutMsRaw, rpcTimeoutFloorMs);
+  const startupTimeoutDefaultMs = Math.min(rpcTimeoutMs, 120000);
+  const startupTimeoutMs = Math.max(
+    30000,
+    numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_STARTUP_TIMEOUT_MS", startupTimeoutDefaultMs)
+  );
   const maxQuestionChars = Math.max(80, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_QUESTION_CHARS", 220));
   const answerMaxChars = Math.max(1200, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_ANSWER_MAX_CHARS", 4200));
   const allQuestions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions);
@@ -599,6 +610,7 @@ const main = async () => {
     command,
     args,
     rpcTimeoutMs,
+    startupTimeoutMs,
     notebook: { requestedId: notebookId || null, requestedUrl: notebookUrl || null, query: notebookQuery || null, selected: null },
     health: { authenticated: null, status: null },
     healthStatePath: path.relative(CWD, HEALTH_STATE_PATH),
@@ -688,7 +700,7 @@ const main = async () => {
   if (env("GEMINI_API_KEY")) commandEnv.GOOGLE_API_KEY = env("GEMINI_API_KEY");
   commandEnv.BROWSER_TIMEOUT = String(browserTimeoutMs);
 
-  const client = new JsonLineRpcClient({ command, args, commandEnv, timeoutMs: rpcTimeoutMs });
+  const client = new JsonLineRpcClient({ command, args, commandEnv, timeoutMs: rpcTimeoutMs, startupTimeoutMs });
   const buildBrowserOptions = ({ forceShow } = {}) => {
     const show = typeof forceShow === "boolean" ? forceShow : showBrowser;
     return {
