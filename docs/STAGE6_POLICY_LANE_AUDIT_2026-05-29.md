@@ -1,8 +1,8 @@
 # Stage6 Policy Lane Audit
 
-- GeneratedAt: 2026-06-01T14:49:11.903Z
+- GeneratedAt: 2026-06-01T15:23:01.753Z
 - Source Audit: state/stage6-execution-gate-audit.json
-- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-01_23-41-12.json
+- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-02_00-15-06.json
 - Latest Verdict: **STAGE6_PRODUCER_POLICY_REVIEW_REQUIRED**
 - Latest Review-Ready Rows: 1
 - Broker Mutation Authorized: false
@@ -29,9 +29,10 @@
 | Symbol | Verdict | Lane | Stage6 Reason | Lane Decision | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
 | CRMD | BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_RETEST_POLICY_REVIEW_READY | 99.00 | 4.49 | 17.16 | 82.54 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Design a Stage6 breakout/retest proof lane with explicit retest evidence; do not promote by sidecar chase. |
-| PD | STRONG_BUY | other | blocked_rr_below_min | OUT_OF_SCOPE_FOR_POLICY_LANE | 16.00 | N/A | 32.77 | -19.56 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Use execution gate audit blocker class and sidecar-safe validation path. |
-| TRIN | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED | 16.00 | 0.35 | 11.35 | 4.45 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE unless structure proof changes in the next Stage6 artifact. |
-| ZVRA | BUY | other | blocked_stop_too_tight | OUT_OF_SCOPE_FOR_POLICY_LANE | 118.00 | 5.00 | 18.44 | 97.59 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Use execution gate audit blocker class and sidecar-safe validation path. |
+| IMPP | BUY | other | blocked_stop_too_tight | OUT_OF_SCOPE_FOR_POLICY_LANE | 77.00 | 4.33 | 15.22 | 70.13 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Use execution gate audit blocker class and sidecar-safe validation path. |
+| PD | STRONG_BUY | other | blocked_rr_below_min | OUT_OF_SCOPE_FOR_POLICY_LANE | 16.00 | N/A | 33.03 | -19.87 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Use execution gate audit blocker class and sidecar-safe validation path. |
+| TRIN | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED | 16.00 | 0.36 | 11.29 | 4.51 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE unless structure proof changes in the next Stage6 artifact. |
+| ZVRA | BUY | other | blocked_stop_too_tight | OUT_OF_SCOPE_FOR_POLICY_LANE | 118.00 | 4.82 | 18.93 | 96.41 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Use execution gate audit blocker class and sidecar-safe validation path. |
 
 ## Policy Interpretation
 
