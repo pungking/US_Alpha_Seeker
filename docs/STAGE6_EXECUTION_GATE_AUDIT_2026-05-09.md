@@ -1,17 +1,18 @@
 # Stage6 Execution Gate Audit
 
-- GeneratedAt: 2026-05-28T15:11:49.125Z
-- Source files: 27
-- Rows: 191
+- GeneratedAt: 2026-06-01T10:34:06.716Z
+- Source files: 28
+- Rows: 199
 - Zero executable runs: 4
 - Watchlist-only policy review runs: 1
-- BUY/STRONG_BUY watchlist rows: 133
+- BUY/STRONG_BUY watchlist rows: 138
 - Overall verdict: **WATCHLIST_ONLY_POLICY_REVIEW**
 
 ## Run Verdicts
 
 | Stage6 File | Rows | Exec | BUY/SB Watch | Confirm Gates | Verdict | Top Reasons | Next Action |
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | 8 | 2 | 5 | 3 | HAS_EXECUTABLE | wait_structure_confirmation_required:2, executable_earnings_data_missing_haircut:1, wait_recalculated_stop_required:1, wait_breakout_retest_required:1, executable_pullback:1 | Use sidecar safe run to verify payload/preflight/idempotency, not Stage6 policy tuning. |
 | STAGE6_ALPHA_FINAL_2026-05-28_22-15-31.json | 6 | 0 | 6 | 4 | WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW | wait_breakout_retest_required:2, wait_structure_confirmation_required:2, wait_earnings_data_missing_quality_floor:1, wait_target_near_current:1 | Audit breakout/structure confirmation lanes before touching sidecar order policy. |
 | STAGE6_ALPHA_FINAL_2026-05-27_22-09-10.json | 7 | 1 | 6 | 4 | HAS_EXECUTABLE | wait_structure_confirmation_required:3, wait_recalculated_stop_required:1, wait_breakout_retest_required:1, blocked_stop_too_tight:1, executable_earnings_data_missing_haircut:1 | Use sidecar safe run to verify payload/preflight/idempotency, not Stage6 policy tuning. |
 | STAGE6_ALPHA_FINAL_2026-05-26_22-26-35.json | 7 | 1 | 4 | 3 | HAS_EXECUTABLE | wait_structure_confirmation_required:3, wait_target_near_current:1, executable_pullback:1, blocked_quality_verdict_unusable:1, blocked_stop_too_tight:1 | Use sidecar safe run to verify payload/preflight/idempotency, not Stage6 policy tuning. |
@@ -42,19 +43,27 @@
 
 ## Latest Watchlist-Only Diagnosis
 
-- Latest Stage6: STAGE6_ALPHA_FINAL_2026-05-28_22-15-31.json
-- Latest Verdict: **WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW**
-- Latest Action: Audit breakout/structure confirmation lanes before touching sidecar order policy.
-- Reason Counts: wait_earnings_data_missing_quality_floor:1, wait_breakout_retest_required:2, wait_structure_confirmation_required:2, wait_target_near_current:1
-- Geometry Counts: VALID_GEOMETRY:5, INVALID_OR_STALE_GEOMETRY:1
-- Current RR Counts: RR_CURRENT_WEAK:3, RR_CURRENT_ACCEPTABLE:2, RR_CURRENT_TARGET_ALREADY_REACHED:1
-- Entry Distance Counts: DISTANCE_EXECUTION_WINDOW:1, DISTANCE_DEEP_PULLBACK:5
-- Watchlist Action Counts: EARNINGS_DATA_FRESHNESS_REVIEW:1, BREAKOUT_RETEST_LANE_REVIEW:2, STRUCTURE_CONFIRMATION_LANE_REVIEW:2, TARGET_NEAR_CURRENT_NO_CHASE_REVIEW:1
+- Latest Stage6: STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json
+- Latest Verdict: **HAS_EXECUTABLE**
+- Latest Action: Use sidecar safe run to verify payload/preflight/idempotency, not Stage6 policy tuning.
+- Reason Counts: executable_earnings_data_missing_haircut:1, wait_recalculated_stop_required:1, wait_breakout_retest_required:1, wait_structure_confirmation_required:2, executable_pullback:1, blocked_rr_below_min:1, blocked_stop_too_tight:1
+- Geometry Counts: VALID_GEOMETRY:7, INVALID_OR_STALE_GEOMETRY:1
+- Current RR Counts: RR_CURRENT_ACCEPTABLE:3, RR_CURRENT_WEAK:4, RR_CURRENT_TARGET_ALREADY_REACHED:1
+- Entry Distance Counts: DISTANCE_EXECUTION_WINDOW:2, DISTANCE_DEEP_PULLBACK:5, DISTANCE_MODERATE_WAIT:1
+- Watchlist Action Counts: EXECUTABLE_NO_ACTION:2, MANUAL_STAGE6_POLICY_REVIEW:1, BREAKOUT_RETEST_LANE_REVIEW:1, NON_BUY_VERDICT_REVIEW:1, RISK_GEOMETRY_REVIEW:2, STRUCTURE_CONFIRMATION_LANE_REVIEW:1
 
 ## Candidate Blocker Table
 
 | File | Symbol | Verdict | Decision | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR Status | Watchlist Action | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |
 | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | B | BUY | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | PULLBACK_LIMIT | 33.00 | 3.69 | 2.36 | 4.08 | 34.08 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | EXECUTABLE_NO_ACTION | 42.60 | 40.86 | 57.12 | 36.45 | N/A | EXECUTABLE | sidecar_fillability |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | BFH | BUY | WAIT_PRICE | wait_recalculated_stop_required | RECALCULATED_STOP_REVIEW | 21.00 | 15.34 | 0.57 | 12.36 | 7.80 | VALID_GEOMETRY | RR_CURRENT_WEAK | MANUAL_STAGE6_POLICY_REVIEW | 89.23 | 78.20 | 96.19 | 77.03 | 54 | CURRENT_STOP_RECALC_REQUIRED | stage6_current_entry_stop_recalibration |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | CRMD | STRONG_BUY | WAIT_PRICE | wait_breakout_retest_required | BREAKOUT_RETEST | 99.00 | 80.23 | 4.28 | 17.74 | 81.25 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | BREAKOUT_RETEST_LANE_REVIEW | 8.46 | 6.96 | 15.33 | 6.85 | N/A | BREAKOUT_RETEST_REQUIRED | stage6_breakout_retest_lane |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | DAVE | SPECULATIVE_BUY | WAIT_PRICE | wait_structure_confirmation_required | RECALCULATED_STOP_REVIEW | 63.00 | 45.32 | 0.73 | 27.88 | 21.14 | VALID_GEOMETRY | RR_CURRENT_WEAK | NON_BUY_VERDICT_REVIEW | 278.00 | 200.49 | 336.78 | 197.48 | N/A | STRUCTURE_CONFIRMATION_REQUIRED | current_entry_structure_validation |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | INCY | BUY | EXECUTABLE_NOW | executable_pullback | PULLBACK_LIMIT | 14.00 | 9.58 | 1.75 | 4.46 | 10.55 | VALID_GEOMETRY | RR_CURRENT_WEAK | EXECUTABLE_NO_ACTION | 97.66 | 93.31 | 107.96 | 91.78 | 59 | EXECUTABLE | sidecar_fillability |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | PD | STRONG_BUY | BLOCKED_RISK | blocked_rr_below_min | PULLBACK_LIMIT | 16.00 | 1.33 | N/A | 29.34 | -15.45 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | RISK_GEOMETRY_REVIEW | 9.80 | 6.92 | 8.29 | 5.90 | N/A | NORMAL_RR_BLOCK | none |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | TRIN | BUY | WAIT_PRICE | wait_structure_confirmation_required | RECALCULATED_STOP_REVIEW | 16.00 | 11.88 | 0.38 | 11.14 | 4.70 | VALID_GEOMETRY | RR_CURRENT_WEAK | STRUCTURE_CONFIRMATION_LANE_REVIEW | 16.98 | 15.09 | 17.78 | 14.86 | N/A | STRUCTURE_CONFIRMATION_REQUIRED | current_entry_structure_validation |
+| STAGE6_ALPHA_FINAL_2026-05-30_03-00-48.json | ZVRA | BUY | BLOCKED_RISK | blocked_stop_too_tight | PULLBACK_LIMIT | 118.00 | 107.79 | 4.97 | 18.51 | 97.42 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | RISK_GEOMETRY_REVIEW | 11.65 | 9.49 | 23.00 | 9.37 | N/A | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
 | STAGE6_ALPHA_FINAL_2026-05-28_22-15-31.json | AUPH | BUY | WAIT_PRICE | wait_earnings_data_missing_quality_floor | PULLBACK_LIMIT | 16.00 | 2.40 | 0.82 | 5.30 | 9.40 | VALID_GEOMETRY | RR_CURRENT_WEAK | EARNINGS_DATA_FRESHNESS_REVIEW | 15.54 | 14.72 | 17.00 | 13.77 | N/A | EARNINGS_MISSING_CONSERVATIVE_WAIT | earnings_data_collection |
 | STAGE6_ALPHA_FINAL_2026-05-28_22-15-31.json | CRMD | STRONG_BUY | WAIT_PRICE | wait_breakout_retest_required | BREAKOUT_RETEST | 99.00 | 80.23 | 4.28 | 17.74 | 81.25 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | BREAKOUT_RETEST_LANE_REVIEW | 8.46 | 6.96 | 15.33 | 6.85 | N/A | BREAKOUT_RETEST_REQUIRED | stage6_breakout_retest_lane |
 | STAGE6_ALPHA_FINAL_2026-05-28_22-15-31.json | DAVE | BUY | WAIT_PRICE | wait_structure_confirmation_required | RECALCULATED_STOP_REVIEW | 63.00 | 45.32 | 1.37 | 21.76 | 31.42 | VALID_GEOMETRY | RR_CURRENT_WEAK | STRUCTURE_CONFIRMATION_LANE_REVIEW | 256.26 | 200.49 | 336.78 | 197.48 | N/A | STRUCTURE_CONFIRMATION_REQUIRED | current_entry_structure_validation |
@@ -167,14 +176,6 @@
 | STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | CPRX | BUY | BLOCKED_EVENT | blocked_earnings_window | N/A | 32.00 | 5.18 | N/A | 19.05 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | MANUAL_STAGE6_POLICY_REVIEW | N/A | 25.23 | 34.14 | 23.51 | 3 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
 | STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | DHT | SPECULATIVE_BUY | BLOCKED_RISK | blocked_stop_too_tight | N/A | 22.00 | 34.69 | N/A | 13.19 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | NON_BUY_VERDICT_REVIEW | N/A | 16.51 | 20.20 | 16.40 | 0 | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
 | STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | JHG | STRONG_BUY | BLOCKED_EVENT | blocked_earnings_window | N/A | 5.00 | 3.91 | N/A | 3.74 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | MANUAL_STAGE6_POLICY_REVIEW | N/A | 49.75 | 52.67 | 49.00 | 0 | NORMAL_EVENT_BLACKOUT | none_unless_date_wrong |
-| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | PTC | STRONG_BUY | WAIT_PRICE | wait_earnings_data_missing_quality_floor | N/A | 28.00 | 2.60 | N/A | 3.83 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | EARNINGS_DATA_FRESHNESS_REVIEW | N/A | 142.00 | 184.44 | 125.69 | 0 | DATA_POLICY_OVERBLOCK | earnings_missing_threshold_policy |
-| STAGE6_ALPHA_FINAL_2026-05-08_20-25-34.json | SPNT | BUY | WAIT_PRICE | wait_pullback_not_reached | N/A | 26.00 | 17.12 | N/A | 10.80 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | MANUAL_STAGE6_POLICY_REVIEW | N/A | 20.95 | 26.33 | 20.64 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | ASB | STRONG_BUY | WAIT_PRICE | wait_pullback_not_reached | N/A | 21.00 | 14.28 | N/A | 11.88 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | MANUAL_STAGE6_POLICY_REVIEW | N/A | 25.45 | 30.90 | 25.07 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | DLO | BUY | BLOCKED_RISK | blocked_stop_too_tight | N/A | 45.00 | 40.25 | N/A | 13.45 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | RISK_GEOMETRY_REVIEW | N/A | 12.14 | 17.65 | 12.01 | 7 | GEOMETRY_POLICY_REVIEW | stop_floor_or_tick_buffer_review |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | HNRG | STRONG_BUY | WAIT_PRICE | wait_pullback_not_reached | N/A | 57.00 | 3.54 | N/A | 9.94 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | MANUAL_STAGE6_POLICY_REVIEW | N/A | 16.71 | 27.13 | 13.76 | 0 | CONSERVATIVE_PULLBACK_WAIT | sidecar_reprice_or_watch |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | INCY | STRONG_BUY | EXECUTABLE_NOW | executable_earnings_data_missing_haircut | N/A | 14.00 | 3.22 | N/A | 5.61 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | EXECUTABLE_NO_ACTION | N/A | 94.25 | 108.50 | 89.83 | 0 | EXECUTABLE | sidecar_fillability |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | MLI | STRONG_BUY | WAIT_PRICE | wait_pullback_not_reached | N/A | 27.00 | 11.27 | N/A | 15.92 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | MANUAL_STAGE6_POLICY_REVIEW | N/A | 116.98 | 149.50 | 114.09 | 0 | ENTRY_MODEL_TOO_DEEP | entry_model_recalibration |
-| STAGE6_ALPHA_FINAL_2026-05-07_20-49-27.json | PDD | STRONG_BUY | EXECUTABLE_NOW | executable_pullback | N/A | 44.00 | 8.05 | N/A | 3.08 | N/A | MISSING_GEOMETRY | RR_CURRENT_UNKNOWN_GEOMETRY_MISSING | EXECUTABLE_NO_ACTION | N/A | 99.16 | 142.87 | 93.73 | 20 | EXECUTABLE | sidecar_fillability |
 
 ## Policy Decision
 

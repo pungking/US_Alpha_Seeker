@@ -103,6 +103,18 @@ interface AlphaCandidate {
   currentEntryStructureSupportDate?: string | null;
   currentEntryStructureSupportLow?: number | null;
   currentEntryStructurePriceDriftPct?: number | null;
+  breakoutRetestProofVerdict?: string | null;
+  breakoutRetestProofConfirmed?: boolean | null;
+  breakoutRetestProofReviewReady?: boolean | null;
+  breakoutRetestProofReasons?: string[] | null;
+  breakoutRetestProofSource?: string | null;
+  breakoutRetestProofLatestBarDate?: string | null;
+  breakoutRetestProofLatestClose?: number | null;
+  breakoutRetestProofRetestLevel?: number | null;
+  breakoutRetestProofRetestDate?: string | null;
+  breakoutRetestProofRetestLow?: number | null;
+  breakoutRetestProofBarsSinceRetest?: number | null;
+  breakoutRetestProofCurrentExtensionPct?: number | null;
   tradePlanDecision?: string | null;
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
@@ -490,6 +502,23 @@ type CurrentEntryStructurePayload = {
   priceDriftPct: number | null;
 };
 
+type BreakoutRetestProofPayload = {
+  verdict: string | null;
+  confirmed: boolean;
+  reviewReady: boolean;
+  reasons: string[];
+  source: string;
+  latestBarDate: string | null;
+  latestClose: number | null;
+  retestLevel: number | null;
+  retestDate: string | null;
+  retestLow: number | null;
+  barsSinceRetest: number | null;
+  currentExtensionFromRetestPct: number | null;
+  rrAtCurrentPrice: number | null;
+  targetBufferFromCurrentPct: number | null;
+};
+
 const CURRENT_ENTRY_STRUCTURE_POLICY = {
   minBars: 60,
   atrWindow: 14,
@@ -498,6 +527,14 @@ const CURRENT_ENTRY_STRUCTURE_POLICY = {
   maxStopAtr: 3.0,
   supportBufferAtr: 0.35,
   maxPriceDriftPct: 5.0
+};
+
+const BREAKOUT_RETEST_PROOF_POLICY = {
+  minBars: 60,
+  retestLookbackBars: 30,
+  maxBarsSinceRetest: 12,
+  retestTolerancePct: 2.0,
+  maxCurrentExtensionFromRetestPct: 8.0
 };
 
 const roundOrNull = (value: number | null, digits: number): number | null => {
@@ -650,6 +687,86 @@ const deriveCurrentEntryStructure = (input: {
     supportDate: support?.date ?? null,
     supportLow: roundOrNull(support?.low ?? null, 4),
     priceDriftPct: roundOrNull(driftPct, 2)
+  };
+};
+
+const deriveBreakoutRetestProof = (input: {
+  price: number | null;
+  entry: number | null;
+  target: number | null;
+  stop: number | null;
+  rrAtCurrentPrice: number | null;
+  targetBufferFromCurrentPct: number | null;
+  entryDistancePct: number | null;
+  priceHistory: any;
+}): BreakoutRetestProofPayload => {
+  const policy = BREAKOUT_RETEST_PROOF_POLICY;
+  const bars = normalizeStage6StructureBars(input.priceHistory);
+  const latest = bars[bars.length - 1] || null;
+  const price = input.price;
+  const entry = input.entry;
+  const target = input.target;
+  const stop = input.stop;
+  const basePayload = {
+    source: 'stage6_price_history',
+    latestBarDate: latest?.date ?? null,
+    latestClose: roundOrNull(latest?.close ?? null, 4),
+    retestLevel: roundOrNull(entry, 4),
+    retestDate: null as string | null,
+    retestLow: null as number | null,
+    barsSinceRetest: null as number | null,
+    currentExtensionFromRetestPct:
+      price != null && entry != null && entry > 0
+        ? roundOrNull(((price - entry) / entry) * 100, 2)
+        : null,
+    rrAtCurrentPrice: roundOrNull(input.rrAtCurrentPrice, 2),
+    targetBufferFromCurrentPct: roundOrNull(input.targetBufferFromCurrentPct, 2)
+  };
+
+  if (!bars.length) {
+    return { verdict: 'BREAKOUT_RETEST_DATA_MISSING', confirmed: false, reviewReady: false, reasons: ['ohlcv_bars_missing'], ...basePayload };
+  }
+  if (bars.length < policy.minBars) {
+    return { verdict: 'BREAKOUT_RETEST_DATA_INSUFFICIENT', confirmed: false, reviewReady: false, reasons: [`bars_lt_${policy.minBars}`], ...basePayload };
+  }
+  if (!(price != null && entry != null && target != null && stop != null && price > 0 && entry > 0 && target > price && price > stop)) {
+    return { verdict: 'BREAKOUT_RETEST_INPUT_INVALID', confirmed: false, reviewReady: false, reasons: ['price_entry_target_stop_invalid'], ...basePayload };
+  }
+  if (input.rrAtCurrentPrice == null || input.rrAtCurrentPrice < 1.8 || input.targetBufferFromCurrentPct == null || input.targetBufferFromCurrentPct < 2) {
+    return { verdict: 'BREAKOUT_RETEST_CURRENT_RR_WEAK', confirmed: false, reviewReady: false, reasons: ['current_rr_or_target_buffer_weak'], ...basePayload };
+  }
+
+  const recent = bars.slice(-policy.retestLookbackBars);
+  const tolerance = entry * (policy.retestTolerancePct / 100);
+  const retestCandidates = recent
+    .map((bar, idx) => ({ bar, idx }))
+    .filter(({ bar }) => bar.low <= entry + tolerance && bar.close >= entry);
+  const latestRetest = retestCandidates[retestCandidates.length - 1] || null;
+  const barsSinceRetest = latestRetest ? recent.length - 1 - latestRetest.idx : null;
+  const currentExtensionFromRetestPct = ((price - entry) / entry) * 100;
+  const reasons: string[] = [];
+  if (!latestRetest) reasons.push('retest_touch_missing');
+  if (barsSinceRetest != null && barsSinceRetest > policy.maxBarsSinceRetest) reasons.push('retest_stale');
+  if (currentExtensionFromRetestPct > policy.maxCurrentExtensionFromRetestPct) reasons.push('current_extension_from_retest_high');
+  if (latest && latest.close < entry) reasons.push('latest_close_below_retest_level');
+
+  const confirmed = reasons.length === 0;
+  const reviewReady = !confirmed && input.rrAtCurrentPrice >= 1.8 && input.targetBufferFromCurrentPct >= 2;
+  const verdict = confirmed
+    ? 'BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE'
+    : reviewReady
+      ? 'BREAKOUT_RETEST_PROOF_REVIEW_READY'
+      : `BREAKOUT_RETEST_REJECT_${(reasons[0] || 'UNKNOWN').toUpperCase()}`;
+  return {
+    verdict,
+    confirmed,
+    reviewReady,
+    reasons,
+    ...basePayload,
+    retestDate: latestRetest?.bar?.date ?? null,
+    retestLow: roundOrNull(latestRetest?.bar?.low ?? null, 4),
+    barsSinceRetest,
+    currentExtensionFromRetestPct: roundOrNull(currentExtensionFromRetestPct, 2)
   };
 };
 
@@ -4837,6 +4954,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const currentEntryStructureSupportLow = derivedCurrentEntryStructure.supportLow;
           const currentEntryStructurePriceDriftPct = derivedCurrentEntryStructure.priceDriftPct;
           const currentEntryStructureGatePassed = !STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED || currentEntryStructureConfirmed;
+          const breakoutRetestProof = deriveBreakoutRetestProof({
+              price: livePrice,
+              entry: entryExecPriceShadow,
+              target: mirroredTarget,
+              stop: mirroredStop,
+              rrAtCurrentPrice,
+              targetBufferFromCurrentPct,
+              entryDistancePct: entryDistancePctShadow,
+              priceHistory: item?.priceHistory || item?.fullHistory || item?.history || []
+          });
           const expectedReturnPct = parseExpectedReturnPct(
               item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
           );
@@ -5182,6 +5309,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureSupportDate,
               currentEntryStructureSupportLow,
               currentEntryStructurePriceDriftPct,
+              breakoutRetestProofVerdict: breakoutRetestProof.verdict,
+              breakoutRetestProofConfirmed: breakoutRetestProof.confirmed,
+              breakoutRetestProofReviewReady: breakoutRetestProof.reviewReady,
+              breakoutRetestProofReasons: breakoutRetestProof.reasons,
+              breakoutRetestProofSource: breakoutRetestProof.source,
+              breakoutRetestProofLatestBarDate: breakoutRetestProof.latestBarDate,
+              breakoutRetestProofLatestClose: breakoutRetestProof.latestClose,
+              breakoutRetestProofRetestLevel: breakoutRetestProof.retestLevel,
+              breakoutRetestProofRetestDate: breakoutRetestProof.retestDate,
+              breakoutRetestProofRetestLow: breakoutRetestProof.retestLow,
+              breakoutRetestProofBarsSinceRetest: breakoutRetestProof.barsSinceRetest,
+              breakoutRetestProofCurrentExtensionPct: breakoutRetestProof.currentExtensionFromRetestPct,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,
               tradePlanReason:
                   useRecalculatedCurrentEntry
@@ -5879,6 +6018,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureSupportDate: normalizeOptionalText(item.currentEntryStructureSupportDate),
               currentEntryStructureSupportLow: toOptionalFiniteNumber(item.currentEntryStructureSupportLow),
               currentEntryStructurePriceDriftPct: toOptionalFiniteNumber(item.currentEntryStructurePriceDriftPct),
+              breakoutRetestProofVerdict: normalizeOptionalText(item.breakoutRetestProofVerdict),
+              breakoutRetestProofConfirmed: Boolean(item.breakoutRetestProofConfirmed),
+              breakoutRetestProofReviewReady: Boolean(item.breakoutRetestProofReviewReady),
+              breakoutRetestProofReasons: Array.isArray(item.breakoutRetestProofReasons) ? item.breakoutRetestProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              breakoutRetestProofSource: normalizeOptionalText(item.breakoutRetestProofSource),
+              breakoutRetestProofLatestBarDate: normalizeOptionalText(item.breakoutRetestProofLatestBarDate),
+              breakoutRetestProofLatestClose: toOptionalFiniteNumber(item.breakoutRetestProofLatestClose),
+              breakoutRetestProofRetestLevel: toOptionalFiniteNumber(item.breakoutRetestProofRetestLevel),
+              breakoutRetestProofRetestDate: normalizeOptionalText(item.breakoutRetestProofRetestDate),
+              breakoutRetestProofRetestLow: toOptionalFiniteNumber(item.breakoutRetestProofRetestLow),
+              breakoutRetestProofBarsSinceRetest: toOptionalFiniteNumber(item.breakoutRetestProofBarsSinceRetest),
+              breakoutRetestProofCurrentExtensionPct: toOptionalFiniteNumber(item.breakoutRetestProofCurrentExtensionPct),
               tradePlanDecision: normalizeOptionalText(item.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item.tradePlanReason),
               executionVerdict: normalizeOptionalText(item.executionVerdict),
@@ -5936,6 +6087,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureSupportDate: normalizeOptionalText(item?.currentEntryStructureSupportDate),
               currentEntryStructureSupportLow: toOptionalFiniteNumber(item?.currentEntryStructureSupportLow),
               currentEntryStructurePriceDriftPct: toOptionalFiniteNumber(item?.currentEntryStructurePriceDriftPct),
+              breakoutRetestProofVerdict: normalizeOptionalText(item?.breakoutRetestProofVerdict),
+              breakoutRetestProofConfirmed: Boolean(item?.breakoutRetestProofConfirmed),
+              breakoutRetestProofReviewReady: Boolean(item?.breakoutRetestProofReviewReady),
+              breakoutRetestProofReasons: Array.isArray(item?.breakoutRetestProofReasons) ? item.breakoutRetestProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              breakoutRetestProofSource: normalizeOptionalText(item?.breakoutRetestProofSource),
+              breakoutRetestProofLatestBarDate: normalizeOptionalText(item?.breakoutRetestProofLatestBarDate),
+              breakoutRetestProofLatestClose: toOptionalFiniteNumber(item?.breakoutRetestProofLatestClose),
+              breakoutRetestProofRetestLevel: toOptionalFiniteNumber(item?.breakoutRetestProofRetestLevel),
+              breakoutRetestProofRetestDate: normalizeOptionalText(item?.breakoutRetestProofRetestDate),
+              breakoutRetestProofRetestLow: toOptionalFiniteNumber(item?.breakoutRetestProofRetestLow),
+              breakoutRetestProofBarsSinceRetest: toOptionalFiniteNumber(item?.breakoutRetestProofBarsSinceRetest),
+              breakoutRetestProofCurrentExtensionPct: toOptionalFiniteNumber(item?.breakoutRetestProofCurrentExtensionPct),
               tradePlanDecision: normalizeOptionalText(item?.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item?.tradePlanReason),
               executionBucket:
@@ -6117,6 +6280,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       currentEntryMinRr: STAGE6_CURRENT_ENTRY_MIN_RR,
                       currentEntryMinTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
                       breakoutRetestDistancePct: STAGE6_BREAKOUT_RETEST_DISTANCE_PCT,
+                      breakoutRetestProofPolicy: BREAKOUT_RETEST_PROOF_POLICY,
                       stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,
                       stateConflictStates: Array.from(STAGE6_STATE_CONFLICT_STATES),
                       verdictConflictFlag: STAGE6_VERDICT_CONFLICT_FLAG,

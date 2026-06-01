@@ -94,6 +94,12 @@ function earningsMissingDecision(row) {
 
 function breakoutDecision(row) {
   if (!isReason(row, 'wait_breakout_retest_required')) return null;
+  if (row.breakoutRetestProofConfirmed === true || row.breakoutRetestProofVerdict === 'BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE') {
+    return {
+      laneDecision: 'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
+      recommendedAction: 'Producer has explicit retest proof; next step is a separate Stage6 policy decision, not sidecar auto-promotion.'
+    };
+  }
   if (isValidGeometry(row) && isCurrentRrAcceptable(row) && hasDeepDistance(row)) {
     return {
       laneDecision: 'BREAKOUT_RETEST_POLICY_REVIEW_READY',
@@ -178,6 +184,7 @@ function buildReport(input) {
   const reviewReadyDecisions = new Set([
     'BREAKOUT_RETEST_POLICY_REVIEW_READY',
     'BREAKOUT_RETEST_REVIEW_LOW_DISTANCE',
+    'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
     'STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY',
     'EARNINGS_DATA_OVERBLOCK_REVIEW_READY'
   ]);
@@ -253,6 +260,13 @@ function compactRow(row) {
     currentEntryStructureVerdict: row.currentEntryStructureVerdict || null,
     currentEntryStructureConfirmed: Boolean(row.currentEntryStructureConfirmed),
     currentEntryStructureReasons: row.currentEntryStructureReasons || [],
+    breakoutRetestProofVerdict: row.breakoutRetestProofVerdict || null,
+    breakoutRetestProofConfirmed: Boolean(row.breakoutRetestProofConfirmed),
+    breakoutRetestProofReviewReady: Boolean(row.breakoutRetestProofReviewReady),
+    breakoutRetestProofReasons: row.breakoutRetestProofReasons || [],
+    breakoutRetestProofRetestLevel: row.breakoutRetestProofRetestLevel ?? null,
+    breakoutRetestProofBarsSinceRetest: row.breakoutRetestProofBarsSinceRetest ?? null,
+    breakoutRetestProofCurrentExtensionPct: row.breakoutRetestProofCurrentExtensionPct ?? null,
     blockerClass: row.blockerClass,
     fixLane: row.fixLane
   };
@@ -302,6 +316,7 @@ function buildMarkdown(report) {
   lines.push('## Policy Interpretation');
   lines.push('');
   lines.push('- `BREAKOUT_RETEST_POLICY_REVIEW_READY` means current RR and geometry are good, but Stage6 lacks explicit retest proof. This is producer-side policy review, not sidecar chase approval.');
+  lines.push('- `BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY` means optional producer proof metadata is present and confirmed. It still requires a separate Stage6 policy change before any executable promotion.');
   lines.push('- `STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY` means broad structure WAIT may be overblocking. Promotion still requires explicit structure evidence fields in Stage6.');
   lines.push('- `TARGET_REACHED_OR_NEAR_CURRENT_NO_CHASE` remains no-trade or target refresh. Do not convert this into a reprice/replace path.');
   lines.push('- `EARNINGS_DATA_COVERAGE_REQUIRED` is a data freshness/coverage track. Do not lower execution gates until the missing data source is repaired or explicitly annotated.');
