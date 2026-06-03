@@ -1,0 +1,168 @@
+name: US Alpha Seeker Auto-Scheduler Deadline Guard
+
+on:
+  schedule:
+    # Redundant pre/early-RTH deadline checks. These do not run analysis
+    # directly; they dispatch the canonical Auto-Scheduler only when today's
+    # market-date run is missing.
+    - cron: "05 13 * * 1-5"
+    - cron: "25 13 * * 1-5"
+    - cron: "05 14 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: auto-scheduler-deadline-guard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deadline-guard:
+    name: Auto-Scheduler Deadline Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_WORKFLOW_NAME: US Alpha Seeker Auto-Scheduler
+      TARGET_WORKFLOW_FILE: schedule.yml
+      TARGET_REF: main
+      GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Check market-date Auto-Scheduler coverage
+        id: guard
+        run: |
+          set -euo pipefail
+          market_date="$(TZ=America/New_York date +%F)"
+          since_ms="$(node - <<'NODE'
+          const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+          }).formatToParts(new Date());
+          const get = (type) => parts.find((part) => part.type === type)?.value;
+          const marketDate = `${get("year")}-${get("month")}-${get("day")}`;
+          const noonUtc = new Date(`${marketDate}T12:00:00Z`);
+          const nyHour = Number(new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            hour: "2-digit",
+            hour12: false
+          }).format(noonUtc));
+          const offsetHours = 12 - nyHour;
+          console.log(new Date(`${marketDate}T00:00:00.000Z`).getTime() + offsetHours * 60 * 60 * 1000);
+          NODE
+          )"
+          since_iso="$(node -e 'console.log(new Date(Number(process.argv[1])).toISOString())' "$since_ms")"
+          runs="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow "$TARGET_WORKFLOW_NAME" \
+            --created ">=$since_iso" \
+            --limit 50 \
+            --json databaseId,status,conclusion,event,createdAt,headSha,url)"
+          active_or_success="$(jq '[.[] | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success"))] | length' <<< "$runs")"
+          failed="$(jq '[.[] | select(.status == "completed" and .conclusion != "success")] | length' <<< "$runs")"
+          mkdir -p state
+          jq -n \
+            --arg generatedAt "$(date -u +%FT%TZ)" \
+            --arg marketDate "$market_date" \
+            --arg since "$since_iso" \
+            --argjson activeOrSuccess "$active_or_success" \
+            --argjson failed "$failed" \
+            --argjson runs "$runs" \
+            '{
+              generatedAt: $generatedAt,
+              marketDate: $marketDate,
+              since: $since,
+              activeOrSuccess: $activeOrSuccess,
+              failed: $failed,
+              shouldDispatch: ($activeOrSuccess == 0),
+              runs: $runs,
+              safety: {
+                brokerMutation: false,
+                stateMutation: false,
+                dispatchesCanonicalAutoSchedulerOnly: true
+              }
+            }' > state/auto-scheduler-deadline-guard.json
+
+          echo "market_date=$market_date" >> "$GITHUB_OUTPUT"
+          echo "since_iso=$since_iso" >> "$GITHUB_OUTPUT"
+          echo "active_or_success=$active_or_success" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          if [ "$active_or_success" -eq 0 ]; then
+            echo "should_dispatch=true" >> "$GITHUB_OUTPUT"
+            status="missing_dispatch_recovery"
+          else
+            echo "should_dispatch=false" >> "$GITHUB_OUTPUT"
+            status="covered"
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Auto-Scheduler Deadline Guard"
+            echo "- market_date: \`$market_date\`"
+            echo "- since: \`$since_iso\`"
+            echo "- active_or_success: \`$active_or_success\`"
+            echo "- failed: \`$failed\`"
+            echo "- status: \`$status\`"
+            echo "- safety: \`dispatch only; no broker/state mutation\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch missed Auto-Scheduler
+        if: steps.guard.outputs.should_dispatch == 'true'
+        run: |
+          set -euo pipefail
+          gh workflow run "$TARGET_WORKFLOW_FILE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$TARGET_REF" \
+            -f force=false
+          echo "[DEADLINE_GUARD_DISPATCH_OK] workflow=$TARGET_WORKFLOW_FILE ref=$TARGET_REF marketDate=${{ steps.guard.outputs.market_date }}"
+          echo "- dispatched: \`$TARGET_WORKFLOW_FILE@$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Telegram deadline notice
+        if: always()
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          (async () => {
+            const token = String(process.env.TELEGRAM_TOKEN || "").trim();
+            const chatId = String(process.env.TELEGRAM_CHAT_ID || "").trim();
+            if (!token || !chatId) {
+              console.log("[TELEGRAM_SKIP] token_or_chat_missing");
+              return;
+            }
+            const text = [
+              "Auto-Scheduler Deadline Guard",
+              `status=${process.env.GUARD_STATUS || "unknown"}`,
+              `marketDate=${process.env.MARKET_DATE || "unknown"}`,
+              `activeOrSuccess=${process.env.ACTIVE_OR_SUCCESS || "unknown"}`,
+              `failed=${process.env.FAILED_RUNS || "unknown"}`
+            ].join(" | ");
+            const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chat_id: chatId, text })
+            });
+            if (!response.ok) {
+              throw new Error(`telegram_send_failed status=${response.status}`);
+            }
+            console.log("[TELEGRAM_OK] deadline_notice_sent");
+          })().catch((error) => {
+            console.warn(`[TELEGRAM_WARN] ${error?.message || error}`);
+          });
+          NODE
+        env:
+          GUARD_STATUS: ${{ steps.guard.outputs.status }}
+          MARKET_DATE: ${{ steps.guard.outputs.market_date }}
+          ACTIVE_OR_SUCCESS: ${{ steps.guard.outputs.active_or_success }}
+          FAILED_RUNS: ${{ steps.guard.outputs.failed }}
+
+      - name: Upload deadline guard artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: auto-scheduler-deadline-guard-${{ github.run_id }}
+          path: state/auto-scheduler-deadline-guard.json
+          if-no-files-found: warn

@@ -20,6 +20,9 @@ on:
         options:
           - "false"
           - "true"
+  repository_dispatch:
+    types:
+      - auto_scheduler_external_trigger
 
 concurrency:
   group: us-alpha-seeker-auto-scheduler-${{ github.ref }}
@@ -38,7 +41,7 @@ jobs:
         id: guard
         env:
           GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
-          FORCE_RUN: ${{ github.event.inputs.force || 'false' }}
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
           TARGET_WORKFLOW: US Alpha Seeker Auto-Scheduler
         run: |
           set -euo pipefail
