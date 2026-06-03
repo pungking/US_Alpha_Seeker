@@ -2,9 +2,14 @@ name: US Alpha Seeker Auto-Scheduler Watchdog
 
 on:
   schedule:
-    # Recovery checks before regular US market hours. The target workflow has
-    # its own same-market-day gate, so late schedule arrivals become no-ops.
-    - cron: "47 10,12 * * 1-5"
+    # Redundant recovery checks before/near regular US market hours. The target
+    # workflow has its own same-market-day gate, so late schedule arrivals
+    # become no-ops instead of duplicate analysis runs.
+    - cron: "47 9 * * 1-5"
+    - cron: "47 10 * * 1-5"
+    - cron: "47 11 * * 1-5"
+    - cron: "47 12 * * 1-5"
+    - cron: "27 13 * * 1-5"
   workflow_dispatch:
 
 permissions:

@@ -3,9 +3,13 @@ name: US Alpha Seeker Auto-Scheduler
 
 on:
   schedule:
-    # GitHub schedule jobs at minute 0 can be delayed or dropped under load.
-    # Run off the top of the hour: UTC 09:17 (KST 18:17, US ET 04:17/05:17).
+    # Redundant pre-RTH fanout. GitHub scheduled events can be delayed or
+    # dropped; the same-market-day gate below prevents duplicate analysis.
     - cron: '17 9 * * 1-5'
+    - cron: '17 10 * * 1-5'
+    - cron: '17 11 * * 1-5'
+    - cron: '17 12 * * 1-5'
+    - cron: '17 13 * * 1-5'
   workflow_dispatch: # 수동 실행 버튼 (테스트용)
     inputs:
       force:
@@ -90,7 +94,7 @@ jobs:
   alpha-mining:
     name: Alpha Seeking Pipeline
     needs: daily-run-gate
-    if: needs.daily-run-gate.outputs.should_run == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 9 * * 1-5')
+    if: needs.daily-run-gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120 # 비용 절감을 위한 타임아웃 설정 (120분으로 증설)
     
