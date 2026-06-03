@@ -7,6 +7,9 @@ const REPO_ROOT = process.cwd();
 const DEFAULT_OUT_JSON = 'state/stage6-execution-gate-audit.json';
 const DEFAULT_OUT_MD = 'docs/STAGE6_EXECUTION_GATE_AUDIT_2026-05-09.md';
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
+const DEFAULT_ZERO_EXECUTABLE_WINDOW = 10;
+const DEFAULT_MAX_CONSECUTIVE_ZERO_EXECUTABLE_RUNS = 3;
+const DEFAULT_MAX_RECENT_ZERO_EXECUTABLE_RUNS = 5;
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -775,6 +778,69 @@ function buildRunSummaries(rows) {
   });
 }
 
+function countLeadingRuns(runs, predicate) {
+  let count = 0;
+  for (const run of runs) {
+    if (!predicate(run)) break;
+    count += 1;
+  }
+  return count;
+}
+
+function buildBoundedNoActionPolicy(runSummaries) {
+  const recentWindow = Math.max(
+    1,
+    Math.round(parseNumber(process.env.STAGE6_AUDIT_ZERO_EXECUTABLE_WINDOW, DEFAULT_ZERO_EXECUTABLE_WINDOW))
+  );
+  const maxConsecutiveZeroExecutableRuns = Math.max(
+    1,
+    Math.round(parseNumber(process.env.STAGE6_AUDIT_MAX_CONSECUTIVE_ZERO_EXECUTABLE_RUNS, DEFAULT_MAX_CONSECUTIVE_ZERO_EXECUTABLE_RUNS))
+  );
+  const maxRecentZeroExecutableRuns = Math.max(
+    1,
+    Math.round(parseNumber(process.env.STAGE6_AUDIT_MAX_RECENT_ZERO_EXECUTABLE_RUNS, DEFAULT_MAX_RECENT_ZERO_EXECUTABLE_RUNS))
+  );
+  const latestRun = runSummaries[0] || null;
+  const recentRuns = runSummaries.slice(0, recentWindow);
+  const consecutiveZeroExecutableRuns = countLeadingRuns(runSummaries, (run) => run.zeroExecutable);
+  const recentZeroExecutableRuns = recentRuns.filter((run) => run.zeroExecutable).length;
+  const consecutiveWatchlistPolicyReviewRuns = countLeadingRuns(
+    runSummaries,
+    (run) => run.verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW' || run.verdict === 'MODEL_OR_DATA_POLICY_ERROR'
+  );
+  let status = 'insufficient_stage6_history';
+  let recommendedAction = 'Collect Stage6 artifacts or rerun audit after the next finalized Stage6.';
+  if (latestRun && latestRun.executable > 0) {
+    status = 'latest_has_executable';
+    recommendedAction = 'Use sidecar safe run to verify payload/preflight/idempotency; do not keep Stage6 no-event monitoring open.';
+  } else if (
+    consecutiveZeroExecutableRuns >= maxConsecutiveZeroExecutableRuns ||
+    recentZeroExecutableRuns >= maxRecentZeroExecutableRuns ||
+    consecutiveWatchlistPolicyReviewRuns >= maxConsecutiveZeroExecutableRuns
+  ) {
+    status = 'stage0_6_quality_audit_required';
+    recommendedAction = 'Stop passive observation and move to Stage0-6 policy tuning: confirmation lanes, entry/current distance, RR, stop geometry, earnings coverage, and verdict normalization.';
+  } else if (latestRun?.zeroExecutable) {
+    status = 'zero_executable_observe_bounded';
+    recommendedAction = 'One zero-executable run is acceptable; check the next fresh Stage6 only, then escalate if the bounded threshold is reached.';
+  }
+  return {
+    status,
+    recentWindow,
+    recentRuns: recentRuns.length,
+    consecutiveZeroExecutableRuns,
+    recentZeroExecutableRuns,
+    consecutiveWatchlistPolicyReviewRuns,
+    maxConsecutiveZeroExecutableRuns,
+    maxRecentZeroExecutableRuns,
+    latestStage6File: latestRun?.stage6File || null,
+    latestExecutable: latestRun?.executable ?? null,
+    latestVerdict: latestRun?.verdict || null,
+    recommendedAction,
+    noIndefiniteObservation: true
+  };
+}
+
 function formatNumber(value, suffix = '') {
   return value == null || !Number.isFinite(Number(value)) ? 'N/A' : `${Number(value).toFixed(2)}${suffix}`;
 }
@@ -794,6 +860,21 @@ function buildMarkdown(report) {
   lines.push(`- Watchlist-only policy review runs: ${report.summary.watchlistOnlyPolicyReviewRuns}`);
   lines.push(`- BUY/STRONG_BUY watchlist rows: ${report.summary.buyStrongBuyWatchlistRows}`);
   lines.push(`- Overall verdict: **${report.summary.overallVerdict}**`);
+  lines.push(`- Bounded no-action status: **${report.summary.boundedNoActionPolicy?.status || 'N/A'}**`);
+  lines.push('');
+  lines.push('## Bounded No-Actionable-Event Policy');
+  lines.push('');
+  if (report.summary.boundedNoActionPolicy) {
+    const policy = report.summary.boundedNoActionPolicy;
+    lines.push(`- Status: **${policy.status}**`);
+    lines.push(`- Latest Stage6: ${policy.latestStage6File || 'N/A'}`);
+    lines.push(`- Latest Executable: ${policy.latestExecutable ?? 'N/A'}`);
+    lines.push(`- Consecutive Zero-Executable Runs: ${policy.consecutiveZeroExecutableRuns}/${policy.maxConsecutiveZeroExecutableRuns}`);
+    lines.push(`- Recent Zero-Executable Runs: ${policy.recentZeroExecutableRuns}/${policy.maxRecentZeroExecutableRuns} within latest ${policy.recentWindow}`);
+    lines.push(`- Consecutive Policy/Error Runs: ${policy.consecutiveWatchlistPolicyReviewRuns}/${policy.maxConsecutiveZeroExecutableRuns}`);
+    lines.push(`- Recommended Action: ${mdEscape(policy.recommendedAction)}`);
+    lines.push('- Rule: do not wait indefinitely for an event. If bounded thresholds are reached, stop passive observation and fix Stage0-6 policy/source quality.');
+  }
   lines.push('');
   lines.push('## Run Verdicts');
   lines.push('');
@@ -913,6 +994,7 @@ async function main() {
     };
   }).sort((a, b) => b.stage6File.localeCompare(a.stage6File) || a.symbol.localeCompare(b.symbol));
   const runSummaries = buildRunSummaries(classifiedRows);
+  const boundedNoActionPolicy = buildBoundedNoActionPolicy(runSummaries);
   const zeroExecutableRuns = runSummaries.filter((run) => run.zeroExecutable).length;
   const designErrorRuns = runSummaries.filter((run) => run.verdict === 'MODEL_OR_DATA_POLICY_ERROR').length;
   const watchlistOnlyPolicyReviewRuns = runSummaries.filter((run) => run.verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW').length;
@@ -935,7 +1017,8 @@ async function main() {
       designErrorRuns,
       watchlistOnlyPolicyReviewRuns,
       buyStrongBuyWatchlistRows,
-      overallVerdict
+      overallVerdict,
+      boundedNoActionPolicy
     },
     latestRun: latestRun ? { ...latestRun, rows: undefined } : null,
     runSummaries: runSummaries.map(({ rows: _rows, ...run }) => run),
