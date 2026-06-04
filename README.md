@@ -226,9 +226,7 @@ Smoke/health checks:
 - one-shot daily ops routine:
   - `npm run mcp:ops:daily`
 - Alpaca CLI workstation health checks:
-  - `npm run ops:alpaca:cli:health`
-  - `npm run ops:alpaca:cli:health:strict`
-  - optional account probe: `ALPACA_CLI_HEALTH_HTTP_PROBE=true npm run ops:alpaca:cli:health`
+  - Alpaca broker health checks belong in `alpha-exec-engine`; this analysis repo must not probe broker accounts.
 - Repo↔Notion↔Obsidian 운영 루틴 동기화:
   - `npm run ops:knowledge:sync`
   - 결과 리포트: `state/knowledge-routine-sync-report.json`

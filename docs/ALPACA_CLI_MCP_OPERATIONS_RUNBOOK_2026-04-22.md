@@ -59,25 +59,11 @@ alpaca version
 ```
 
 ## 4) Alpaca CLI Health Check
-New scripts:
-- `npm run ops:alpaca:cli:health`
-- `npm run ops:alpaca:cli:health:strict`
 
-Optional HTTP probe (account endpoint):
-```bash
-ALPACA_CLI_HEALTH_HTTP_PROBE=true npm run ops:alpaca:cli:health
-```
+Status: moved out of `US_Alpha_Seeker`. Alpaca broker/account health checks belong in `alpha-exec-engine`; this analysis repository must not probe broker accounts or carry broker endpoint code.
 
-Strict gate (non-zero exit on failure):
-```bash
-ALPACA_CLI_HEALTH_STRICT=true ALPACA_CLI_HEALTH_HTTP_PROBE=true npm run ops:alpaca:cli:health
-```
+Use the execution-sidecar repository for any Alpaca CLI or paper account validation. Keep this runbook as historical context only.
 
-Checks performed:
-- `alpaca` command installed (`alpaca version` or `alpaca --version`)
-- `ALPACA_BASE_URL` points to paper endpoint
-- `ALPACA_KEY_ID`/`ALPACA_SECRET_KEY` presence
-- optional `/v2/account` probe with masked output
 
 ## 5) Automated Normal-Preflight Canary Recheck
 Workflow added:

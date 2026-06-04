@@ -19,8 +19,6 @@
     "mcp:sync:research": "MCP_PROFILE=research node scripts/sync-mcp-profile.mjs",
     "mcp:sync:full": "MCP_PROFILE=full node scripts/sync-mcp-profile.mjs",
     "mcp:ops:daily": "npm run mcp:sync:ops && MCP_CHECK_STRICT=true npm run mcp:check && npm run mcp:health",
-    "ops:alpaca:cli:health": "node scripts/alpaca-cli-healthcheck.mjs",
-    "ops:alpaca:cli:health:strict": "ALPACA_CLI_HEALTH_STRICT=true node scripts/alpaca-cli-healthcheck.mjs",
     "ops:sidecar:drift:audit": "node scripts/audit-sidecar-workflow-drift.mjs",
     "ops:notion:pipeline:sync": "node scripts/sync-pipeline-notion.mjs",
     "ops:stage6:exec:audit": "node scripts/build-stage6-execution-gate-audit.mjs",
@@ -44,7 +42,12 @@
     "ops:ai-provider:cost-audit": "node scripts/build-ai-provider-cost-audit.mjs",
     "ops:gemini:smoke": "node scripts/gemini-env-smoke.mjs",
     "ops:safety:symbol-agnostic": "node scripts/check-symbol-agnostic-runtime.mjs",
-    "ops:goal:validate": "node scripts/validate-goal-contract.mjs"
+    "ops:goal:validate": "node scripts/validate-goal-contract.mjs",
+    "ops:safety:analysis-boundary": "node scripts/check-analysis-repo-safety-boundary.mjs",
+    "ops:stage6:fillability-contract:validate": "node scripts/validate-stage6-fillability-contract.mjs",
+    "ops:tsc:debt": "node scripts/build-tsc-debt-report.mjs",
+    "ops:auto-scheduler:audit": "node scripts/build-auto-scheduler-reliability-audit.mjs",
+    "ops:stage6:quality-trend:audit": "node scripts/build-stage6-quality-trend-audit.mjs"
   },
   "dependencies": {
     "@sentry/node": "^10.17.0",

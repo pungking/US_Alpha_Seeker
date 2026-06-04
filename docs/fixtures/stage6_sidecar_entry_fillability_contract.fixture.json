@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-06-04T00:00:00.000Z",
+  "decisionGate": {
+    "currentEntryMinRr": 1.8,
+    "currentEntryMaxAdaptiveDistancePct": 6,
+    "currentEntryMinTargetBufferPct": 3
+  },
+  "candidates": [
+    {
+      "symbol": "PASS1",
+      "finalDecision": "EXECUTABLE_NOW",
+      "decisionReason": "executable_pullback",
+      "entryExecPrice": 100,
+      "targetPrice": 130,
+      "stopLoss": 90,
+      "rrAtCurrentPrice": 2.4,
+      "entryDistancePct": 2.5,
+      "targetBufferFromCurrentPct": 22,
+      "executionFeasibilityAtCurrent": "PASS",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "executionFeasibilityAtCurrentReason": null,
+      "executionFeasibilityAtCurrentReasons": [],
+      "executionFeasibilityAtCurrentRr": 2.4,
+      "executionFeasibilityAtCurrentDistancePct": 2.5,
+      "executionFeasibilityAtCurrentMinRr": 1.8,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
+      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT"
+    },
+    {
+      "symbol": "WAIT1",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_current_distance_above_adaptive",
+      "entryExecPrice": 100,
+      "targetPrice": 130,
+      "stopLoss": 90,
+      "rrAtCurrentPrice": 2.1,
+      "entryDistancePct": 8.2,
+      "targetBufferFromCurrentPct": 18,
+      "executionFeasibilityAtCurrent": "BLOCKED",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND",
+      "executionFeasibilityAtCurrentReason": "wait_current_distance_above_adaptive",
+      "executionFeasibilityAtCurrentReasons": ["current_distance_above_adaptive_band"],
+      "executionFeasibilityAtCurrentRr": 2.1,
+      "executionFeasibilityAtCurrentDistancePct": 8.2,
+      "executionFeasibilityAtCurrentMinRr": 1.8,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
+      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT"
+    }
+  ]
+}
