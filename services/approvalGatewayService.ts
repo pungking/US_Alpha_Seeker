@@ -50,7 +50,7 @@ const env = (key: string, fallback = ""): string =>
   String(process.env[key] ?? process.env[`VITE_${key}`] ?? fallback).trim();
 
 const readAdminChatIds = (): Set<number> => {
-  const raw = env("TELEGRAM_ADMIN_CHAT_ID", env("TELEGRAM_CHAT_ID"));
+  const raw = env("TELEGRAM_ADMIN_CHAT_ID");
   if (!raw) return new Set();
   return new Set(
     raw

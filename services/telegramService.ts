@@ -9,6 +9,13 @@ const parseBooleanEnv = (value: unknown): boolean | null => {
   return null;
 };
 
+const maskChatId = (chatId: string): string => {
+  const raw = String(chatId || "").trim();
+  if (!raw) return "MISSING";
+  if (raw.length <= 6) return "***";
+  return `${raw.slice(0, 4)}...${raw.slice(-4)}`;
+};
+
 const shouldPreferTelegramDirect = (): boolean => {
   const envDecision = parseBooleanEnv((import.meta as any)?.env?.VITE_TELEGRAM_DIRECT_FIRST);
   if (envDecision !== null) return envDecision;
@@ -38,19 +45,16 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
  * Sends simulation/backtest messages to dedicated simulation channel.
  */
 export async function sendSimulationTelegramReport(reportContent: string): Promise<boolean> {
-  const target = TELEGRAM_CONFIG.SIMULATION_CHAT_ID || TELEGRAM_CONFIG.CHAT_ID;
+  const target = TELEGRAM_CONFIG.SIMULATION_CHAT_ID;
   return sendTelegramReportToChat(reportContent, target, "SIMULATION");
 }
 
 /**
  * Sends incident/failure alerts to dedicated alert channel.
- * Falls back to simulation -> primary channel to avoid message loss.
+ * Falls back to simulation only; never route incident alerts to the primary analysis channel.
  */
 export async function sendAlertTelegramReport(reportContent: string): Promise<boolean> {
-  const target =
-    TELEGRAM_CONFIG.ALERT_CHAT_ID ||
-    TELEGRAM_CONFIG.SIMULATION_CHAT_ID ||
-    TELEGRAM_CONFIG.CHAT_ID;
+  const target = TELEGRAM_CONFIG.ALERT_CHAT_ID || TELEGRAM_CONFIG.SIMULATION_CHAT_ID;
   return sendTelegramReportToChat(reportContent, target, "ALERT");
 }
 
@@ -58,7 +62,7 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
   const { TOKEN } = TELEGRAM_CONFIG;
   // Mask token for log safety
   const maskedToken = TOKEN ? `${TOKEN.substring(0, 5)}...` : 'MISSING';
-  console.log(`[Telegram:${channelTag}] Initializing transmission to Chat ID: ${chatId}. Token Status: ${maskedToken}`);
+  console.log(`[Telegram:${channelTag}] Initializing transmission to Chat ID: ${maskChatId(chatId)}. Token Status: ${maskedToken}`);
 
   if (!TOKEN || !chatId) {
     console.error(`Telegram Credentials Missing (${channelTag}). Check .env or constants.ts.`);

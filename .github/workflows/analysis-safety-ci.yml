@@ -21,6 +21,8 @@ jobs:
       - run: npm ci
       - name: Analysis repo boundary guard
         run: npm run ops:safety:analysis-boundary
+      - name: Telegram routing policy audit
+        run: npm run ops:safety:telegram-routing
       - name: Stage6 fillability contract fixture
         run: npm run ops:stage6:fillability-contract:validate
       - name: Stage6 quality trend audit
@@ -41,6 +43,7 @@ jobs:
           name: analysis-safety-reports
           path: |
             state/analysis-repo-safety-boundary.*
+            state/telegram-routing-policy-audit.*
             state/stage6-quality-trend-audit.*
             state/stage6-earnings-coverage-audit.*
             state/auto-scheduler-reliability-audit.*

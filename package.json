@@ -44,6 +44,7 @@
     "ops:safety:symbol-agnostic": "node scripts/check-symbol-agnostic-runtime.mjs",
     "ops:goal:validate": "node scripts/validate-goal-contract.mjs",
     "ops:safety:analysis-boundary": "node scripts/check-analysis-repo-safety-boundary.mjs",
+    "ops:safety:telegram-routing": "node scripts/check-telegram-routing-policy.mjs",
     "ops:stage6:fillability-contract:validate": "node scripts/validate-stage6-fillability-contract.mjs",
     "ops:tsc:debt": "node scripts/build-tsc-debt-report.mjs",
     "ops:auto-scheduler:audit": "node scripts/build-auto-scheduler-reliability-audit.mjs",

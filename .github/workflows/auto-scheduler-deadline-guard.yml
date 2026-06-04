@@ -29,7 +29,8 @@ jobs:
       TARGET_REF: main
       GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
+      TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID || vars.TELEGRAM_ALERT_CHAT_ID }}
     steps:
       - name: Check market-date Auto-Scheduler coverage
         id: guard
@@ -128,14 +129,23 @@ jobs:
           node - <<'NODE'
           (async () => {
             const token = String(process.env.TELEGRAM_TOKEN || "").trim();
-            const chatId = String(process.env.TELEGRAM_CHAT_ID || "").trim();
+            const status = String(process.env.GUARD_STATUS || "unknown");
+            const failed = Number(process.env.FAILED_RUNS || 0);
+            const jobStatus = String(process.env.JOB_STATUS || "unknown");
+            const isError = failed > 0 || jobStatus === "failure" || jobStatus === "cancelled";
+            const chatId = String(
+              isError
+                ? (process.env.TELEGRAM_ALERT_CHAT_ID || process.env.TELEGRAM_SIMULATION_CHAT_ID || "")
+                : (process.env.TELEGRAM_SIMULATION_CHAT_ID || "")
+            ).trim();
             if (!token || !chatId) {
-              console.log("[TELEGRAM_SKIP] token_or_chat_missing");
+              console.log(`[TELEGRAM_SKIP] token_or_route_missing route=${isError ? "ALERT" : "SIMULATION"}`);
               return;
             }
             const text = [
               "Auto-Scheduler Deadline Guard",
-              `status=${process.env.GUARD_STATUS || "unknown"}`,
+              `route=${isError ? "ALERT" : "SIMULATION"}`,
+              `status=${status}`,
               `marketDate=${process.env.MARKET_DATE || "unknown"}`,
               `activeOrSuccess=${process.env.ACTIVE_OR_SUCCESS || "unknown"}`,
               `failed=${process.env.FAILED_RUNS || "unknown"}`
@@ -158,6 +168,7 @@ jobs:
           MARKET_DATE: ${{ steps.guard.outputs.market_date }}
           ACTIVE_OR_SUCCESS: ${{ steps.guard.outputs.active_or_success }}
           FAILED_RUNS: ${{ steps.guard.outputs.failed }}
+          JOB_STATUS: ${{ job.status }}
 
       - name: Upload deadline guard artifact
         if: always()
