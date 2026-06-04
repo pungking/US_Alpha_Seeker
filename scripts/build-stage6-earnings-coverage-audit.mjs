@@ -139,6 +139,20 @@ function classifyCoverage(row, generatedAt) {
     ['daysToEarnings'],
     ['earningsDday']
   ]);
+  const sourcePick = firstValueWithPath(row, [
+    ['earningsSource'],
+    ['techMetrics', 'earningsSource'],
+    ['alphaVantage', 'source'],
+    ['shadow', 'alphaVantage', 'source']
+  ]);
+  const retrievedAtPick = firstValueWithPath(row, [
+    ['earningsRetrievedAt'],
+    ['techMetrics', 'earningsRetrievedAt'],
+    ['alphaVantage', 'retrievedAt'],
+    ['shadow', 'alphaVantage', 'retrievedAt'],
+    ['retrievedAt'],
+    ['generatedAt']
+  ]);
   const earningsDate = parseDate(datePick.value);
   const daysToEvent = numberOrNull(daysPick.value);
   const computedDays = earningsDate ? daysBetween(generatedAt, earningsDate) : null;
@@ -162,10 +176,15 @@ function classifyCoverage(row, generatedAt) {
     freshnessFindings.push('earnings_date_missing_days_only');
   }
 
+  const hasEarningsDatum = Boolean(earningsDate || daysToEvent != null);
   return {
     coverageStatus,
     earningsDate: earningsDate ? earningsDate.toISOString().slice(0, 10) : null,
     earningsDateSource: datePick.path,
+    earningsSource: hasEarningsDatum ? textOrNull(sourcePick.value) : null,
+    earningsSourcePath: hasEarningsDatum ? sourcePick.path : null,
+    earningsRetrievedAt: hasEarningsDatum ? parseDate(retrievedAtPick.value)?.toISOString() || null : null,
+    earningsRetrievedAtPath: hasEarningsDatum ? retrievedAtPick.path : null,
     earningsDaysToEvent: daysToEvent,
     earningsDaysSource: daysPick.path,
     computedDaysToEvent: computedDays,
@@ -392,13 +411,13 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Latest Rows');
   lines.push('');
-  lines.push('| Symbol | Decision | Reason | Coverage | Freshness | Date | Days | TargetBuf% | RR@Cur | Dist% | Other Blockers | Row Verdict | Action |');
-  lines.push('| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
+  lines.push('| Symbol | Decision | Reason | Coverage | Freshness | Date | Days | Source | RetrievedAt | TargetBuf% | RR@Cur | Dist% | Other Blockers | Row Verdict | Action |');
+  lines.push('| --- | --- | --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- | --- |');
   for (const row of report.latestRows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.finalDecision)} | ${esc(row.decisionReason)} | ${esc(row.coverageStatus)} | ${esc(row.freshnessStatus)} | ${esc(row.earningsDate || 'N/A')} | ${fmt(row.earningsDaysToEvent, 0)} | ${fmt(row.targetBufferFromCurrentPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${esc((row.blockers || []).join(', ') || 'none')} | ${esc(row.rowVerdict)} | ${esc(row.recommendedAction)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.finalDecision)} | ${esc(row.decisionReason)} | ${esc(row.coverageStatus)} | ${esc(row.freshnessStatus)} | ${esc(row.earningsDate || 'N/A')} | ${fmt(row.earningsDaysToEvent, 0)} | ${esc(row.earningsSource || 'N/A')} | ${esc(row.earningsRetrievedAt || 'N/A')} | ${fmt(row.targetBufferFromCurrentPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${esc((row.blockers || []).join(', ') || 'none')} | ${esc(row.rowVerdict)} | ${esc(row.recommendedAction)} |`);
   }
   if (report.latestRows.length === 0) {
-    lines.push('| none | none | none | none | none | N/A | N/A | N/A | N/A | N/A | none | none | none |');
+    lines.push('| none | none | none | none | none | N/A | N/A | N/A | N/A | N/A | N/A | N/A | none | none | none |');
   }
   lines.push('');
   lines.push('## Recent Runs');

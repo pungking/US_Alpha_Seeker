@@ -1,6 +1,6 @@
 # Stage6 Earnings Coverage/Freshness Audit
 
-- GeneratedAt: 2026-06-04T15:04:57.519Z
+- GeneratedAt: 2026-06-04T15:22:47.713Z
 - Scope: stage6_earnings_coverage_freshness_report_only
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-04_21-45-22.json
 - Source Files: 33
@@ -24,9 +24,9 @@
 
 ## Latest Rows
 
-| Symbol | Decision | Reason | Coverage | Freshness | Date | Days | TargetBuf% | RR@Cur | Dist% | Other Blockers | Row Verdict | Action |
-| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
-| TDC | WAIT_PRICE | wait_earnings_data_missing_quality_floor | EARNINGS_SOURCE_MISSING | FRESHNESS_REVIEW_REQUIRED | N/A | N/A | -4.36 | N/A | 20.80 | target_buffer_below_min, entry_distance_above_adaptive_band, geometry_or_target_invalid_at_current | EARNINGS_COVERAGE_REPAIR_REQUIRED | Repair earnings source, but do not promote; current price/target/geometry still blocks execution. |
+| Symbol | Decision | Reason | Coverage | Freshness | Date | Days | Source | RetrievedAt | TargetBuf% | RR@Cur | Dist% | Other Blockers | Row Verdict | Action |
+| --- | --- | --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- | --- |
+| TDC | WAIT_PRICE | wait_earnings_data_missing_quality_floor | EARNINGS_SOURCE_MISSING | FRESHNESS_REVIEW_REQUIRED | N/A | N/A | N/A | N/A | -4.36 | N/A | 20.80 | target_buffer_below_min, entry_distance_above_adaptive_band, geometry_or_target_invalid_at_current | EARNINGS_COVERAGE_REPAIR_REQUIRED | Repair earnings source, but do not promote; current price/target/geometry still blocks execution. |
 
 ## Recent Runs
 

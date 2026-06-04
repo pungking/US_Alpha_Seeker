@@ -72,6 +72,8 @@ interface TechnicalTicker {
       macroOverlayScore?: number;
       earningsDate?: string | null;
       daysToEarnings?: number | null;
+      earningsSource?: string | null;
+      earningsRetrievedAt?: string | null;
       eventRiskState?: 'HIGH' | 'MEDIUM' | 'NONE';
       eventDistanceBand?: 'D_MINUS_1_TO_PLUS_1' | 'D_MINUS_2_TO_MINUS_5' | 'NONE';
       eventRiskSource?: 'DISTANCE' | 'LABEL' | 'NONE';
@@ -1155,6 +1157,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return {
           earningsDate,
           daysToEarnings,
+          earningsSource: event ? (eventMap?.source || 'EARNINGS_EVENT_MAP') : null,
+          earningsRetrievedAt: event ? (eventMap?.timestamp || null) : null,
           eventRiskState,
           eventDistanceBand,
           eventRiskSource,

@@ -130,7 +130,18 @@ interface AlphaCandidate {
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
   riskRewardRatioValue?: number | null;
+  earningsDate?: string | null;
   earningsDaysToEvent?: number | null;
+  earningsSource?: string | null;
+  earningsRetrievedAt?: string | null;
+  earningsDateSource?: string | null;
+  earningsDaysToEventSource?: string | null;
+  earningsCoverageStatus?:
+    | 'EARNINGS_SOURCE_MISSING'
+    | 'EARNINGS_DAYS_ONLY_DATE_MISSING'
+    | 'EARNINGS_DATE_ONLY_DAYS_MISSING'
+    | 'EARNINGS_LINEAGE_PARTIAL'
+    | 'EARNINGS_PRESENT';
   aiVerdict?: string;
   verdictRaw?: string;
   verdictFinal?: string;
@@ -4518,21 +4529,100 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (daysToEvent <= 15) return 75;
           return 100;
       };
-      const readCanonicalEarningsDaysToEvent = (item: AlphaCandidate): number | null => {
-          const candidates = [
-              (item as any)?.techMetrics?.daysToEarnings,
-              (item as any)?.earningsDaysToEvent,
-              (item as any)?.nextEarningsInDays,
-              (item as any)?.daysToEarnings,
-              (item as any)?.earningsDday
+      type Stage6EarningsCoverageStatus =
+          | 'EARNINGS_SOURCE_MISSING'
+          | 'EARNINGS_DAYS_ONLY_DATE_MISSING'
+          | 'EARNINGS_DATE_ONLY_DAYS_MISSING'
+          | 'EARNINGS_LINEAGE_PARTIAL'
+          | 'EARNINGS_PRESENT';
+      type Stage6EarningsLineage = {
+          earningsDate: string | null;
+          earningsDaysToEvent: number | null;
+          earningsSource: string | null;
+          earningsRetrievedAt: string | null;
+          earningsDateSource: string | null;
+          earningsDaysToEventSource: string | null;
+          earningsCoverageStatus: Stage6EarningsCoverageStatus;
+      };
+      const normalizeStage6DateOnly = (value: any): string | null => {
+          const text = normalizeOptionalText(value);
+          if (!text) return null;
+          const normalized = text.includes('T') ? text : `${text}T00:00:00Z`;
+          const parsed = Date.parse(normalized);
+          return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : null;
+      };
+      const normalizeStage6Timestamp = (value: any): string | null => {
+          const text = normalizeOptionalText(value);
+          if (!text) return null;
+          const normalized = text.includes('T') ? text : `${text}T00:00:00Z`;
+          const parsed = Date.parse(normalized);
+          return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+      };
+      const computeDaysToEventFromDate = (dateOnly: string | null): number | null => {
+          if (!dateOnly) return null;
+          const eventMs = Date.parse(`${dateOnly}T00:00:00Z`);
+          if (!Number.isFinite(eventMs)) return null;
+          const now = new Date();
+          const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+          return Math.round((eventMs - todayUtc) / (24 * 60 * 60 * 1000));
+      };
+      const readCanonicalEarningsLineage = (item: AlphaCandidate): Stage6EarningsLineage => {
+          const anyItem = item as any;
+          const dateCandidates = [
+              { value: anyItem?.earningsDate, path: 'earningsDate', source: anyItem?.earningsSource, retrievedAt: anyItem?.earningsRetrievedAt },
+              { value: anyItem?.nextEarningsDate, path: 'nextEarningsDate', source: anyItem?.earningsSource, retrievedAt: anyItem?.earningsRetrievedAt },
+              { value: anyItem?.reportDate, path: 'reportDate', source: anyItem?.earningsSource, retrievedAt: anyItem?.earningsRetrievedAt },
+              { value: anyItem?.techMetrics?.earningsDate, path: 'techMetrics.earningsDate', source: anyItem?.techMetrics?.earningsSource, retrievedAt: anyItem?.techMetrics?.earningsRetrievedAt },
+              { value: anyItem?.alphaVantage?.earningsDate, path: 'alphaVantage.earningsDate', source: anyItem?.alphaVantage?.source || 'alpha_vantage', retrievedAt: anyItem?.alphaVantage?.retrievedAt },
+              { value: anyItem?.shadow?.alphaVantage?.earningsDate, path: 'shadow.alphaVantage.earningsDate', source: anyItem?.shadow?.alphaVantage?.source || 'stage6_shadow_alpha_vantage', retrievedAt: anyItem?.shadow?.alphaVantage?.retrievedAt }
           ];
-          for (const raw of candidates) {
-              if (raw === null || raw === undefined || raw === '') continue;
-              const n = Number(raw);
-              if (!Number.isFinite(n)) continue;
-              return Math.round(n);
+          const daysCandidates = [
+              { value: anyItem?.techMetrics?.daysToEarnings, path: 'techMetrics.daysToEarnings', source: anyItem?.techMetrics?.earningsSource, retrievedAt: anyItem?.techMetrics?.earningsRetrievedAt },
+              { value: anyItem?.earningsDaysToEvent, path: 'earningsDaysToEvent', source: anyItem?.earningsSource, retrievedAt: anyItem?.earningsRetrievedAt },
+              { value: anyItem?.nextEarningsInDays, path: 'nextEarningsInDays', source: anyItem?.earningsSource, retrievedAt: anyItem?.earningsRetrievedAt },
+              { value: anyItem?.daysToEarnings, path: 'daysToEarnings', source: anyItem?.earningsSource, retrievedAt: anyItem?.earningsRetrievedAt },
+              { value: anyItem?.earningsDday, path: 'earningsDday', source: anyItem?.earningsSource, retrievedAt: anyItem?.earningsRetrievedAt }
+          ];
+          const datePick = dateCandidates
+              .map((candidate) => ({ ...candidate, parsed: normalizeStage6DateOnly(candidate.value) }))
+              .find((candidate) => candidate.parsed != null) || null;
+          const daysPick = daysCandidates
+              .map((candidate) => ({ ...candidate, parsed: toOptionalFiniteNumber(candidate.value) }))
+              .find((candidate) => candidate.parsed != null) || null;
+          const earningsDate = datePick?.parsed || null;
+          const daysFromSource = daysPick?.parsed != null ? Math.round(daysPick.parsed) : null;
+          const computedDays = computeDaysToEventFromDate(earningsDate);
+          const earningsDaysToEvent = daysFromSource ?? computedDays;
+          const sourceFallback = datePick?.path?.startsWith('techMetrics') || daysPick?.path?.startsWith('techMetrics')
+              ? 'stage4_earnings_event_map'
+              : datePick?.path?.includes('alphaVantage')
+                  ? 'alpha_vantage'
+                  : null;
+          const earningsSource = normalizeOptionalText(datePick?.source) || normalizeOptionalText(daysPick?.source) || sourceFallback;
+          const earningsRetrievedAt =
+              normalizeStage6Timestamp(datePick?.retrievedAt) ||
+              normalizeStage6Timestamp(daysPick?.retrievedAt) ||
+              normalizeStage6Timestamp(anyItem?.retrievedAt || anyItem?.dataRetrievedAt || anyItem?.generatedAt);
+          let earningsCoverageStatus: Stage6EarningsCoverageStatus = 'EARNINGS_SOURCE_MISSING';
+          if (earningsDate && earningsDaysToEvent != null) {
+              earningsCoverageStatus = earningsSource && earningsRetrievedAt ? 'EARNINGS_PRESENT' : 'EARNINGS_LINEAGE_PARTIAL';
+          } else if (earningsDate) {
+              earningsCoverageStatus = 'EARNINGS_DATE_ONLY_DAYS_MISSING';
+          } else if (earningsDaysToEvent != null) {
+              earningsCoverageStatus = 'EARNINGS_DAYS_ONLY_DATE_MISSING';
           }
-          return null;
+          return {
+              earningsDate,
+              earningsDaysToEvent,
+              earningsSource,
+              earningsRetrievedAt,
+              earningsDateSource: datePick?.path || null,
+              earningsDaysToEventSource: daysPick?.path || (computedDays != null ? 'computed_from_earningsDate' : null),
+              earningsCoverageStatus
+          };
+      };
+      const readCanonicalEarningsDaysToEvent = (item: AlphaCandidate): number | null => {
+          return readCanonicalEarningsLineage(item).earningsDaysToEvent;
       };
       const deriveStage6Tier = (item: AlphaCandidate) => {
           const displacement = pickFinite(
@@ -5076,7 +5166,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const expectedReturnPct = parseExpectedReturnPct(
               item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
           );
-          const earningsDaysToEvent = readCanonicalEarningsDaysToEvent(item);
+          const earningsLineage = readCanonicalEarningsLineage(item);
+          const earningsDaysToEvent = earningsLineage.earningsDaysToEvent;
           const earningsDataMissing = earningsDaysToEvent == null;
           const aiVerdictKey = toVerdictKey(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict || item?.verdict);
           const baseVerdictKey = toVerdictKey(item?.verdict || item?.verdictRaw);
@@ -5441,6 +5532,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionFeasibilityAtCurrentMaxDistancePct: executionFeasibilityAtCurrent.maxDistancePct,
               executionFeasibilityAtCurrentMinTargetBufferPct: executionFeasibilityAtCurrent.minTargetBufferPct,
               executionFeasibilityAtCurrentBasis: executionFeasibilityAtCurrent.basis,
+              earningsDate: earningsLineage.earningsDate,
+              earningsDaysToEvent: earningsLineage.earningsDaysToEvent,
+              earningsSource: earningsLineage.earningsSource,
+              earningsRetrievedAt: earningsLineage.earningsRetrievedAt,
+              earningsDateSource: earningsLineage.earningsDateSource,
+              earningsDaysToEventSource: earningsLineage.earningsDaysToEventSource,
+              earningsCoverageStatus: earningsLineage.earningsCoverageStatus,
               currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible,
@@ -5479,7 +5577,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityScore,
               riskRewardRatioValue: contractRiskRewardRatioValue,
               expectedReturnPct,
-              earningsDaysToEvent,
               verdictConflict,
               verdictConflictDetail,
               stateVerdictConflict,
@@ -5606,7 +5703,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               stage6TrendAlignment: executionContract.stage6TrendAlignment,
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
+              earningsDate: executionContract.earningsDate,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
+              earningsSource: executionContract.earningsSource,
+              earningsRetrievedAt: executionContract.earningsRetrievedAt,
+              earningsDateSource: executionContract.earningsDateSource,
+              earningsDaysToEventSource: executionContract.earningsDaysToEventSource,
+              earningsCoverageStatus: executionContract.earningsCoverageStatus,
               targetPrice: executionContract.mirroredTarget ?? pickPositiveFinite(item?.targetPrice, item?.targetMeanPrice, item?.resistanceLevel) ?? undefined,
               targetMeanPrice: executionContract.mirroredTarget ?? pickPositiveFinite(item?.targetMeanPrice, item?.targetPrice, item?.resistanceLevel) ?? undefined
           };
@@ -5983,7 +6086,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityScore: executionContract.qualityScore,
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
+              earningsDate: executionContract.earningsDate,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
+              earningsSource: executionContract.earningsSource,
+              earningsRetrievedAt: executionContract.earningsRetrievedAt,
+              earningsDateSource: executionContract.earningsDateSource,
+              earningsDaysToEventSource: executionContract.earningsDaysToEventSource,
+              earningsCoverageStatus: executionContract.earningsCoverageStatus,
               targetPrice: executionContract.mirroredTarget ?? pickPositiveFinite(item?.targetPrice, item?.targetMeanPrice, item?.resistanceLevel) ?? undefined,
               targetMeanPrice: executionContract.mirroredTarget ?? pickPositiveFinite(item?.targetMeanPrice, item?.targetPrice, item?.resistanceLevel) ?? undefined
           };
@@ -6253,7 +6362,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               anchorExecGapPct: toOptionalFiniteNumber(item.anchorExecGapPct),
               riskRewardRatioValue: toOptionalFiniteNumber(item.riskRewardRatioValue),
               expectedReturnPct: toOptionalFiniteNumber(item.expectedReturnPct),
+              earningsDate: normalizeOptionalText(item.earningsDate),
               earningsDaysToEvent: toOptionalFiniteNumber(item.earningsDaysToEvent),
+              earningsSource: normalizeOptionalText(item.earningsSource),
+              earningsRetrievedAt: normalizeOptionalText(item.earningsRetrievedAt),
+              earningsDateSource: normalizeOptionalText(item.earningsDateSource),
+              earningsDaysToEventSource: normalizeOptionalText(item.earningsDaysToEventSource),
+              earningsCoverageStatus: normalizeOptionalText(item.earningsCoverageStatus),
               finalGateState: item.finalGateState || 'OPEN',
               finalGateBonus: Number(item.finalGateBonus || 0),
               finalGatePenalty: Number(item.finalGatePenalty || 0)
@@ -6381,7 +6496,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               hfSentimentNewestAgeHours: toOptionalFiniteNumber(item?.hfSentimentNewestAgeHours) != null
                   ? Number(Number(item.hfSentimentNewestAgeHours).toFixed(2))
                   : null,
+              earningsDate: normalizeOptionalText(item?.earningsDate),
               earningsDaysToEvent: toOptionalFiniteNumber(item?.earningsDaysToEvent),
+              earningsSource: normalizeOptionalText(item?.earningsSource),
+              earningsRetrievedAt: normalizeOptionalText(item?.earningsRetrievedAt),
+              earningsDateSource: normalizeOptionalText(item?.earningsDateSource),
+              earningsDaysToEventSource: normalizeOptionalText(item?.earningsDaysToEventSource),
+              earningsCoverageStatus: normalizeOptionalText(item?.earningsCoverageStatus),
               verdictConflict: Boolean(item?.verdictConflict),
               stateVerdictConflict: Boolean(item?.stateVerdictConflict),
               ...attachShadowIntel(item)
