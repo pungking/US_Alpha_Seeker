@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-06-04T12:45:22.023Z",
+  "source_stage": "stage6_alpha_final_fixture",
+  "run_id": "fixture-earnings-missing",
+  "input_hash": "fixture-input",
+  "output_hash": "fixture-output",
+  "execution_contract": {
+    "generatedAt": "2026-06-04T12:45:22.023Z",
+    "modelTop6": [
+      {
+        "symbol": "TDC",
+        "aiVerdict": "BUY",
+        "finalDecision": "WAIT_PRICE",
+        "decisionReason": "wait_earnings_data_missing_quality_floor",
+        "price": 27.81,
+        "entryExecPrice": 23.55,
+        "targetPrice": 26.60,
+        "stopPrice": 22.10,
+        "targetBufferFromCurrentPct": -4.36,
+        "rrAtCurrentPrice": null,
+        "entryDistancePct": 20.80,
+        "expectedReturnPct": 18,
+        "riskRewardRatioValue": 1.7
+      }
+    ],
+    "watchlistTop": [],
+    "executablePicks": []
+  },
+  "manifest": {
+    "timestamp": "2026-06-04T12:45:22.023Z",
+    "decisionGate": {
+      "currentEntryMinTargetBufferPct": 3,
+      "currentEntryMinRr": 2,
+      "currentEntryMaxAdaptiveDistancePct": 6
+    }
+  }
+}

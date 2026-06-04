@@ -1,8 +1,9 @@
 # Stage6 Earnings Coverage/Freshness Audit
 
-- GeneratedAt: 2026-06-04T14:56:55.845Z
+- GeneratedAt: 2026-06-04T15:04:57.519Z
 - Scope: stage6_earnings_coverage_freshness_report_only
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-04_21-45-22.json
+- Source Files: 33
 - Latest Earnings Rows: 1
 - Latest Coverage Missing: 1
 - Latest Auditability Missing: 0
@@ -10,6 +11,8 @@
 - Latest Action: **REPAIR_EARNINGS_SOURCE_COVERAGE**
 - Broker Mutation Authorized: false
 - Execution Policy Changed: false
+- DoneWhen Coverage Track: DATA_QUALITY_TRACK
+- DoneWhen Source Freshness: COVERAGE_REPAIR_REQUIRED
 
 ## Latest Coverage Counts
 

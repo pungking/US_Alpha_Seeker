@@ -5,7 +5,7 @@ import path from 'node:path';
 const REPO_ROOT = process.cwd();
 const DEFAULT_INPUT_DIR = 'state/stage6-audit-source';
 const DEFAULT_OUT_JSON = 'state/stage6-earnings-coverage-audit.json';
-const DEFAULT_OUT_MD = 'docs/STAGE6_EARNINGS_COVERAGE_AUDIT_2026-06-04.md';
+const DEFAULT_OUT_MD = 'docs/STAGE6_EARNINGS_COVERAGE_AUDIT.md';
 
 function resolveRepoPath(filePath) {
   return path.resolve(REPO_ROOT, filePath);
@@ -321,6 +321,14 @@ function buildReport() {
       inputDir,
       files: files.length
     },
+    sourceStage6: latestRun
+      ? {
+          file: latestRun.stage6File,
+          generatedAt: latestRun.generatedAt,
+          totalRows: latestRun.rows,
+          earningsRows: latestRun.earningsRows
+        }
+      : null,
     summary: {
       latestStage6File: latestRun?.stage6File || null,
       latestGeneratedAt: latestRun?.generatedAt || null,
@@ -335,6 +343,14 @@ function buildReport() {
       allVerdictCounts: countBy(allRows, (row) => row.rowVerdict),
       latestAction
     },
+    doneWhen: {
+      earningsDataCoverageSeparated:
+        latestRows.length === 0 ? 'NO_LATEST_EARNINGS_ROWS' : latestCoverageMissing + latestAuditabilityMissing > 0 ? 'DATA_QUALITY_TRACK' : 'NO_EARNINGS_DATA_GAP',
+      executionPolicyChanged: false,
+      brokerMutationAttempted: false,
+      sourceFreshnessVerdict:
+        latestRows.length === 0 ? 'NO_LATEST_EARNINGS_ROWS' : latestCoverageMissing > 0 ? 'COVERAGE_REPAIR_REQUIRED' : latestAuditabilityMissing > 0 ? 'AUDITABILITY_REPAIR_REQUIRED' : 'EARNINGS_SOURCE_AVAILABLE'
+    },
     latestRows,
     runs,
     rows: allRows
@@ -348,6 +364,7 @@ function buildMarkdown(report) {
   lines.push(`- GeneratedAt: ${report.generatedAt}`);
   lines.push(`- Scope: ${report.scope}`);
   lines.push(`- Latest Stage6: ${report.summary.latestStage6File || 'N/A'}`);
+  lines.push(`- Source Files: ${report.source.files}`);
   lines.push(`- Latest Earnings Rows: ${report.summary.latestRows}`);
   lines.push(`- Latest Coverage Missing: ${report.summary.latestCoverageMissing}`);
   lines.push(`- Latest Auditability Missing: ${report.summary.latestAuditabilityMissing}`);
@@ -355,6 +372,8 @@ function buildMarkdown(report) {
   lines.push(`- Latest Action: **${report.summary.latestAction}**`);
   lines.push(`- Broker Mutation Authorized: ${report.safety.brokerMutationAuthorized}`);
   lines.push(`- Execution Policy Changed: ${report.safety.executionPolicyChanged}`);
+  lines.push(`- DoneWhen Coverage Track: ${report.doneWhen.earningsDataCoverageSeparated}`);
+  lines.push(`- DoneWhen Source Freshness: ${report.doneWhen.sourceFreshnessVerdict}`);
   lines.push('');
   lines.push('## Latest Coverage Counts');
   lines.push('');

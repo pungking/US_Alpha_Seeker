@@ -26,6 +26,8 @@ jobs:
       - name: Stage6 quality trend audit
         run: npm run ops:stage6:quality-trend:audit
       - name: Stage6 earnings coverage audit
+        env:
+          STAGE6_EARNINGS_AUDIT_INPUT_DIR: docs/fixtures/stage6_earnings_coverage
         run: npm run ops:stage6:earnings:audit
       - name: Auto-scheduler reliability audit
         run: npm run ops:auto-scheduler:audit
