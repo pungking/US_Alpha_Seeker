@@ -496,6 +496,12 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
       rrAtCurrentPrice: rrAtCurrentPrice == null ? null : Number(rrAtCurrentPrice.toFixed(2)),
       targetBufferFromCurrentPct: targetBufferFromCurrentPct == null ? null : Number(targetBufferFromCurrentPct.toFixed(2)),
       currentPriceStopDistancePct: currentPriceStopDistancePct == null ? null : Number(currentPriceStopDistancePct.toFixed(2)),
+      executionFeasibilityAtCurrent: normalizeText(row?.executionFeasibilityAtCurrent ?? notion?.executionFeasibilityAtCurrent) || null,
+      executionFeasibilityAtCurrentVerdict: normalizeText(row?.executionFeasibilityAtCurrentVerdict ?? notion?.executionFeasibilityAtCurrentVerdict) || null,
+      executionFeasibilityAtCurrentReason: normalizeText(row?.executionFeasibilityAtCurrentReason ?? notion?.executionFeasibilityAtCurrentReason) || null,
+      executionFeasibilityAtCurrentRr: toOptionalNumber(row?.executionFeasibilityAtCurrentRr ?? notion?.executionFeasibilityAtCurrentRr),
+      executionFeasibilityAtCurrentDistancePct: toOptionalNumber(row?.executionFeasibilityAtCurrentDistancePct ?? notion?.executionFeasibilityAtCurrentDistancePct),
+      executionFeasibilityAtCurrentMaxDistancePct: toOptionalNumber(row?.executionFeasibilityAtCurrentMaxDistancePct ?? notion?.executionFeasibilityAtCurrentMaxDistancePct),
       currentEntryRequiredStopPrice: currentEntryRecalc.currentEntryRequiredStopPrice,
       currentEntryRequiredStopDistancePct: currentEntryRecalc.currentEntryRequiredStopDistancePct,
       currentEntryRecalcFeasible: currentEntryRecalc.currentEntryRecalcFeasible,
@@ -552,6 +558,13 @@ function classifyRow(row) {
       class: 'CURRENT_RR_BAD',
       severity: 'medium',
       fixLane: 'no_chase_current_price_or_recompute_trade_box'
+    };
+  }
+  if (reason === 'wait_current_distance_above_adaptive') {
+    return {
+      class: 'CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND',
+      severity: 'medium',
+      fixLane: 'stage6_entry_distance_or_reprice_policy'
     };
   }
   if (reason === 'wait_target_near_current') {
@@ -685,6 +698,7 @@ function classifyWatchlistOnlyAction(row) {
   if (decision === 'EXECUTABLE_NOW') return 'EXECUTABLE_NO_ACTION';
   if (!isBuyOrStrongBuy(row)) return 'NON_BUY_VERDICT_REVIEW';
   if (reason === 'wait_breakout_retest_required') return 'BREAKOUT_RETEST_LANE_REVIEW';
+  if (reason === 'wait_current_distance_above_adaptive') return 'CURRENT_ENTRY_DISTANCE_REVIEW';
   if (reason === 'wait_structure_confirmation_required') return 'STRUCTURE_CONFIRMATION_LANE_REVIEW';
   if (reason === 'wait_earnings_data_missing_quality_floor' || reason === 'wait_earnings_data_missing') {
     return 'EARNINGS_DATA_FRESHNESS_REVIEW';

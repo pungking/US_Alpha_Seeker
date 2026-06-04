@@ -140,8 +140,17 @@ function structureDecision(row) {
   };
 }
 
+function currentDistanceDecision(row) {
+  if (!isReason(row, 'wait_current_distance_above_adaptive')) return null;
+  return {
+    laneDecision: 'CURRENT_ENTRY_DISTANCE_POLICY_REVIEW_READY',
+    recommendedAction: 'Do not chase via sidecar; decide whether Stage6 should wait for pullback, create a bounded reprice lane, or require fresh current-entry proof.'
+  };
+}
+
 function classifyPolicyLane(row) {
   return (
+    currentDistanceDecision(row) ||
     breakoutDecision(row) ||
     structureDecision(row) ||
     targetNearCurrentDecision(row) ||
@@ -155,6 +164,7 @@ function classifyPolicyLane(row) {
 
 function laneName(row) {
   if (isReason(row, 'wait_breakout_retest_required')) return 'breakoutRetest';
+  if (isReason(row, 'wait_current_distance_above_adaptive')) return 'currentDistance';
   if (isReason(row, 'wait_structure_confirmation_required')) return 'structureConfirmation';
   if (isReason(row, 'wait_target_near_current')) return 'targetNearCurrent';
   if (isReason(row, 'wait_earnings_data_missing_quality_floor') || isReason(row, 'wait_earnings_data_missing')) return 'earningsDataMissing';
@@ -171,12 +181,14 @@ function buildReport(input) {
   const latestRows = watchlistRows.filter((row) => isLatestRow(row, latestStage6File));
   const lanes = {
     breakoutRetest: watchlistRows.filter((row) => row.lane === 'breakoutRetest'),
+    currentDistance: watchlistRows.filter((row) => row.lane === 'currentDistance'),
     structureConfirmation: watchlistRows.filter((row) => row.lane === 'structureConfirmation'),
     targetNearCurrent: watchlistRows.filter((row) => row.lane === 'targetNearCurrent'),
     earningsDataMissing: watchlistRows.filter((row) => row.lane === 'earningsDataMissing')
   };
   const latestLaneRows = {
     breakoutRetest: latestRows.filter((row) => row.lane === 'breakoutRetest'),
+    currentDistance: latestRows.filter((row) => row.lane === 'currentDistance'),
     structureConfirmation: latestRows.filter((row) => row.lane === 'structureConfirmation'),
     targetNearCurrent: latestRows.filter((row) => row.lane === 'targetNearCurrent'),
     earningsDataMissing: latestRows.filter((row) => row.lane === 'earningsDataMissing')
@@ -185,6 +197,7 @@ function buildReport(input) {
     'BREAKOUT_RETEST_POLICY_REVIEW_READY',
     'BREAKOUT_RETEST_REVIEW_LOW_DISTANCE',
     'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
+    'CURRENT_ENTRY_DISTANCE_POLICY_REVIEW_READY',
     'STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY',
     'EARNINGS_DATA_OVERBLOCK_REVIEW_READY'
   ]);

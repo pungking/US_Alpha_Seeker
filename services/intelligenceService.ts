@@ -2433,6 +2433,7 @@ export async function generateTelegramBrief(
           const key = toReasonKey(reason);
           if (key === 'executable_pullback') return '눌림목 조건 충족';
           if (key === 'wait_pullback_not_reached') return '진입 가격 미도달';
+          if (key === 'wait_current_distance_above_adaptive') return '현재가-진입가 괴리 과대';
           if (key === 'wait_earnings_data_missing') return '실적 일정 데이터 누락(대기)';
           if (key === 'wait_state_verdict_conflict') return '시장구조-판정 충돌(대기)';
           if (key === 'blocked_invalid_geometry') return '가격 구조 오류';

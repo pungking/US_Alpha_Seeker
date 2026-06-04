@@ -1,8 +1,8 @@
 # Stage6 Policy Lane Audit
 
-- GeneratedAt: 2026-06-01T15:23:01.753Z
+- GeneratedAt: 2026-06-04T07:50:51.217Z
 - Source Audit: state/stage6-execution-gate-audit.json
-- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-02_00-15-06.json
+- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-03_23-33-11.json
 - Latest Verdict: **STAGE6_PRODUCER_POLICY_REVIEW_REQUIRED**
 - Latest Review-Ready Rows: 1
 - Broker Mutation Authorized: false
@@ -13,26 +13,28 @@
 
 | Lane | Latest Rows | Latest Decisions |
 | --- | ---: | --- |
-| breakoutRetest | 1 | BREAKOUT_RETEST_POLICY_REVIEW_READY:1 |
-| structureConfirmation | 1 | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED:1 |
+| breakoutRetest | 1 | BREAKOUT_RETEST_REVIEW_LOW_DISTANCE:1 |
+| currentDistance | 0 | none |
+| structureConfirmation | 4 | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED:4 |
 | targetNearCurrent | 0 | none |
-| earningsDataMissing | 0 | none |
+| earningsDataMissing | 1 | EARNINGS_DATA_COVERAGE_REQUIRED:1 |
 
 ## Latest Review-Ready Rows
 
 | Symbol | Lane | Decision | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Action |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
-| CRMD | breakoutRetest | BREAKOUT_RETEST_POLICY_REVIEW_READY | 99.00 | 80.23 | 4.49 | 17.16 | 82.54 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Design a Stage6 breakout/retest proof lane with explicit retest evidence; do not promote by sidecar chase. |
+| ZVRA | breakoutRetest | BREAKOUT_RETEST_REVIEW_LOW_DISTANCE | 104.00 | 41.09 | 7.65 | 11.43 | 110.05 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Inspect retest evidence; promotion still requires Stage6 producer proof fields. |
 
 ## Latest Rows
 
 | Symbol | Verdict | Lane | Stage6 Reason | Lane Decision | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
-| CRMD | BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_RETEST_POLICY_REVIEW_READY | 99.00 | 4.49 | 17.16 | 82.54 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Design a Stage6 breakout/retest proof lane with explicit retest evidence; do not promote by sidecar chase. |
-| IMPP | BUY | other | blocked_stop_too_tight | OUT_OF_SCOPE_FOR_POLICY_LANE | 77.00 | 4.33 | 15.22 | 70.13 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Use execution gate audit blocker class and sidecar-safe validation path. |
-| PD | STRONG_BUY | other | blocked_rr_below_min | OUT_OF_SCOPE_FOR_POLICY_LANE | 16.00 | N/A | 33.03 | -19.87 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Use execution gate audit blocker class and sidecar-safe validation path. |
-| TRIN | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED | 16.00 | 0.36 | 11.29 | 4.51 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE unless structure proof changes in the next Stage6 artifact. |
-| ZVRA | BUY | other | blocked_stop_too_tight | OUT_OF_SCOPE_FOR_POLICY_LANE | 118.00 | 4.82 | 18.93 | 96.41 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Use execution gate audit blocker class and sidecar-safe validation path. |
+| AUPH | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED | 13.00 | 0.57 | 7.10 | 7.32 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE unless structure proof changes in the next Stage6 artifact. |
+| TDC | BUY | earningsDataMissing | wait_earnings_data_missing_quality_floor | EARNINGS_DATA_COVERAGE_REQUIRED | 16.00 | N/A | 22.51 | -6.42 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Separate data freshness/coverage from execution policy; current evidence does not justify promotion. |
+| TGTX | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED | 41.00 | 0.89 | 20.38 | 19.28 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE unless structure proof changes in the next Stage6 artifact. |
+| TOYO | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED | 43.00 | 0.09 | 37.62 | 3.71 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE unless structure proof changes in the next Stage6 artifact. |
+| VIST | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_WAIT_JUSTIFIED | 39.00 | 1.27 | 15.82 | 27.33 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE unless structure proof changes in the next Stage6 artifact. |
+| ZVRA | STRONG_BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_RETEST_REVIEW_LOW_DISTANCE | 104.00 | 7.65 | 11.43 | 110.05 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Inspect retest evidence; promotion still requires Stage6 producer proof fields. |
 
 ## Policy Interpretation
 

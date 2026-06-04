@@ -57,6 +57,7 @@ interface AlphaCandidate {
     | 'wait_structure_confirmation_required'
     | 'wait_target_near_current'
     | 'wait_current_rr_below_min'
+    | 'wait_current_distance_above_adaptive'
     | 'wait_earnings_data_missing'
     | 'wait_earnings_data_missing_quality_floor'
     | 'wait_insufficient_history'
@@ -89,6 +90,16 @@ interface AlphaCandidate {
   rrAtCurrentPrice?: number | null;
   targetBufferFromCurrentPct?: number | null;
   currentPriceStopDistancePct?: number | null;
+  executionFeasibilityAtCurrent?: 'PASS' | 'BLOCKED' | 'UNKNOWN';
+  executionFeasibilityAtCurrentVerdict?: string | null;
+  executionFeasibilityAtCurrentReason?: string | null;
+  executionFeasibilityAtCurrentReasons?: string[] | null;
+  executionFeasibilityAtCurrentRr?: number | null;
+  executionFeasibilityAtCurrentDistancePct?: number | null;
+  executionFeasibilityAtCurrentMinRr?: number | null;
+  executionFeasibilityAtCurrentMaxDistancePct?: number | null;
+  executionFeasibilityAtCurrentMinTargetBufferPct?: number | null;
+  executionFeasibilityAtCurrentBasis?: string | null;
   currentEntryRequiredStopPrice?: number | null;
   currentEntryRequiredStopDistancePct?: number | null;
   currentEntryRecalcFeasible?: boolean | null;
@@ -991,6 +1002,10 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         title: "⏳ Reason: wait_current_rr_below_min",
         desc: "원래 진입가 기준 RR은 좋아 보여도 현재가 기준 RR이 최소 기준보다 낮아 신규 진입을 대기합니다."
     },
+    'REASON_WAIT_CURRENT_DISTANCE_ABOVE_ADAPTIVE': {
+        title: "⏳ Reason: wait_current_distance_above_adaptive",
+        desc: "현재가가 Stage6 진입가 대비 adaptive 허용 거리 밖에 있어, 사이드카 추격 주문이 아니라 눌림/신규 구조 확인으로 돌립니다."
+    },
     'REASON_WAIT_EARNINGS_DATA_MISSING': {
         title: "⏳ Reason: wait_earnings_data_missing",
         desc: "실적 일정 데이터가 누락되어 이벤트 리스크를 확정할 수 없어 **보수적으로 대기**합니다."
@@ -1280,6 +1295,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_structure_confirmation_required') return 'REASON_WAIT_STRUCTURE_CONFIRMATION_REQUIRED';
       if (key === 'wait_target_near_current') return 'REASON_WAIT_TARGET_NEAR_CURRENT';
       if (key === 'wait_current_rr_below_min') return 'REASON_WAIT_CURRENT_RR_BELOW_MIN';
+      if (key === 'wait_current_distance_above_adaptive') return 'REASON_WAIT_CURRENT_DISTANCE_ABOVE_ADAPTIVE';
       if (key === 'wait_earnings_data_missing') return 'REASON_WAIT_EARNINGS_DATA_MISSING';
       if (key === 'wait_insufficient_history') return 'REASON_WAIT_INSUFFICIENT_HISTORY';
       if (key === 'wait_state_verdict_conflict') return 'REASON_WAIT_STATE_VERDICT_CONFLICT';
@@ -1313,6 +1329,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_structure_confirmation_required') return 'Structure Confirmation Required';
       if (key === 'wait_target_near_current') return 'Target Near Current';
       if (key === 'wait_current_rr_below_min') return 'Current RR Below Min';
+      if (key === 'wait_current_distance_above_adaptive') return 'Current Distance Above Adaptive Band';
       if (key === 'wait_earnings_data_missing') return 'Awaiting Earnings Data';
       if (key === 'wait_insufficient_history') return 'Awaiting History Build-up';
       if (key === 'wait_state_verdict_conflict') return 'Awaiting State Conflict Review';
@@ -2648,6 +2665,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const decisionReasonLabelMap: Record<string, string> = {
           executable_pullback: '눌림목 조건 충족',
           wait_pullback_not_reached: '진입 가격 미도달',
+          wait_current_distance_above_adaptive: '현재가-진입가 괴리 과대',
           wait_earnings_data_missing: '실적 일정 데이터 누락(대기)',
           blocked_quality_verdict_unusable: 'AI 판정 신뢰 불가',
           blocked_stop_too_tight: '손절폭 과소',
@@ -4964,6 +4982,91 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               entryDistancePct: entryDistancePctShadow,
               priceHistory: item?.priceHistory || item?.fullHistory || item?.history || []
           });
+          type CurrentFeasibilityStatus = 'PASS' | 'BLOCKED' | 'UNKNOWN';
+          const deriveExecutionFeasibilityAtCurrent = ({
+              rr,
+              distancePct,
+              targetBufferPct,
+              basis
+          }: {
+              rr: number | null;
+              distancePct: number | null;
+              targetBufferPct: number | null;
+              basis: string;
+          }): {
+              status: CurrentFeasibilityStatus;
+              verdict: string;
+              decisionReason: AlphaCandidate["decisionReason"] | null;
+              reasons: string[];
+              rr: number | null;
+              distancePct: number | null;
+              minRr: number;
+              maxDistancePct: number;
+              minTargetBufferPct: number;
+              basis: string;
+          } => {
+              const base = {
+                  rr,
+                  distancePct,
+                  minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
+                  maxDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
+                  minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
+                  basis
+              };
+              if (!hasGeometry || livePrice == null || distancePct == null || !Number.isFinite(distancePct)) {
+                  return {
+                      ...base,
+                      status: 'UNKNOWN',
+                      verdict: 'CURRENT_ENTRY_FEASIBILITY_DATA_MISSING',
+                      decisionReason: null,
+                      reasons: ['price_or_geometry_missing']
+                  };
+              }
+              if (
+                  targetBufferPct != null &&
+                  Number.isFinite(targetBufferPct) &&
+                  targetBufferPct < STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
+              ) {
+                  return {
+                      ...base,
+                      status: 'BLOCKED',
+                      verdict: 'CURRENT_TARGET_BUFFER_BELOW_MIN',
+                      decisionReason: 'wait_target_near_current',
+                      reasons: ['target_buffer_below_min']
+                  };
+              }
+              if (rr == null || !Number.isFinite(rr) || rr < STAGE6_CURRENT_ENTRY_MIN_RR) {
+                  return {
+                      ...base,
+                      status: 'BLOCKED',
+                      verdict: 'CURRENT_RR_BELOW_MIN',
+                      decisionReason: 'wait_current_rr_below_min',
+                      reasons: ['current_rr_below_min']
+                  };
+              }
+              if (distancePct > ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT) {
+                  return {
+                      ...base,
+                      status: 'BLOCKED',
+                      verdict: 'CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND',
+                      decisionReason: 'wait_current_distance_above_adaptive',
+                      reasons: ['current_distance_above_adaptive_band']
+                  };
+              }
+              return {
+                  ...base,
+                  status: 'PASS',
+                  verdict: 'CURRENT_ENTRY_FEASIBLE',
+                  decisionReason: null,
+                  reasons: []
+              };
+          };
+          const originalStopCurrentFeasibility = deriveExecutionFeasibilityAtCurrent({
+              rr: rrAtCurrentPrice,
+              distancePct: entryDistancePctShadow,
+              targetBufferPct: targetBufferFromCurrentPct,
+              basis: 'ORIGINAL_STAGE6_STOP_AT_CURRENT'
+          });
           const expectedReturnPct = parseExpectedReturnPct(
               item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
           );
@@ -5205,6 +5308,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           } else if (earningsDataMissing && STAGE6_EARNINGS_MISSING_POLICY === 'HAIRCUT') {
               decisionReason = 'executable_earnings_data_missing_haircut';
           }
+          const isCurrentEntryExecutableReason =
+              decisionReason === 'executable_adaptive_current' ||
+              decisionReason === 'executable_current_recalculated_stop';
+          if (
+              finalDecision === 'EXECUTABLE_NOW' &&
+              !isCurrentEntryExecutableReason &&
+              originalStopCurrentFeasibility.status === 'BLOCKED' &&
+              originalStopCurrentFeasibility.decisionReason
+          ) {
+              finalDecision = 'WAIT_PRICE';
+              decisionReason = originalStopCurrentFeasibility.decisionReason;
+          }
           const executionBucket: AlphaCandidate["executionBucket"] =
               finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST';
           const useAdaptiveCurrentEntry = decisionReason === 'executable_adaptive_current' && livePrice != null;
@@ -5224,6 +5339,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const contractRiskRewardRatioValue =
               useRecalculatedCurrentEntry ? STAGE6_CURRENT_ENTRY_MIN_RR : useAdaptiveCurrentEntry ? rrAtCurrentPrice : riskRewardRatioValue;
           const contractEntryFeasible = useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? true : entryFeasibleShadow;
+          const executionFeasibilityAtCurrent = useRecalculatedCurrentEntry
+              ? deriveExecutionFeasibilityAtCurrent({
+                  rr: STAGE6_CURRENT_ENTRY_MIN_RR,
+                  distancePct: 0,
+                  targetBufferPct: targetBufferFromCurrentPct,
+                  basis: 'RECALCULATED_STOP_CURRENT_ENTRY_CONTRACT'
+              })
+              : useAdaptiveCurrentEntry
+                  ? deriveExecutionFeasibilityAtCurrent({
+                      rr: rrAtCurrentPrice,
+                      distancePct: 0,
+                      targetBufferPct: targetBufferFromCurrentPct,
+                      basis: 'ADAPTIVE_CURRENT_ENTRY_CONTRACT'
+                  })
+                  : originalStopCurrentFeasibility;
           const contractTradePlanStatus: AlphaCandidate["tradePlanStatusShadow"] =
               useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? 'VALID_EXEC' : tradePlanStatusShadow;
           const contractExecutionReason: AlphaCandidate["executionReason"] =
@@ -5237,7 +5367,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       ? 'ADAPTIVE_RECALC_STOP'
                   : decisionReason === 'wait_breakout_retest_required'
                       ? 'BREAKOUT'
-                      : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current'
+                      : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current' || decisionReason === 'wait_current_distance_above_adaptive'
                           ? 'NO_TRADE'
                           : 'PULLBACK';
           const entryTactic: AlphaCandidate["entryTactic"] =
@@ -5249,7 +5379,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       ? 'RECALCULATED_STOP_REVIEW'
                   : decisionReason === 'wait_breakout_retest_required'
                       ? 'BREAKOUT_RETEST'
-                      : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current'
+                      : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current' || decisionReason === 'wait_current_distance_above_adaptive'
                           ? 'NO_TRADE_CURRENT_RR_BAD'
                           : hasGeometry
                               ? 'PULLBACK_LIMIT'
@@ -5295,6 +5425,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice,
               targetBufferFromCurrentPct,
               currentPriceStopDistancePct,
+              executionFeasibilityAtCurrent: executionFeasibilityAtCurrent.status,
+              executionFeasibilityAtCurrentVerdict: executionFeasibilityAtCurrent.verdict,
+              executionFeasibilityAtCurrentReason: executionFeasibilityAtCurrent.decisionReason,
+              executionFeasibilityAtCurrentReasons: executionFeasibilityAtCurrent.reasons,
+              executionFeasibilityAtCurrentRr: executionFeasibilityAtCurrent.rr,
+              executionFeasibilityAtCurrentDistancePct: executionFeasibilityAtCurrent.distancePct,
+              executionFeasibilityAtCurrentMinRr: executionFeasibilityAtCurrent.minRr,
+              executionFeasibilityAtCurrentMaxDistancePct: executionFeasibilityAtCurrent.maxDistancePct,
+              executionFeasibilityAtCurrentMinTargetBufferPct: executionFeasibilityAtCurrent.minTargetBufferPct,
+              executionFeasibilityAtCurrentBasis: executionFeasibilityAtCurrent.basis,
               currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible,
@@ -5399,6 +5539,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice: executionContract.rrAtCurrentPrice,
               targetBufferFromCurrentPct: executionContract.targetBufferFromCurrentPct,
               currentPriceStopDistancePct: executionContract.currentPriceStopDistancePct,
+              executionFeasibilityAtCurrent: executionContract.executionFeasibilityAtCurrent,
+              executionFeasibilityAtCurrentVerdict: executionContract.executionFeasibilityAtCurrentVerdict,
+              executionFeasibilityAtCurrentReason: executionContract.executionFeasibilityAtCurrentReason,
+              executionFeasibilityAtCurrentReasons: executionContract.executionFeasibilityAtCurrentReasons,
+              executionFeasibilityAtCurrentRr: executionContract.executionFeasibilityAtCurrentRr,
+              executionFeasibilityAtCurrentDistancePct: executionContract.executionFeasibilityAtCurrentDistancePct,
+              executionFeasibilityAtCurrentMinRr: executionContract.executionFeasibilityAtCurrentMinRr,
+              executionFeasibilityAtCurrentMaxDistancePct: executionContract.executionFeasibilityAtCurrentMaxDistancePct,
+              executionFeasibilityAtCurrentMinTargetBufferPct: executionContract.executionFeasibilityAtCurrentMinTargetBufferPct,
+              executionFeasibilityAtCurrentBasis: executionContract.executionFeasibilityAtCurrentBasis,
               currentEntryRequiredStopPrice: executionContract.currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct: executionContract.currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible: executionContract.currentEntryRecalcFeasible,
@@ -5618,7 +5768,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           "info"
       );
       addLog(
-          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} earnings_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} wait_earnings_missing=${decisionReasonCountsPrimary.wait_earnings_data_missing || 0} wait_earnings_quality=${decisionReasonCountsPrimary.wait_earnings_data_missing_quality_floor || 0} wait_history=${decisionReasonCountsPrimary.wait_insufficient_history || 0} wait_state_conflict=${decisionReasonCountsPrimary.wait_state_verdict_conflict || 0} stale_blocked=${decisionReasonCountsPrimary.blocked_symbol_stale || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_missing_blocked=${decisionReasonCountsPrimary.blocked_earnings_data_missing || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} state_conflict_blocked=${decisionReasonCountsPrimary.blocked_state_verdict_conflict || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
+          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} earnings_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} wait_current_distance=${decisionReasonCountsPrimary.wait_current_distance_above_adaptive || 0} wait_earnings_missing=${decisionReasonCountsPrimary.wait_earnings_data_missing || 0} wait_earnings_quality=${decisionReasonCountsPrimary.wait_earnings_data_missing_quality_floor || 0} wait_history=${decisionReasonCountsPrimary.wait_insufficient_history || 0} wait_state_conflict=${decisionReasonCountsPrimary.wait_state_verdict_conflict || 0} stale_blocked=${decisionReasonCountsPrimary.blocked_symbol_stale || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_missing_blocked=${decisionReasonCountsPrimary.blocked_earnings_data_missing || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} state_conflict_blocked=${decisionReasonCountsPrimary.blocked_state_verdict_conflict || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
           "info"
       );
       const verdictConflictCountPrimary = primaryPool.filter((item) => Boolean(item.verdictConflict)).length;
@@ -5652,7 +5802,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return acc;
       }, {});
       addLog(
-          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} executable_earnings_data_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} wait_earnings_data_missing=${watchlistReasonCounts.wait_earnings_data_missing || 0} wait_earnings_data_missing_quality_floor=${watchlistReasonCounts.wait_earnings_data_missing_quality_floor || 0} wait_insufficient_history=${watchlistReasonCounts.wait_insufficient_history || 0} wait_state_verdict_conflict=${watchlistReasonCounts.wait_state_verdict_conflict || 0} blocked_symbol_stale=${watchlistReasonCounts.blocked_symbol_stale || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_data_missing=${watchlistReasonCounts.blocked_earnings_data_missing || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0} blocked_state_verdict_conflict=${watchlistReasonCounts.blocked_state_verdict_conflict || 0}`,
+          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} executable_earnings_data_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} wait_current_distance_above_adaptive=${watchlistReasonCounts.wait_current_distance_above_adaptive || 0} wait_earnings_data_missing=${watchlistReasonCounts.wait_earnings_data_missing || 0} wait_earnings_data_missing_quality_floor=${watchlistReasonCounts.wait_earnings_data_missing_quality_floor || 0} wait_insufficient_history=${watchlistReasonCounts.wait_insufficient_history || 0} wait_state_verdict_conflict=${watchlistReasonCounts.wait_state_verdict_conflict || 0} blocked_symbol_stale=${watchlistReasonCounts.blocked_symbol_stale || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_data_missing=${watchlistReasonCounts.blocked_earnings_data_missing || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0} blocked_state_verdict_conflict=${watchlistReasonCounts.blocked_state_verdict_conflict || 0}`,
           "info"
       );
       if (hardCutBlocked.length > 0) {
@@ -5781,6 +5931,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice: executionContract.rrAtCurrentPrice,
               targetBufferFromCurrentPct: executionContract.targetBufferFromCurrentPct,
               currentPriceStopDistancePct: executionContract.currentPriceStopDistancePct,
+              executionFeasibilityAtCurrent: executionContract.executionFeasibilityAtCurrent,
+              executionFeasibilityAtCurrentVerdict: executionContract.executionFeasibilityAtCurrentVerdict,
+              executionFeasibilityAtCurrentReason: executionContract.executionFeasibilityAtCurrentReason,
+              executionFeasibilityAtCurrentReasons: executionContract.executionFeasibilityAtCurrentReasons,
+              executionFeasibilityAtCurrentRr: executionContract.executionFeasibilityAtCurrentRr,
+              executionFeasibilityAtCurrentDistancePct: executionContract.executionFeasibilityAtCurrentDistancePct,
+              executionFeasibilityAtCurrentMinRr: executionContract.executionFeasibilityAtCurrentMinRr,
+              executionFeasibilityAtCurrentMaxDistancePct: executionContract.executionFeasibilityAtCurrentMaxDistancePct,
+              executionFeasibilityAtCurrentMinTargetBufferPct: executionContract.executionFeasibilityAtCurrentMinTargetBufferPct,
+              executionFeasibilityAtCurrentBasis: executionContract.executionFeasibilityAtCurrentBasis,
               currentEntryRequiredStopPrice: executionContract.currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct: executionContract.currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible: executionContract.currentEntryRecalcFeasible,
@@ -6028,6 +6188,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice: toOptionalFiniteNumber(item.rrAtCurrentPrice),
               targetBufferFromCurrentPct: toOptionalFiniteNumber(item.targetBufferFromCurrentPct),
               currentPriceStopDistancePct: toOptionalFiniteNumber(item.currentPriceStopDistancePct),
+              executionFeasibilityAtCurrent: normalizeOptionalText(item.executionFeasibilityAtCurrent),
+              executionFeasibilityAtCurrentVerdict: normalizeOptionalText(item.executionFeasibilityAtCurrentVerdict),
+              executionFeasibilityAtCurrentReason: normalizeOptionalText(item.executionFeasibilityAtCurrentReason),
+              executionFeasibilityAtCurrentReasons: Array.isArray(item.executionFeasibilityAtCurrentReasons) ? item.executionFeasibilityAtCurrentReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              executionFeasibilityAtCurrentRr: toOptionalFiniteNumber(item.executionFeasibilityAtCurrentRr),
+              executionFeasibilityAtCurrentDistancePct: toOptionalFiniteNumber(item.executionFeasibilityAtCurrentDistancePct),
+              executionFeasibilityAtCurrentMinRr: toOptionalFiniteNumber(item.executionFeasibilityAtCurrentMinRr),
+              executionFeasibilityAtCurrentMaxDistancePct: toOptionalFiniteNumber(item.executionFeasibilityAtCurrentMaxDistancePct),
+              executionFeasibilityAtCurrentMinTargetBufferPct: toOptionalFiniteNumber(item.executionFeasibilityAtCurrentMinTargetBufferPct),
+              executionFeasibilityAtCurrentBasis: normalizeOptionalText(item.executionFeasibilityAtCurrentBasis),
               currentEntryRequiredStopPrice: toOptionalFiniteNumber(item.currentEntryRequiredStopPrice),
               currentEntryRequiredStopDistancePct: toOptionalFiniteNumber(item.currentEntryRequiredStopDistancePct),
               currentEntryRecalcFeasible: Boolean(item.currentEntryRecalcFeasible),
@@ -6097,6 +6267,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice: toOptionalFiniteNumber(item?.rrAtCurrentPrice),
               targetBufferFromCurrentPct: toOptionalFiniteNumber(item?.targetBufferFromCurrentPct),
               currentPriceStopDistancePct: toOptionalFiniteNumber(item?.currentPriceStopDistancePct),
+              executionFeasibilityAtCurrent: normalizeOptionalText(item?.executionFeasibilityAtCurrent),
+              executionFeasibilityAtCurrentVerdict: normalizeOptionalText(item?.executionFeasibilityAtCurrentVerdict),
+              executionFeasibilityAtCurrentReason: normalizeOptionalText(item?.executionFeasibilityAtCurrentReason),
+              executionFeasibilityAtCurrentReasons: Array.isArray(item?.executionFeasibilityAtCurrentReasons) ? item.executionFeasibilityAtCurrentReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              executionFeasibilityAtCurrentRr: toOptionalFiniteNumber(item?.executionFeasibilityAtCurrentRr),
+              executionFeasibilityAtCurrentDistancePct: toOptionalFiniteNumber(item?.executionFeasibilityAtCurrentDistancePct),
+              executionFeasibilityAtCurrentMinRr: toOptionalFiniteNumber(item?.executionFeasibilityAtCurrentMinRr),
+              executionFeasibilityAtCurrentMaxDistancePct: toOptionalFiniteNumber(item?.executionFeasibilityAtCurrentMaxDistancePct),
+              executionFeasibilityAtCurrentMinTargetBufferPct: toOptionalFiniteNumber(item?.executionFeasibilityAtCurrentMinTargetBufferPct),
+              executionFeasibilityAtCurrentBasis: normalizeOptionalText(item?.executionFeasibilityAtCurrentBasis),
               currentEntryRequiredStopPrice: toOptionalFiniteNumber(item?.currentEntryRequiredStopPrice),
               currentEntryRequiredStopDistancePct: toOptionalFiniteNumber(item?.currentEntryRequiredStopDistancePct),
               currentEntryRecalcFeasible: Boolean(item?.currentEntryRecalcFeasible),
@@ -6303,6 +6483,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       currentEntryStructureGateRequired: STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED,
                       currentEntryMinRr: STAGE6_CURRENT_ENTRY_MIN_RR,
                       currentEntryMinTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
+                      currentEntryMaxAdaptiveDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
                       breakoutRetestDistancePct: STAGE6_BREAKOUT_RETEST_DISTANCE_PCT,
                       breakoutRetestProofPolicy: BREAKOUT_RETEST_PROOF_POLICY,
                       stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,

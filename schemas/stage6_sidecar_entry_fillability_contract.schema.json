@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://us-alpha-seeker.local/schemas/stage6_sidecar_entry_fillability_contract.schema.json",
+  "title": "Stage6 Sidecar Entry Fillability Contract",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "candidates"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "decisionGate": {
+      "type": "object",
+      "properties": {
+        "currentEntryMinRr": { "type": "number", "exclusiveMinimum": 0 },
+        "currentEntryMaxAdaptiveDistancePct": { "type": "number", "minimum": 0 },
+        "currentEntryMinTargetBufferPct": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stage6Candidate" }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "nullableNumber": {
+      "anyOf": [
+        { "type": "number" },
+        { "type": "null" }
+      ]
+    },
+    "nullableString": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    },
+    "stage6Candidate": {
+      "type": "object",
+      "required": [
+        "symbol",
+        "finalDecision",
+        "decisionReason",
+        "executionFeasibilityAtCurrent"
+      ],
+      "properties": {
+        "symbol": { "type": "string", "minLength": 1 },
+        "finalDecision": {
+          "type": "string",
+          "enum": ["EXECUTABLE_NOW", "WAIT_PRICE", "BLOCKED_RISK", "BLOCKED_EVENT"]
+        },
+        "decisionReason": { "type": "string", "minLength": 1 },
+        "entryExecPrice": { "$ref": "#/$defs/nullableNumber" },
+        "entryExecPriceShadow": { "$ref": "#/$defs/nullableNumber" },
+        "targetPrice": { "$ref": "#/$defs/nullableNumber" },
+        "targetMeanPrice": { "$ref": "#/$defs/nullableNumber" },
+        "stopLoss": { "$ref": "#/$defs/nullableNumber" },
+        "ictStopLoss": { "$ref": "#/$defs/nullableNumber" },
+        "rrAtCurrentPrice": { "$ref": "#/$defs/nullableNumber" },
+        "entryDistancePct": { "$ref": "#/$defs/nullableNumber" },
+        "entryDistancePctShadow": { "$ref": "#/$defs/nullableNumber" },
+        "targetBufferFromCurrentPct": { "$ref": "#/$defs/nullableNumber" },
+        "executionFeasibilityAtCurrent": {
+          "type": "string",
+          "enum": ["PASS", "BLOCKED", "UNKNOWN"]
+        },
+        "executionFeasibilityAtCurrentVerdict": { "$ref": "#/$defs/nullableString" },
+        "executionFeasibilityAtCurrentReason": { "$ref": "#/$defs/nullableString" },
+        "executionFeasibilityAtCurrentReasons": {
+          "anyOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "null" }
+          ]
+        },
+        "executionFeasibilityAtCurrentRr": { "$ref": "#/$defs/nullableNumber" },
+        "executionFeasibilityAtCurrentDistancePct": { "$ref": "#/$defs/nullableNumber" },
+        "executionFeasibilityAtCurrentMinRr": { "$ref": "#/$defs/nullableNumber" },
+        "executionFeasibilityAtCurrentMaxDistancePct": { "$ref": "#/$defs/nullableNumber" },
+        "executionFeasibilityAtCurrentMinTargetBufferPct": { "$ref": "#/$defs/nullableNumber" },
+        "executionFeasibilityAtCurrentBasis": { "$ref": "#/$defs/nullableString" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
