@@ -25,6 +25,8 @@ jobs:
         run: npm run ops:stage6:fillability-contract:validate
       - name: Stage6 quality trend audit
         run: npm run ops:stage6:quality-trend:audit
+      - name: Stage6 earnings coverage audit
+        run: npm run ops:stage6:earnings:audit
       - name: Auto-scheduler reliability audit
         run: npm run ops:auto-scheduler:audit
       - name: TypeScript debt report (non-blocking)
@@ -38,5 +40,6 @@ jobs:
           path: |
             state/analysis-repo-safety-boundary.*
             state/stage6-quality-trend-audit.*
+            state/stage6-earnings-coverage-audit.*
             state/auto-scheduler-reliability-audit.*
             state/tsc-debt-report.*

@@ -47,7 +47,8 @@
     "ops:stage6:fillability-contract:validate": "node scripts/validate-stage6-fillability-contract.mjs",
     "ops:tsc:debt": "node scripts/build-tsc-debt-report.mjs",
     "ops:auto-scheduler:audit": "node scripts/build-auto-scheduler-reliability-audit.mjs",
-    "ops:stage6:quality-trend:audit": "node scripts/build-stage6-quality-trend-audit.mjs"
+    "ops:stage6:quality-trend:audit": "node scripts/build-stage6-quality-trend-audit.mjs",
+    "ops:stage6:earnings:audit": "node scripts/build-stage6-earnings-coverage-audit.mjs"
   },
   "dependencies": {
     "@sentry/node": "^10.17.0",
