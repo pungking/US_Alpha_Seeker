@@ -2767,7 +2767,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const persistStage2AiUsageAudit = async (audit: Record<string, any>) => {
-      const payload = {
+      const payload: Record<string, any> = {
           ...audit,
           generatedAt: new Date().toISOString(),
           usage: readAiUsageSnapshot(),
@@ -3786,13 +3786,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
       }
 
-      let finalData = candidates;
+      let finalData: AlphaCandidate[] = candidates;
       let matchedAiCount = 0;
       let verifiedAiCount = 0;
       let fallbackAiCount = 0;
       if (!aiFailed && response?.data) {
-          const aiMap = new Map(response.data.map((i: any) => [String(i.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase(), i]));
-          finalData = candidates.map(item => {
+          const aiRows = Array.isArray(response.data) ? (response.data as any[]) : [];
+          const aiMap = new Map<string, any>(
+              aiRows.map((i: any): [string, any] => [
+                  String(i.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase(),
+                  i
+              ])
+          );
+          finalData = candidates.map((item): AlphaCandidate => {
               const cleanSymbol = String(item.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
               const aiData = aiMap.get(cleanSymbol);
               if (!aiData) {
@@ -5495,7 +5501,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
       });
 
-      const scoredCandidates = finalData.map((item) => {
+      const scoredCandidates: AlphaCandidate[] = finalData.map((item): AlphaCandidate => {
           const executionContract = deriveExecutionContractFields(item);
           const hfBlend = computeHfBlendAdjustment(item);
           const executionScoreBase = Number.isFinite(Number(executionContract.executionScore))
@@ -5622,10 +5628,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           HF_BLEND_ENABLED ? 'info' : 'warn'
       );
 
-      const hardCutBlocked = scoredCandidates.filter(item => isRiskOffVerdict(item.aiVerdict));
-      const primaryPool = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
-      const modelTop6Pool = primaryPool.slice(0, 6);
-      const executablePool = primaryPool.filter(item => item.executionBucket === 'EXECUTABLE');
+      const hardCutBlocked: AlphaCandidate[] = scoredCandidates.filter(item => isRiskOffVerdict(item.aiVerdict));
+      const primaryPool: AlphaCandidate[] = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
+      const modelTop6Pool: AlphaCandidate[] = primaryPool.slice(0, 6);
+      const executablePool: AlphaCandidate[] = primaryPool.filter(item => item.executionBucket === 'EXECUTABLE');
       const resolveExecutionSortScore = (item: any, useBase: boolean): number => {
           const primaryRaw = Number(useBase ? item?.executionScoreBase : item?.executionScore);
           if (Number.isFinite(primaryRaw)) return primaryRaw;
@@ -5644,15 +5650,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (modelSafeA !== modelSafeB) return modelSafeA - modelSafeB;
           return String(a.symbol || '').localeCompare(String(b.symbol || ''));
       };
-      const executableSortedPool = [...executablePool].sort((a, b) => {
+      const executableSortedPool: AlphaCandidate[] = [...executablePool].sort((a, b) => {
           return sortByExecutionScore(a, b, false);
       });
-      const executableSortedPoolNoBlend = [...executablePool].sort((a, b) => {
+      const executableSortedPoolNoBlend: AlphaCandidate[] = [...executablePool].sort((a, b) => {
           return sortByExecutionScore(a, b, true);
       });
-      const watchlistPool = primaryPool.filter(item => item.executionBucket === 'WATCHLIST');
-      const invalidGeometryBlocked = watchlistPool.filter(item => item.executionReason === 'INVALID_GEOMETRY');
-      const modelTop6Watchlist = modelTop6Pool.filter(item => item.executionBucket === 'WATCHLIST');
+      const watchlistPool: AlphaCandidate[] = primaryPool.filter(item => item.executionBucket === 'WATCHLIST');
+      const invalidGeometryBlocked: AlphaCandidate[] = watchlistPool.filter(item => item.executionReason === 'INVALID_GEOMETRY');
+      const modelTop6Watchlist: AlphaCandidate[] = modelTop6Pool.filter(item => item.executionBucket === 'WATCHLIST');
       const decisionCountsPrimary = primaryPool.reduce<Record<string, number>>((acc, item) => {
           const key = String(item.finalDecision || 'UNKNOWN').toUpperCase();
           acc[key] = (acc[key] || 0) + 1;
@@ -5664,8 +5670,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return acc;
       }, {});
 
-      let top6Elite = executableSortedPool.slice(0, 6);
-      const top6EliteNoBlend = executableSortedPoolNoBlend.slice(0, 6);
+      let top6Elite: AlphaCandidate[] = executableSortedPool.slice(0, 6);
+      const top6EliteNoBlend: AlphaCandidate[] = executableSortedPoolNoBlend.slice(0, 6);
       const executionRankWithBlendMap = new Map<string, number>();
       executableSortedPool.forEach((item, idx) => {
           const symbolKey = normalizeContractSymbol(item?.symbol);

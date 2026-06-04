@@ -1038,6 +1038,13 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string, audit?: any}> {
+  type AlphaSynthesisProviderResult = {
+    data: any[] | null;
+    error?: string | null;
+    usedProvider?: string;
+    audit?: any;
+  };
+
   if (provider !== ApiProvider.GEMINI && provider !== ApiProvider.PERPLEXITY) {
       return { data: null, error: "INVALID_PROVIDER" };
   }
@@ -1181,7 +1188,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     `;
 
   // [INTERNAL LOGIC] Execute Perplexity
-  const requestPerplexityForCandidates = async (targetCandidates: any[], scopeLabel: string) => {
+  const requestPerplexityForCandidates = async (targetCandidates: any[], scopeLabel: string): Promise<AlphaSynthesisProviderResult> => {
     let lastError: any = new Error("No models attempted");
     const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
     const pKey = pConfig?.key;
@@ -1296,7 +1303,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     };
   };
 
-  const runPerplexityShardedAnalysis = async (chunkSize: number) => {
+  const runPerplexityShardedAnalysis = async (chunkSize: number): Promise<AlphaSynthesisProviderResult> => {
     const safeChunkSize = Math.max(1, Math.floor(chunkSize));
     const shards: any[][] = [];
     for (let i = 0; i < slimCandidates.length; i += safeChunkSize) {
@@ -1379,11 +1386,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     return { data: repaired, failedChunks };
   };
 
-  const executePerplexityAnalysis = async (chunkSize?: number) => {
+  const executePerplexityAnalysis = async (chunkSize?: number): Promise<AlphaSynthesisProviderResult> => {
     const requiredVerified = Math.max(1, Math.ceil(slimCandidates.length * 0.75));
     const shardSize = Math.max(1, Math.floor(chunkSize ?? PERPLEXITY_CONFIG.STAGE2_SHARD_SIZE));
 
-    let baseResult = await runPerplexityShardedAnalysis(shardSize);
+    let baseResult: AlphaSynthesisProviderResult = await runPerplexityShardedAnalysis(shardSize);
     if (!baseResult?.data || !Array.isArray(baseResult.data)) {
       const reason = baseResult?.error || 'UNKNOWN';
       console.warn(`[Perplexity Coverage] Sharded pass failed. Reason: ${reason}`);

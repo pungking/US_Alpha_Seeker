@@ -63,6 +63,16 @@ function hasDeepDistance(row) {
   return row.entryDistanceStatus === 'DISTANCE_DEEP_PULLBACK';
 }
 
+function textIncludes(value, token) {
+  return String(value || '').toLowerCase().includes(String(token || '').toLowerCase());
+}
+
+function rowReasonText(row, field) {
+  const value = row?.[field];
+  if (Array.isArray(value)) return value.map((item) => String(item || '')).join('|');
+  return String(value || '');
+}
+
 function targetNearCurrentDecision(row) {
   if (!isReason(row, 'wait_target_near_current')) return null;
   if (row.currentRrStatus === 'RR_CURRENT_TARGET_ALREADY_REACHED') {
@@ -100,6 +110,19 @@ function breakoutDecision(row) {
       recommendedAction: 'Producer has explicit retest proof; next step is a separate Stage6 policy decision, not sidecar auto-promotion.'
     };
   }
+  if (row.breakoutRetestProofReviewReady === true || row.breakoutRetestProofVerdict === 'BREAKOUT_RETEST_PROOF_REVIEW_READY') {
+    const reasons = rowReasonText(row, 'breakoutRetestProofReasons');
+    if (textIncludes(reasons, 'retest_stale') || textIncludes(reasons, 'extension')) {
+      return {
+        laneDecision: 'BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE',
+        recommendedAction: 'Retest evidence exists but is stale or over-extended; keep WAIT_PRICE until producer emits confirmed fresh retest proof.'
+      };
+    }
+    return {
+      laneDecision: 'BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_CONFIRMED',
+      recommendedAction: 'Review-ready is not executable proof. Stage6 must emit proofConfirmed=true before promotion can be considered.'
+    };
+  }
   if (isValidGeometry(row) && isCurrentRrAcceptable(row) && hasDeepDistance(row)) {
     return {
       laneDecision: 'BREAKOUT_RETEST_POLICY_REVIEW_READY',
@@ -122,6 +145,19 @@ function structureDecision(row) {
   if (!isReason(row, 'wait_structure_confirmation_required')) return null;
   const structureVerdict = String(row.currentEntryStructureVerdict || '').trim();
   const missingStructureEvidence = !structureVerdict || structureVerdict === 'N/A';
+  const structureRejected = structureVerdict.startsWith('STRUCTURE_REJECT');
+  if (structureRejected && isValidGeometry(row) && isCurrentRrAcceptable(row)) {
+    return {
+      laneDecision: 'STRUCTURE_CONFIRMATION_REJECT_REVIEW_READY',
+      recommendedAction: 'Current RR is acceptable but structure proof rejected; inspect stop/support evidence before changing producer policy.'
+    };
+  }
+  if (structureRejected) {
+    return {
+      laneDecision: 'STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED',
+      recommendedAction: 'Keep WAIT_PRICE. Stage6 supplied explicit structure rejection metadata, so this is not a broad unproven wait.'
+    };
+  }
   if (isValidGeometry(row) && isCurrentRrAcceptable(row) && missingStructureEvidence) {
     return {
       laneDecision: 'STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY',
@@ -171,6 +207,32 @@ function laneName(row) {
   return 'other';
 }
 
+function proofStats(rows) {
+  const structureRows = rows.filter((row) => row.lane === 'structureConfirmation');
+  const breakoutRows = rows.filter((row) => row.lane === 'breakoutRetest');
+  return {
+    structure: {
+      rows: structureRows.length,
+      missingProofMetadata: structureRows.filter((row) => !row.currentEntryStructureVerdict).length,
+      explicitRejects: structureRows.filter((row) => String(row.currentEntryStructureVerdict || '').startsWith('STRUCTURE_REJECT')).length,
+      confirmed: structureRows.filter((row) => row.currentEntryStructureConfirmed === true).length,
+      currentRrAcceptable: structureRows.filter(isCurrentRrAcceptable).length,
+      reviewReady: structureRows.filter((row) => String(row.laneDecision || '').includes('REVIEW_READY')).length
+    },
+    breakout: {
+      rows: breakoutRows.length,
+      proofConfirmed: breakoutRows.filter((row) => row.breakoutRetestProofConfirmed === true).length,
+      proofReviewReady: breakoutRows.filter((row) => row.breakoutRetestProofReviewReady === true).length,
+      staleOrExtended: breakoutRows.filter((row) => {
+        const reasons = rowReasonText(row, 'breakoutRetestProofReasons');
+        return textIncludes(reasons, 'retest_stale') || textIncludes(reasons, 'extension');
+      }).length,
+      currentRrAcceptable: breakoutRows.filter(isCurrentRrAcceptable).length,
+      reviewReady: breakoutRows.filter((row) => String(row.laneDecision || '').includes('REVIEW_READY')).length
+    }
+  };
+}
+
 function buildReport(input) {
   const latestStage6File = input.latestRun?.stage6File || input.runSummaries?.[0]?.stage6File || null;
   const rows = Array.isArray(input.rows) ? input.rows : [];
@@ -197,26 +259,44 @@ function buildReport(input) {
     'BREAKOUT_RETEST_POLICY_REVIEW_READY',
     'BREAKOUT_RETEST_REVIEW_LOW_DISTANCE',
     'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
+    'BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE',
+    'BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_CONFIRMED',
     'CURRENT_ENTRY_DISTANCE_POLICY_REVIEW_READY',
     'STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY',
+    'STRUCTURE_CONFIRMATION_REJECT_REVIEW_READY',
+    'EARNINGS_DATA_OVERBLOCK_REVIEW_READY'
+  ]);
+  const promotionReviewReadyDecisions = new Set([
+    'BREAKOUT_RETEST_POLICY_REVIEW_READY',
+    'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
+    'CURRENT_ENTRY_DISTANCE_POLICY_REVIEW_READY',
+    'STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY',
+    'STRUCTURE_CONFIRMATION_REJECT_REVIEW_READY',
     'EARNINGS_DATA_OVERBLOCK_REVIEW_READY'
   ]);
   const latestReviewReadyRows = latestRows.filter((row) => reviewReadyDecisions.has(row.laneDecision));
+  const latestPromotionReviewReadyRows = latestRows.filter((row) => promotionReviewReadyDecisions.has(row.laneDecision));
   const summary = {
     sourceAuditGeneratedAt: input.generatedAt || null,
     latestStage6File,
     rows: watchlistRows.length,
     latestRows: latestRows.length,
     latestReviewReadyRows: latestReviewReadyRows.length,
+    latestPromotionReviewReadyRows: latestPromotionReviewReadyRows.length,
     laneCounts: countBy(watchlistRows, (row) => row.lane),
     latestLaneCounts: countBy(latestRows, (row) => row.lane),
     decisionCounts: countBy(watchlistRows, (row) => row.laneDecision),
     latestDecisionCounts: countBy(latestRows, (row) => row.laneDecision),
+    confirmationProofQuality: {
+      all: proofStats(watchlistRows),
+      latest: proofStats(latestRows),
+      promotionRule: 'reviewReady is diagnostic only; only proofConfirmed plus a separate producer policy change can create EXECUTABLE_NOW'
+    },
     brokerMutationAuthorized: false,
     executionPolicyChanged: false
   };
   const latestVerdict =
-    latestReviewReadyRows.length > 0
+    latestPromotionReviewReadyRows.length > 0
       ? 'STAGE6_PRODUCER_POLICY_REVIEW_REQUIRED'
       : latestRows.length > 0
         ? 'WATCHLIST_WAIT_JUSTIFIED_OR_DATA_REPAIR_REQUIRED'
@@ -294,9 +374,11 @@ function buildMarkdown(report) {
   lines.push(`- Latest Stage6: ${report.summary.latestStage6File || 'N/A'}`);
   lines.push(`- Latest Verdict: **${report.summary.latestVerdict}**`);
   lines.push(`- Latest Review-Ready Rows: ${report.summary.latestReviewReadyRows}`);
+  lines.push(`- Latest Promotion-Review Rows: ${report.summary.latestPromotionReviewReadyRows}`);
   lines.push(`- Broker Mutation Authorized: ${report.safety.brokerMutationAuthorized}`);
   lines.push(`- Execution Policy Changed: ${report.safety.executionPolicyChanged}`);
   lines.push(`- Safety Reason: ${report.safety.reason}`);
+  lines.push(`- Promotion Rule: ${report.summary.confirmationProofQuality?.promotionRule || 'N/A'}`);
   lines.push('');
   lines.push('## Latest Lane Summary');
   lines.push('');
@@ -307,6 +389,21 @@ function buildMarkdown(report) {
       .map(([key, value]) => `${key}:${value}`)
       .join(', ') || 'none';
     lines.push(`| ${esc(lane)} | ${info.latestRows} | ${esc(latestDecisions)} |`);
+  }
+  lines.push('');
+  lines.push('## Confirmation Proof Quality');
+  lines.push('');
+  lines.push('| Scope | Lane | Rows | Missing Proof | Explicit Rejects | Confirmed | Review Ready | Stale/Extended | Current RR OK |');
+  lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  const proofScopes = [
+    ['latest', report.summary.confirmationProofQuality?.latest],
+    ['all', report.summary.confirmationProofQuality?.all]
+  ];
+  for (const [scope, stats] of proofScopes) {
+    const structure = stats?.structure || {};
+    const breakout = stats?.breakout || {};
+    lines.push(`| ${scope} | structureConfirmation | ${structure.rows || 0} | ${structure.missingProofMetadata || 0} | ${structure.explicitRejects || 0} | ${structure.confirmed || 0} | ${structure.reviewReady || 0} | 0 | ${structure.currentRrAcceptable || 0} |`);
+    lines.push(`| ${scope} | breakoutRetest | ${breakout.rows || 0} | 0 | 0 | ${breakout.proofConfirmed || 0} | ${breakout.proofReviewReady || 0} | ${breakout.staleOrExtended || 0} | ${breakout.currentRrAcceptable || 0} |`);
   }
   lines.push('');
   lines.push('## Latest Review-Ready Rows');
@@ -329,7 +426,9 @@ function buildMarkdown(report) {
   lines.push('## Policy Interpretation');
   lines.push('');
   lines.push('- `BREAKOUT_RETEST_POLICY_REVIEW_READY` means current RR and geometry are good, but Stage6 lacks explicit retest proof. This is producer-side policy review, not sidecar chase approval.');
+  lines.push('- `BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE` means retest metadata exists but is stale or over-extended. This is a WAIT justification, not an execution unlock.');
   lines.push('- `BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY` means optional producer proof metadata is present and confirmed. It still requires a separate Stage6 policy change before any executable promotion.');
+  lines.push('- `STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED` means Stage6 produced explicit structure rejection evidence, so it is not merely overbroad WAIT logic.');
   lines.push('- `STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY` means broad structure WAIT may be overblocking. Promotion still requires explicit structure evidence fields in Stage6.');
   lines.push('- `TARGET_REACHED_OR_NEAR_CURRENT_NO_CHASE` remains no-trade or target refresh. Do not convert this into a reprice/replace path.');
   lines.push('- `EARNINGS_DATA_COVERAGE_REQUIRED` is a data freshness/coverage track. Do not lower execution gates until the missing data source is repaired or explicitly annotated.');

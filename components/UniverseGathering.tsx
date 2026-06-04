@@ -525,6 +525,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           };
 
           const price = Number(raw.price ?? raw.regularMarketPrice ?? 0);
+          const instrumentType = classifyInstrumentType(
+              raw.symbol,
+              raw.name || raw.shortName || raw.longName,
+              raw.instrumentType || raw.quoteType || raw.typeDisp
+          );
+          const analysisEligible = instrumentType === 'common';
           const normalizedDelta = normalizeQuoteDelta({
               price,
               prevCloseRaw: Number(raw.prevClose ?? raw.regularMarketPreviousClose),
@@ -540,6 +546,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               change: parseFloat(normalizedDelta.changePercent.toFixed(2)),
               changeAmount: parseFloat(normalizedDelta.changeAmount.toFixed(2)),
               prevClose: parseFloat(normalizedDelta.prevClose.toFixed(2)),
+              instrumentType,
+              analysisEligible,
               currency: raw.currency || 'USD',
               marketCap: raw.marketCap || 0,
               volume: raw.volume || raw.averageVolume || 0,
