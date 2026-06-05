@@ -10,6 +10,7 @@ const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const DEFAULT_ZERO_EXECUTABLE_WINDOW = 10;
 const DEFAULT_MAX_CONSECUTIVE_ZERO_EXECUTABLE_RUNS = 3;
 const DEFAULT_MAX_RECENT_ZERO_EXECUTABLE_RUNS = 5;
+const DEFAULT_ACTIONABLE_VERDICTS = ['BUY', 'STRONG_BUY'];
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -651,6 +652,19 @@ function isBuyOrStrongBuy(row) {
   return verdict === 'BUY' || verdict === 'STRONG_BUY';
 }
 
+function getActionableVerdicts() {
+  const raw = process.env.STAGE6_AUDIT_ACTIONABLE_VERDICTS || DEFAULT_ACTIONABLE_VERDICTS.join(',');
+  const values = raw
+    .split(',')
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter(Boolean);
+  return values.length > 0 ? new Set(values) : new Set(DEFAULT_ACTIONABLE_VERDICTS);
+}
+
+function isActionableVerdict(row, actionableVerdicts = getActionableVerdicts()) {
+  return actionableVerdicts.has(String(row?.verdict || '').trim().toUpperCase());
+}
+
 function classifyEntryDistance(row) {
   const distance = toOptionalNumber(row?.entryDistancePct);
   if (distance == null) return 'DISTANCE_UNKNOWN';
@@ -692,10 +706,11 @@ function classifyCurrentRr(row) {
   return 'RR_CURRENT_WEAK';
 }
 
-function classifyWatchlistOnlyAction(row) {
+function classifyWatchlistOnlyAction(row, actionableVerdicts = getActionableVerdicts()) {
   const decision = String(row?.finalDecision || '').toUpperCase();
   const reason = String(row?.decisionReason || '').toLowerCase();
-  if (decision === 'EXECUTABLE_NOW') return 'EXECUTABLE_NO_ACTION';
+  if (decision === 'EXECUTABLE_NOW' && !isActionableVerdict(row, actionableVerdicts)) return 'EXECUTABLE_NON_ACTIONABLE_VERDICT_REVIEW';
+  if (decision === 'EXECUTABLE_NOW') return 'EXECUTABLE_ACTIONABLE_NO_ACTION';
   if (!isBuyOrStrongBuy(row)) return 'NON_BUY_VERDICT_REVIEW';
   if (reason === 'wait_breakout_retest_required') return 'BREAKOUT_RETEST_LANE_REVIEW';
   if (reason === 'wait_current_distance_above_adaptive') return 'CURRENT_ENTRY_DISTANCE_REVIEW';
@@ -713,15 +728,18 @@ function incrementCount(bucket, key) {
   bucket[key] = (bucket[key] || 0) + 1;
 }
 
-function buildRunSummaries(rows) {
+function buildRunSummaries(rows, actionableVerdicts = getActionableVerdicts()) {
   const byRun = new Map();
   for (const row of rows) {
     const info = byRun.get(row.stage6File) || {
       stage6File: row.stage6File,
       total: 0,
       executable: 0,
+      executableActionable: 0,
+      executableNonActionable: 0,
       waitPrice: 0,
       buyStrongBuyRows: 0,
+      actionableRows: 0,
       buyStrongBuyWatchlist: 0,
       confirmationGateRows: 0,
       reasonCounts: {},
@@ -734,6 +752,9 @@ function buildRunSummaries(rows) {
     };
     info.total += 1;
     if (row.finalDecision === 'EXECUTABLE_NOW') info.executable += 1;
+    if (isActionableVerdict(row, actionableVerdicts)) info.actionableRows += 1;
+    if (row.finalDecision === 'EXECUTABLE_NOW' && isActionableVerdict(row, actionableVerdicts)) info.executableActionable += 1;
+    if (row.finalDecision === 'EXECUTABLE_NOW' && !isActionableVerdict(row, actionableVerdicts)) info.executableNonActionable += 1;
     if (String(row.finalDecision || '').toUpperCase() === 'WAIT_PRICE') info.waitPrice += 1;
     if (isBuyOrStrongBuy(row)) info.buyStrongBuyRows += 1;
     if (isBuyOrStrongBuy(row) && String(row.executionBucket || '').toUpperCase() !== 'EXECUTABLE') {
@@ -754,6 +775,7 @@ function buildRunSummaries(rows) {
   }
   return [...byRun.values()].sort((a, b) => b.stage6File.localeCompare(a.stage6File)).map((run) => {
     const zeroExecutable = run.executable === 0;
+    const zeroActionableExecutable = run.executableActionable === 0;
     const overblockCount =
       (run.classes.DATA_POLICY_OVERBLOCK || 0) +
       (run.classes.ENTRY_MODEL_TOO_DEEP || 0) +
@@ -762,8 +784,12 @@ function buildRunSummaries(rows) {
       (run.classes.VERDICT_NORMALIZATION_BLOCK || 0);
     const normalSafetyCount = (run.classes.NORMAL_EVENT_BLACKOUT || 0) + (run.classes.NORMAL_RISK_BLOCK || 0) + (run.classes.NORMAL_RR_BLOCK || 0);
     const confirmationConcentration = run.total > 0 ? run.confirmationGateRows / run.total : 0;
-    const verdict = !zeroExecutable
-      ? 'HAS_EXECUTABLE'
+    const verdict = run.executableActionable > 0
+      ? 'HAS_ACTIONABLE_EXECUTABLE'
+      : run.executableNonActionable > 0
+        ? 'EXECUTABLE_NON_ACTIONABLE_CONTRACT_REVIEW'
+        : !zeroExecutable
+          ? 'HAS_RAW_EXECUTABLE_ONLY'
       : run.buyStrongBuyWatchlist > 0 && confirmationConcentration >= 0.5
         ? 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW'
         : overblockCount > 0
@@ -771,18 +797,21 @@ function buildRunSummaries(rows) {
           : normalSafetyCount >= Math.max(1, Math.ceil(run.total * 0.6))
             ? 'NORMAL_CONSERVATIVE_FILTER'
             : 'MIXED_REVIEW_REQUIRED';
-    const nextAction = verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW'
+    const nextAction = verdict === 'EXECUTABLE_NON_ACTIONABLE_CONTRACT_REVIEW'
+      ? 'Fix Stage6↔sidecar actionable verdict contract before any order-path tuning; do not force sidecar to accept non-actionable verdicts.'
+      : verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW'
       ? 'Audit breakout/structure confirmation lanes before touching sidecar order policy.'
       : verdict === 'MODEL_OR_DATA_POLICY_ERROR'
         ? 'Inspect Stage6 data/model policy classes and fix producer-side classification.'
         : verdict === 'NORMAL_CONSERVATIVE_FILTER'
           ? 'Keep no-order behavior; continue monitoring for fresh executable candidates.'
-          : verdict === 'HAS_EXECUTABLE'
+          : verdict === 'HAS_ACTIONABLE_EXECUTABLE'
             ? 'Use sidecar safe run to verify payload/preflight/idempotency, not Stage6 policy tuning.'
             : 'Manual Stage6 policy review required.';
     return {
       ...run,
       zeroExecutable,
+      zeroActionableExecutable,
       overblockCount,
       normalSafetyCount,
       confirmationConcentration: Number(confirmationConcentration.toFixed(4)),
@@ -816,17 +845,20 @@ function buildBoundedNoActionPolicy(runSummaries) {
   );
   const latestRun = runSummaries[0] || null;
   const recentRuns = runSummaries.slice(0, recentWindow);
-  const consecutiveZeroExecutableRuns = countLeadingRuns(runSummaries, (run) => run.zeroExecutable);
-  const recentZeroExecutableRuns = recentRuns.filter((run) => run.zeroExecutable).length;
+  const consecutiveZeroExecutableRuns = countLeadingRuns(runSummaries, (run) => run.zeroActionableExecutable ?? run.zeroExecutable);
+  const recentZeroExecutableRuns = recentRuns.filter((run) => run.zeroActionableExecutable ?? run.zeroExecutable).length;
   const consecutiveWatchlistPolicyReviewRuns = countLeadingRuns(
     runSummaries,
-    (run) => run.verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW' || run.verdict === 'MODEL_OR_DATA_POLICY_ERROR'
+    (run) => run.verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW' || run.verdict === 'MODEL_OR_DATA_POLICY_ERROR' || run.verdict === 'EXECUTABLE_NON_ACTIONABLE_CONTRACT_REVIEW'
   );
   let status = 'insufficient_stage6_history';
   let recommendedAction = 'Collect Stage6 artifacts or rerun audit after the next finalized Stage6.';
-  if (latestRun && latestRun.executable > 0) {
-    status = 'latest_has_executable';
+  if (latestRun && latestRun.executableActionable > 0) {
+    status = 'latest_has_actionable_executable';
     recommendedAction = 'Use sidecar safe run to verify payload/preflight/idempotency; do not keep Stage6 no-event monitoring open.';
+  } else if (latestRun && latestRun.executable > 0 && latestRun.executableNonActionable > 0) {
+    status = 'latest_raw_executable_not_actionable';
+    recommendedAction = 'Stage6 emitted raw executable candidates that sidecar default policy cannot act on. Fix verdict/actionable contract or producer verdict normalization before sidecar order-path tuning.';
   } else if (
     consecutiveZeroExecutableRuns >= maxConsecutiveZeroExecutableRuns ||
     recentZeroExecutableRuns >= maxRecentZeroExecutableRuns ||
@@ -849,6 +881,8 @@ function buildBoundedNoActionPolicy(runSummaries) {
     maxRecentZeroExecutableRuns,
     latestStage6File: latestRun?.stage6File || null,
     latestExecutable: latestRun?.executable ?? null,
+    latestActionableExecutable: latestRun?.executableActionable ?? null,
+    latestNonActionableExecutable: latestRun?.executableNonActionable ?? null,
     latestVerdict: latestRun?.verdict || null,
     recommendedAction,
     noIndefiniteObservation: true
@@ -865,12 +899,16 @@ function mdEscape(value) {
 
 function buildMarkdown(report) {
   const lines = [];
+  const actionableVerdicts = report.summary.actionableVerdicts || DEFAULT_ACTIONABLE_VERDICTS;
   lines.push('# Stage6 Execution Gate Audit');
   lines.push('');
   lines.push(`- GeneratedAt: ${report.generatedAt}`);
   lines.push(`- Source files: ${report.summary.stage6Files}`);
   lines.push(`- Rows: ${report.summary.rows}`);
+  lines.push(`- Actionable verdict contract: ${actionableVerdicts.join(', ')}`);
   lines.push(`- Zero executable runs: ${report.summary.zeroExecutableRuns}`);
+  lines.push(`- Zero actionable-executable runs: ${report.summary.zeroActionableExecutableRuns}`);
+  lines.push(`- Non-actionable executable rows: ${report.summary.nonActionableExecutableRows}`);
   lines.push(`- Watchlist-only policy review runs: ${report.summary.watchlistOnlyPolicyReviewRuns}`);
   lines.push(`- BUY/STRONG_BUY watchlist rows: ${report.summary.buyStrongBuyWatchlistRows}`);
   lines.push(`- Overall verdict: **${report.summary.overallVerdict}**`);
@@ -882,9 +920,11 @@ function buildMarkdown(report) {
     const policy = report.summary.boundedNoActionPolicy;
     lines.push(`- Status: **${policy.status}**`);
     lines.push(`- Latest Stage6: ${policy.latestStage6File || 'N/A'}`);
-    lines.push(`- Latest Executable: ${policy.latestExecutable ?? 'N/A'}`);
-    lines.push(`- Consecutive Zero-Executable Runs: ${policy.consecutiveZeroExecutableRuns}/${policy.maxConsecutiveZeroExecutableRuns}`);
-    lines.push(`- Recent Zero-Executable Runs: ${policy.recentZeroExecutableRuns}/${policy.maxRecentZeroExecutableRuns} within latest ${policy.recentWindow}`);
+    lines.push(`- Latest Raw Executable: ${policy.latestExecutable ?? 'N/A'}`);
+    lines.push(`- Latest Actionable Executable: ${policy.latestActionableExecutable ?? 'N/A'}`);
+    lines.push(`- Latest Non-Actionable Executable: ${policy.latestNonActionableExecutable ?? 'N/A'}`);
+    lines.push(`- Consecutive Zero-Actionable-Executable Runs: ${policy.consecutiveZeroExecutableRuns}/${policy.maxConsecutiveZeroExecutableRuns}`);
+    lines.push(`- Recent Zero-Actionable-Executable Runs: ${policy.recentZeroExecutableRuns}/${policy.maxRecentZeroExecutableRuns} within latest ${policy.recentWindow}`);
     lines.push(`- Consecutive Policy/Error Runs: ${policy.consecutiveWatchlistPolicyReviewRuns}/${policy.maxConsecutiveZeroExecutableRuns}`);
     lines.push(`- Recommended Action: ${mdEscape(policy.recommendedAction)}`);
     lines.push('- Rule: do not wait indefinitely for an event. If bounded thresholds are reached, stop passive observation and fix Stage0-6 policy/source quality.');
@@ -892,15 +932,15 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Run Verdicts');
   lines.push('');
-  lines.push('| Stage6 File | Rows | Exec | BUY/SB Watch | Confirm Gates | Verdict | Top Reasons | Next Action |');
-  lines.push('| --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
+  lines.push('| Stage6 File | Rows | Raw Exec | Actionable Exec | Non-Actionable Exec | BUY/SB Watch | Confirm Gates | Verdict | Top Reasons | Next Action |');
+  lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |');
   for (const run of report.runSummaries) {
     const topReasons = Object.entries(run.reasonCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([key, count]) => `${key}:${count}`)
       .join(', ');
-    lines.push(`| ${mdEscape(run.stage6File)} | ${run.total} | ${run.executable} | ${run.buyStrongBuyWatchlist} | ${run.confirmationGateRows} | ${run.verdict} | ${mdEscape(topReasons)} | ${mdEscape(run.nextAction)} |`);
+    lines.push(`| ${mdEscape(run.stage6File)} | ${run.total} | ${run.executable} | ${run.executableActionable} | ${run.executableNonActionable} | ${run.buyStrongBuyWatchlist} | ${run.confirmationGateRows} | ${run.verdict} | ${mdEscape(topReasons)} | ${mdEscape(run.nextAction)} |`);
   }
   lines.push('');
   lines.push('## Latest Watchlist-Only Diagnosis');
@@ -909,6 +949,9 @@ function buildMarkdown(report) {
     lines.push(`- Latest Stage6: ${report.latestRun.stage6File}`);
     lines.push(`- Latest Verdict: **${report.latestRun.verdict}**`);
     lines.push(`- Latest Action: ${report.latestRun.nextAction}`);
+    lines.push(`- Latest Raw Executable: ${report.latestRun.executable}`);
+    lines.push(`- Latest Actionable Executable: ${report.latestRun.executableActionable}`);
+    lines.push(`- Latest Non-Actionable Executable: ${report.latestRun.executableNonActionable}`);
     lines.push(`- Reason Counts: ${mdEscape(Object.entries(report.latestRun.reasonCounts || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}`);
     lines.push(`- Geometry Counts: ${mdEscape(Object.entries(report.latestRun.geometryCounts || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}`);
     lines.push(`- Current RR Counts: ${mdEscape(Object.entries(report.latestRun.currentRrCounts || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}`);
@@ -920,13 +963,14 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Candidate Blocker Table');
   lines.push('');
-  lines.push('| File | Symbol | Verdict | Decision | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR Status | Watchlist Action | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |');
-  lines.push('| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |');
+  lines.push('| File | Symbol | Verdict | Actionable | Decision | Reason | Tactic | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR Status | Watchlist Action | Price | Entry | Target | Stop | EarningsD | Class | Fix Lane |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |');
   for (const row of report.rows.slice(0, 120)) {
     lines.push([
       mdEscape(row.stage6File),
       mdEscape(row.symbol),
       mdEscape(row.verdict),
+      row.isActionableVerdict ? 'yes' : 'no',
       mdEscape(row.finalDecision),
       mdEscape(row.decisionReason),
       mdEscape(row.entryTactic || row.chosenPlanType || 'N/A'),
@@ -951,6 +995,7 @@ function buildMarkdown(report) {
   lines.push('## Policy Decision');
   lines.push('');
   lines.push('- `EXECUTABLE_NOW`가 0개인 run 중 `DATA_POLICY_OVERBLOCK` 또는 `ENTRY_MODEL_TOO_DEEP`가 있으면 정상적인 보수 필터가 아니라 Stage6 정책/모델 설계 문제로 판정한다.');
+  lines.push('- `EXECUTABLE_NOW`가 있어도 verdict가 sidecar actionable contract에 없으면 실제 payload 후보가 아니다. 이 경우 sidecar를 강제로 넓히지 말고 Stage6 verdict normalization 또는 explicit policy waiver를 먼저 설계한다.');
   lines.push('- `BREAKOUT_RETEST_REQUIRED`는 종목을 즉시 매수하라는 뜻이 아니라, 기존 깊은 눌림목 단일 lane으로는 상승 추세 종목을 실행하지 못한다는 설계 신호다.');
   lines.push('- `CURRENT_STOP_RECALC_REQUIRED`는 현재가 진입을 하려면 기존 손절이 아니라 더 가까운 구조적 손절을 재검증해야 한다는 뜻이다. 기본 설정에서는 주문으로 승격하지 않는다.');
   lines.push('- `CURRENT_RR_BAD` 또는 `TARGET_ALREADY_NEAR_CURRENT`는 추격매수 금지 신호다. 이 경우 sidecar chase가 아니라 Stage6 target/stop 재산정 또는 no-trade가 맞다.');
@@ -991,6 +1036,7 @@ async function main() {
     seen.add(stage6File);
     rows.push(...extractRowsFromNotionPipelinePayload(file, payload));
   }
+  const actionableVerdicts = getActionableVerdicts();
   const classifiedRows = rows.map((row) => {
     const cls = classifyRow(row);
     const geometry = assessTradeGeometry(row);
@@ -1000,21 +1046,27 @@ async function main() {
       severity: cls.severity,
       fixLane: cls.fixLane,
       isBuyOrStrongBuy: isBuyOrStrongBuy(row),
+      isActionableVerdict: isActionableVerdict(row, actionableVerdicts),
       entryDistanceStatus: classifyEntryDistance(row),
       geometryStatus: geometry.status,
       geometryReasons: geometry.reasons,
       currentRrStatus: classifyCurrentRr(row),
-      watchlistOnlyAction: classifyWatchlistOnlyAction(row)
+      watchlistOnlyAction: classifyWatchlistOnlyAction(row, actionableVerdicts)
     };
   }).sort((a, b) => b.stage6File.localeCompare(a.stage6File) || a.symbol.localeCompare(b.symbol));
-  const runSummaries = buildRunSummaries(classifiedRows);
+  const runSummaries = buildRunSummaries(classifiedRows, actionableVerdicts);
   const boundedNoActionPolicy = buildBoundedNoActionPolicy(runSummaries);
   const zeroExecutableRuns = runSummaries.filter((run) => run.zeroExecutable).length;
+  const zeroActionableExecutableRuns = runSummaries.filter((run) => run.zeroActionableExecutable).length;
   const designErrorRuns = runSummaries.filter((run) => run.verdict === 'MODEL_OR_DATA_POLICY_ERROR').length;
   const watchlistOnlyPolicyReviewRuns = runSummaries.filter((run) => run.verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW').length;
   const buyStrongBuyWatchlistRows = classifiedRows.filter((row) => row.isBuyOrStrongBuy && String(row.executionBucket || '').toUpperCase() !== 'EXECUTABLE').length;
+  const nonActionableExecutableRows = classifiedRows.filter((row) => row.finalDecision === 'EXECUTABLE_NOW' && !row.isActionableVerdict).length;
   const latestRun = runSummaries[0] || null;
-  const overallVerdict = watchlistOnlyPolicyReviewRuns > 0
+  const contractReviewRuns = runSummaries.filter((run) => run.verdict === 'EXECUTABLE_NON_ACTIONABLE_CONTRACT_REVIEW').length;
+  const overallVerdict = contractReviewRuns > 0
+    ? 'ACTIONABLE_CONTRACT_REVIEW'
+    : watchlistOnlyPolicyReviewRuns > 0
     ? 'WATCHLIST_ONLY_POLICY_REVIEW'
     : designErrorRuns > 0
       ? 'MODEL_OR_DATA_POLICY_ERROR'
@@ -1027,8 +1079,12 @@ async function main() {
     summary: {
       stage6Files: seen.size,
       rows: classifiedRows.length,
+      actionableVerdicts: [...actionableVerdicts],
       zeroExecutableRuns,
+      zeroActionableExecutableRuns,
       designErrorRuns,
+      contractReviewRuns,
+      nonActionableExecutableRows,
       watchlistOnlyPolicyReviewRuns,
       buyStrongBuyWatchlistRows,
       overallVerdict,
