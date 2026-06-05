@@ -318,7 +318,13 @@ async function getAccessTokenBundle() {
             stage6Hash: String(info.stage6Hash || ''),
             stage6HashAlgo: String(info.stage6HashAlgo || ''),
             sourceRunId: String(info.sourceRunId || ''),
-            generatedAt: String(info.generatedAt || '')
+            generatedAt: String(info.generatedAt || ''),
+            decisionGate: info.decisionGate && typeof info.decisionGate === 'object'
+                ? JSON.parse(JSON.stringify(info.decisionGate))
+                : null,
+            flagPropagationAudit: info.flagPropagationAudit && typeof info.flagPropagationAudit === 'object'
+                ? JSON.parse(JSON.stringify(info.flagPropagationAudit))
+                : null
         };
     });
 
@@ -330,7 +336,9 @@ async function getAccessTokenBundle() {
         sourceRepo: process.env.GITHUB_REPOSITORY || '',
         sourceWorkflow: process.env.GITHUB_WORKFLOW || '',
         sourceSha: process.env.GITHUB_SHA || '',
-        generatedAt: dispatchInfo?.generatedAt || new Date().toISOString()
+        generatedAt: dispatchInfo?.generatedAt || new Date().toISOString(),
+        decisionGate: dispatchInfo?.decisionGate || null,
+        flagPropagationAudit: dispatchInfo?.flagPropagationAudit || null
     };
     fs.writeFileSync('stage6-dispatch-payload.json', JSON.stringify(dispatchPayload, null, 2), 'utf8');
     console.log(

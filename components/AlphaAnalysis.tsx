@@ -974,8 +974,30 @@ const deriveTargetRecalibrationPolicy = (input: {
   rrAtCurrentPrice: number | null;
   target: number | null;
   price: number | null;
+  minTargetBufferPct?: number | null;
 }): Stage6TargetPolicyPayload => {
-  if (input.decisionReason !== 'wait_target_near_current') {
+  const targetAlreadyReached =
+    input.price != null &&
+    input.target != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.target) &&
+    input.price >= input.target;
+  const minTargetBufferPct =
+    input.minTargetBufferPct != null &&
+    Number.isFinite(input.minTargetBufferPct) &&
+    input.minTargetBufferPct > 0
+      ? input.minTargetBufferPct
+      : 2;
+  const targetBufferWeak =
+    input.targetBufferFromCurrentPct == null ||
+    !Number.isFinite(input.targetBufferFromCurrentPct) ||
+    input.targetBufferFromCurrentPct < minTargetBufferPct;
+  const currentRrWeak =
+    input.rrAtCurrentPrice == null ||
+    !Number.isFinite(input.rrAtCurrentPrice) ||
+    input.rrAtCurrentPrice < 1.8;
+  const targetGeometryRequiresAction = targetAlreadyReached || targetBufferWeak;
+  if (input.decisionReason !== 'wait_target_near_current' && !targetGeometryRequiresAction) {
     return {
       verdict: 'TARGET_POLICY_NOT_APPLICABLE',
       recalibrationRequired: false,
@@ -984,20 +1006,6 @@ const deriveTargetRecalibrationPolicy = (input: {
       recommendedAction: 'No target recalibration action required.'
     };
   }
-  const targetAlreadyReached =
-    input.price != null &&
-    input.target != null &&
-    Number.isFinite(input.price) &&
-    Number.isFinite(input.target) &&
-    input.price >= input.target;
-  const targetBufferWeak =
-    input.targetBufferFromCurrentPct == null ||
-    !Number.isFinite(input.targetBufferFromCurrentPct) ||
-    input.targetBufferFromCurrentPct < 2;
-  const currentRrWeak =
-    input.rrAtCurrentPrice == null ||
-    !Number.isFinite(input.rrAtCurrentPrice) ||
-    input.rrAtCurrentPrice < 1.8;
   const reasons = [
     ...(targetAlreadyReached ? ['target_not_above_current'] : []),
     ...(targetBufferWeak ? ['target_buffer_below_review_floor'] : []),
@@ -5795,7 +5803,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetBufferFromCurrentPct,
               rrAtCurrentPrice,
               target: mirroredTarget,
-              price: livePrice
+              price: livePrice,
+              minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
           });
           const qualityScore = computeAlphaQualityScore({
               conviction: convictionScore,
@@ -6948,6 +6957,74 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   : engineResponseSharded
                       ? 'SHARDED'
                       : 'DIRECT';
+          const stage6FlagPropagationAudit = {
+              adaptiveCurrentEntry: {
+                  envName: 'VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED',
+                  raw: stage6CurrentEntryEnabledRaw,
+                  parsed: STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED
+              },
+              currentEntryStopRecalc: {
+                  envName: 'VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED',
+                  raw: stage6CurrentStopRecalcEnabledRaw,
+                  parsed: STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED
+              },
+              currentEntryStructureGate: {
+                  envName: 'VITE_STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED',
+                  raw: stage6CurrentStructureGateRaw,
+                  parsed: STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED
+              },
+              breakoutRetestProofPromotion: {
+                  envName: 'VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED',
+                  raw: stage6BreakoutRetestProofPromotionRaw,
+                  parsed: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED
+              }
+          };
+          const stage6DecisionGate = {
+              minRr: STAGE6_MIN_RR_HARD_GATE,
+              minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
+              minConviction: STAGE6_MIN_CONVICTION,
+              requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
+              actionableVerdicts: Array.from(STAGE6_ACTIONABLE_VERDICTS),
+              speculativeBuyExecutableWaiver: STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER,
+              entryFeasibilityMaxDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
+              earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
+              earningsMissingPolicy: STAGE6_EARNINGS_MISSING_POLICY,
+              earningsMissingMinRr: STAGE6_EARNINGS_MISSING_MIN_RR,
+              earningsMissingMinExpectedReturnPct: STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT,
+              onboardingHistoryPolicy: STAGE6_ONBOARDING_HISTORY_POLICY,
+              staleSymbolPolicy: STAGE6_STALE_SYMBOL_POLICY,
+              minStopDistancePct: STAGE6_MIN_STOP_DISTANCE_PCT,
+              maxStopDistancePct: STAGE6_MAX_STOP_DISTANCE_PCT,
+              minTargetDistancePct: STAGE6_MIN_TARGET_DISTANCE_PCT,
+              maxAnchorExecGapPct: STAGE6_MAX_ANCHOR_EXEC_GAP_PCT,
+              adaptiveCurrentEntryEnabled: STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED,
+              currentEntryStopRecalcEnabled: STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED,
+              currentEntryStructureGateRequired: STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED,
+              currentEntryMinRr: STAGE6_CURRENT_ENTRY_MIN_RR,
+              currentEntryMinTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
+              currentEntryMaxAdaptiveDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
+              breakoutRetestDistancePct: STAGE6_BREAKOUT_RETEST_DISTANCE_PCT,
+              breakoutRetestProofPolicy: BREAKOUT_RETEST_PROOF_POLICY,
+              breakoutRetestProofPromotionEnabled: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED,
+              breakoutRetestProofPromotionRule: "proofConfirmed_required_and_flag_disabled_by_default",
+              structurePolicyReview: CURRENT_ENTRY_STRUCTURE_POLICY,
+              stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,
+              stateConflictStates: Array.from(STAGE6_STATE_CONFLICT_STATES),
+              verdictConflictFlag: STAGE6_VERDICT_CONFLICT_FLAG,
+              executionRankBasis: "execution_score",
+              tier1DisplacementMin: STAGE6_TIER1_DISPLACEMENT_MIN,
+              tier1IctPosMin: STAGE6_TIER1_ICT_POS_MIN,
+              tier2IctScoreMin: STAGE6_TIER2_ICT_SCORE_MIN,
+              tier2TrendKeys: Array.from(STAGE6_TIER2_TREND_KEYS),
+              tier1ScoreMultiplier: STAGE6_TIER1_SCORE_MULTIPLIER,
+              tier2ScoreMultiplier: STAGE6_TIER2_SCORE_MULTIPLIER,
+              hfBlendEnabled: HF_BLEND_ENABLED,
+              hfBlendWeight: HF_BLEND_WEIGHT,
+              hfBlendMaxDelta: HF_BLEND_MAX_DELTA,
+              hfBlendPositiveScale: HF_BLEND_POSITIVE_SCALE,
+              hfBlendNegativeScale: HF_BLEND_NEGATIVE_SCALE,
+              flagPropagationAudit: stage6FlagPropagationAudit
+          };
 
           const finalPayload = {
               manifest: { 
@@ -6993,51 +7070,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   executablePickSymbols: executableContractPool.map((item) => item.symbol),
                   modelTop6WatchlistSymbols: modelTop6Watchlist.map((item) => item.symbol),
                   executableFallbackCount,
-                  decisionGate: {
-                      minRr: STAGE6_MIN_RR_HARD_GATE,
-                      minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
-                      minConviction: STAGE6_MIN_CONVICTION,
-                      requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
-                      actionableVerdicts: Array.from(STAGE6_ACTIONABLE_VERDICTS),
-                      speculativeBuyExecutableWaiver: STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER,
-                      entryFeasibilityMaxDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
-                      earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
-                      earningsMissingPolicy: STAGE6_EARNINGS_MISSING_POLICY,
-                      earningsMissingMinRr: STAGE6_EARNINGS_MISSING_MIN_RR,
-                      earningsMissingMinExpectedReturnPct: STAGE6_EARNINGS_MISSING_MIN_EXPECTED_RETURN_PCT,
-                      onboardingHistoryPolicy: STAGE6_ONBOARDING_HISTORY_POLICY,
-                      staleSymbolPolicy: STAGE6_STALE_SYMBOL_POLICY,
-                      minStopDistancePct: STAGE6_MIN_STOP_DISTANCE_PCT,
-                      maxStopDistancePct: STAGE6_MAX_STOP_DISTANCE_PCT,
-                      minTargetDistancePct: STAGE6_MIN_TARGET_DISTANCE_PCT,
-                      maxAnchorExecGapPct: STAGE6_MAX_ANCHOR_EXEC_GAP_PCT,
-                      adaptiveCurrentEntryEnabled: STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED,
-                      currentEntryStopRecalcEnabled: STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED,
-                      currentEntryStructureGateRequired: STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED,
-                      currentEntryMinRr: STAGE6_CURRENT_ENTRY_MIN_RR,
-                      currentEntryMinTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
-                      currentEntryMaxAdaptiveDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
-                      breakoutRetestDistancePct: STAGE6_BREAKOUT_RETEST_DISTANCE_PCT,
-                      breakoutRetestProofPolicy: BREAKOUT_RETEST_PROOF_POLICY,
-                      breakoutRetestProofPromotionEnabled: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED,
-                      breakoutRetestProofPromotionRule: "proofConfirmed_required_and_flag_disabled_by_default",
-                      structurePolicyReview: CURRENT_ENTRY_STRUCTURE_POLICY,
-                      stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,
-                      stateConflictStates: Array.from(STAGE6_STATE_CONFLICT_STATES),
-                      verdictConflictFlag: STAGE6_VERDICT_CONFLICT_FLAG,
-                      executionRankBasis: "execution_score",
-                      tier1DisplacementMin: STAGE6_TIER1_DISPLACEMENT_MIN,
-                      tier1IctPosMin: STAGE6_TIER1_ICT_POS_MIN,
-                      tier2IctScoreMin: STAGE6_TIER2_ICT_SCORE_MIN,
-                      tier2TrendKeys: Array.from(STAGE6_TIER2_TREND_KEYS),
-                      tier1ScoreMultiplier: STAGE6_TIER1_SCORE_MULTIPLIER,
-                      tier2ScoreMultiplier: STAGE6_TIER2_SCORE_MULTIPLIER,
-                      hfBlendEnabled: HF_BLEND_ENABLED,
-                      hfBlendWeight: HF_BLEND_WEIGHT,
-                      hfBlendMaxDelta: HF_BLEND_MAX_DELTA,
-                      hfBlendPositiveScale: HF_BLEND_POSITIVE_SCALE,
-                      hfBlendNegativeScale: HF_BLEND_NEGATIVE_SCALE
-                  },
+                  decisionGate: stage6DecisionGate,
                   hfBlendSummary: {
                       enabled: HF_BLEND_ENABLED,
                       applied: hfBlendAppliedCount,
@@ -7088,7 +7121,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               stage6HashShort: stage6FinalHash.slice(0, 12),
               sourceRunId: stage6FinalRunIdRef.current || getKstTimestamp(),
               generatedAt: new Date().toISOString(),
-              candidateCount: top6Elite.length
+              candidateCount: top6Elite.length,
+              decisionGate: stage6DecisionGate,
+              flagPropagationAudit: stage6FlagPropagationAudit
           };
           addLog(
               `[STAGE6_DISPATCH] file=${stage6FinalFileName} hash=${stage6FinalHash.slice(0, 12)} algo=${stage6HashAlgo} sourceRun=${stage6FinalRunIdRef.current || 'N/A'}`,

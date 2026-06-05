@@ -270,6 +270,10 @@ jobs:
       - name: 7. 자동화 스크립트 실행 (Puppeteer)
         run: npm run automate
 
+      - name: 7.05 Stage6 flag parity assertion
+        if: success()
+        run: npm run ops:stage6:flag-parity:assert
+
       - name: 7.1 Stage6 Dispatch Payload 추출
         id: stage6_dispatch_meta
         if: success()
