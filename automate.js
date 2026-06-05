@@ -21,6 +21,21 @@ const FAILURE_MARKERS = [
     "Missing/invalid GDRIVE_ROOT_FOLDER_ID",
     "[CONFIG] Missing GDRIVE_ROOT_FOLDER_ID"
 ];
+const RUNTIME_ENV_KEYS = [
+    'VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED',
+    'VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED',
+    'VITE_STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED',
+    'VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED'
+];
+
+function buildRuntimeEnvPayload() {
+    return RUNTIME_ENV_KEYS.reduce((acc, key) => {
+        if (process.env[key] !== undefined && String(process.env[key]).trim() !== '') {
+            acc[key] = String(process.env[key]).trim();
+        }
+        return acc;
+    }, {});
+}
 
 async function waitForServer(baseUrl, timeoutMs = 120000, pollMs = 2000) {
     const startedAt = Date.now();
@@ -138,6 +153,15 @@ async function getAccessTokenBundle() {
     await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1.5 });
     
     await page.setBypassCSP(true);
+    const runtimeEnvPayload = buildRuntimeEnvPayload();
+    await page.evaluateOnNewDocument((payload) => {
+        window.__ALPHA_RUNTIME_ENV__ = Object.freeze({ ...(payload || {}) });
+    }, runtimeEnvPayload);
+    console.log(
+        `[RUNTIME_ENV] injected=${Object.keys(runtimeEnvPayload).join(',') || 'none'} ` +
+        `adaptive=${runtimeEnvPayload.VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED || 'unset'} ` +
+        `stopRecalc=${runtimeEnvPayload.VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED || 'unset'}`
+    );
     
     // [DEBUG] Capture ALL console logs to see where it hangs
     const syncTokenIntoPage = async (accessToken) => {

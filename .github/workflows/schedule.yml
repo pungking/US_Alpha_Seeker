@@ -537,6 +537,7 @@ jobs:
             state/symbol-agnostic-runtime-check.json
             state/symbol-agnostic-runtime-check.md
             state/gemini-env-smoke.json
+            state/stage6-flag-parity-assertion.json
             state/notion-pipeline-sync.json
           retention-days: 3
 

@@ -23,6 +23,7 @@ declare global {
       ixic?: { price: number; change: number; source?: string; symbol?: string };
       meta?: { source: string; fetchedAt: string };
     };
+    __ALPHA_RUNTIME_ENV__?: Record<string, string>;
   }
 }
 
@@ -487,6 +488,26 @@ const STAGE5_LOCK_OVERRIDE_MAX_AGE_MS = (() => {
 const parseBooleanFlag = (value: any): boolean => {
   const normalized = String(value ?? '').trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+};
+
+const readStage6RuntimeEnv = (key: string, fallback: any = undefined): {
+  value: any;
+  source: 'runtime' | 'build' | 'fallback';
+  runtimeRaw: any;
+  buildRaw: any;
+} => {
+  const runtimeRaw =
+    typeof window !== 'undefined' && window.__ALPHA_RUNTIME_ENV__
+      ? window.__ALPHA_RUNTIME_ENV__[key]
+      : undefined;
+  const buildRaw = (import.meta as any)?.env?.[key];
+  if (runtimeRaw !== undefined && runtimeRaw !== null && String(runtimeRaw).trim() !== '') {
+    return { value: runtimeRaw, source: 'runtime', runtimeRaw, buildRaw };
+  }
+  if (buildRaw !== undefined && buildRaw !== null && String(buildRaw).trim() !== '') {
+    return { value: buildRaw, source: 'build', runtimeRaw, buildRaw };
+  }
+  return { value: fallback, source: 'fallback', runtimeRaw, buildRaw };
 };
 
 const normalizeEconomicMoat = (value: any): 'WIDE' | 'NARROW' | 'NONE' => {
@@ -4541,17 +4562,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           Number.isFinite(stage6MaxAnchorExecGapPctRaw) && stage6MaxAnchorExecGapPctRaw > 0
               ? stage6MaxAnchorExecGapPctRaw
               : 12;
-      const stage6CurrentEntryEnabledRaw = String(
-          (import.meta as any)?.env?.VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED ?? 'false'
-      );
+      const stage6CurrentEntryEnabledEnv = readStage6RuntimeEnv('VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED', 'false');
+      const stage6CurrentEntryEnabledRaw = String(stage6CurrentEntryEnabledEnv.value);
       const STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED = parseBooleanFlag(stage6CurrentEntryEnabledRaw);
-      const stage6CurrentStopRecalcEnabledRaw = String(
-          (import.meta as any)?.env?.VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED ?? 'false'
-      );
+      const stage6CurrentStopRecalcEnabledEnv = readStage6RuntimeEnv('VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED', 'false');
+      const stage6CurrentStopRecalcEnabledRaw = String(stage6CurrentStopRecalcEnabledEnv.value);
       const STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED = parseBooleanFlag(stage6CurrentStopRecalcEnabledRaw);
-      const stage6CurrentStructureGateRaw = String(
-          (import.meta as any)?.env?.VITE_STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED ?? 'true'
-      );
+      const stage6CurrentStructureGateEnv = readStage6RuntimeEnv('VITE_STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED', 'true');
+      const stage6CurrentStructureGateRaw = String(stage6CurrentStructureGateEnv.value);
       const STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED = parseBooleanFlag(stage6CurrentStructureGateRaw);
       const stage6CurrentMinRrRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_CURRENT_ENTRY_MIN_RR ?? STAGE6_MIN_RR_HARD_GATE
@@ -4574,9 +4592,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           Number.isFinite(stage6BreakoutRetestDistanceRaw) && stage6BreakoutRetestDistanceRaw > ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT
               ? stage6BreakoutRetestDistanceRaw
               : Math.max(ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT + 1, 10);
-      const stage6BreakoutRetestProofPromotionRaw = String(
-          (import.meta as any)?.env?.VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED ?? 'false'
-      );
+      const stage6BreakoutRetestProofPromotionEnv = readStage6RuntimeEnv('VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED', 'false');
+      const stage6BreakoutRetestProofPromotionRaw = String(stage6BreakoutRetestProofPromotionEnv.value);
       const STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED = parseBooleanFlag(stage6BreakoutRetestProofPromotionRaw);
       const stage6StateVerdictPolicyRaw = String(
           (import.meta as any)?.env?.VITE_STAGE6_STATE_VERDICT_POLICY ?? 'warn'
@@ -6961,22 +6978,34 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               adaptiveCurrentEntry: {
                   envName: 'VITE_STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED',
                   raw: stage6CurrentEntryEnabledRaw,
-                  parsed: STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED
+                  parsed: STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED,
+                  source: stage6CurrentEntryEnabledEnv.source,
+                  runtimeRaw: stage6CurrentEntryEnabledEnv.runtimeRaw ?? null,
+                  buildRaw: stage6CurrentEntryEnabledEnv.buildRaw ?? null
               },
               currentEntryStopRecalc: {
                   envName: 'VITE_STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED',
                   raw: stage6CurrentStopRecalcEnabledRaw,
-                  parsed: STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED
+                  parsed: STAGE6_CURRENT_ENTRY_STOP_RECALC_ENABLED,
+                  source: stage6CurrentStopRecalcEnabledEnv.source,
+                  runtimeRaw: stage6CurrentStopRecalcEnabledEnv.runtimeRaw ?? null,
+                  buildRaw: stage6CurrentStopRecalcEnabledEnv.buildRaw ?? null
               },
               currentEntryStructureGate: {
                   envName: 'VITE_STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED',
                   raw: stage6CurrentStructureGateRaw,
-                  parsed: STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED
+                  parsed: STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED,
+                  source: stage6CurrentStructureGateEnv.source,
+                  runtimeRaw: stage6CurrentStructureGateEnv.runtimeRaw ?? null,
+                  buildRaw: stage6CurrentStructureGateEnv.buildRaw ?? null
               },
               breakoutRetestProofPromotion: {
                   envName: 'VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED',
                   raw: stage6BreakoutRetestProofPromotionRaw,
-                  parsed: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED
+                  parsed: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED,
+                  source: stage6BreakoutRetestProofPromotionEnv.source,
+                  runtimeRaw: stage6BreakoutRetestProofPromotionEnv.runtimeRaw ?? null,
+                  buildRaw: stage6BreakoutRetestProofPromotionEnv.buildRaw ?? null
               }
           };
           const stage6DecisionGate = {
