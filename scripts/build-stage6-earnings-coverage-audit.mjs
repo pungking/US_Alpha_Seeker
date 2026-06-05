@@ -69,6 +69,53 @@ function firstValueWithPath(row, paths) {
   return { value: null, path: null };
 }
 
+const EARNINGS_DATE_PATHS = [
+  ['earningsDate'],
+  ['nextEarningsDate'],
+  ['reportDate'],
+  ['alphaVantage', 'earningsDate'],
+  ['shadow', 'alphaVantage', 'earningsDate'],
+  ['techMetrics', 'earningsDate']
+];
+
+const EARNINGS_DAYS_PATHS = [
+  ['earningsDaysToEvent'],
+  ['techMetrics', 'daysToEarnings'],
+  ['nextEarningsInDays'],
+  ['daysToEarnings'],
+  ['earningsDday']
+];
+
+const EARNINGS_SOURCE_PATHS = [
+  ['earningsSource'],
+  ['techMetrics', 'earningsSource'],
+  ['alphaVantage', 'source'],
+  ['shadow', 'alphaVantage', 'source']
+];
+
+const EARNINGS_RETRIEVED_AT_PATHS = [
+  ['earningsRetrievedAt'],
+  ['techMetrics', 'earningsRetrievedAt'],
+  ['alphaVantage', 'retrievedAt'],
+  ['shadow', 'alphaVantage', 'retrievedAt'],
+  ['retrievedAt'],
+  ['generatedAt']
+];
+
+function collectPathHits(row, paths) {
+  return paths
+    .map((pathParts) => {
+      const value = getByPath(row, pathParts);
+      const present = value !== null && value !== undefined && value !== '';
+      return {
+        path: pathParts.join('.'),
+        present,
+        valueType: present ? typeof value : null
+      };
+    })
+    .filter((hit) => hit.present);
+}
+
 function collectRows(stage6) {
   const groups = [
     ['execution_contract', 'modelTop6'],
@@ -124,35 +171,10 @@ function daysBetween(startIso, eventDate) {
 }
 
 function classifyCoverage(row, generatedAt) {
-  const datePick = firstValueWithPath(row, [
-    ['earningsDate'],
-    ['nextEarningsDate'],
-    ['reportDate'],
-    ['alphaVantage', 'earningsDate'],
-    ['shadow', 'alphaVantage', 'earningsDate'],
-    ['techMetrics', 'earningsDate']
-  ]);
-  const daysPick = firstValueWithPath(row, [
-    ['earningsDaysToEvent'],
-    ['techMetrics', 'daysToEarnings'],
-    ['nextEarningsInDays'],
-    ['daysToEarnings'],
-    ['earningsDday']
-  ]);
-  const sourcePick = firstValueWithPath(row, [
-    ['earningsSource'],
-    ['techMetrics', 'earningsSource'],
-    ['alphaVantage', 'source'],
-    ['shadow', 'alphaVantage', 'source']
-  ]);
-  const retrievedAtPick = firstValueWithPath(row, [
-    ['earningsRetrievedAt'],
-    ['techMetrics', 'earningsRetrievedAt'],
-    ['alphaVantage', 'retrievedAt'],
-    ['shadow', 'alphaVantage', 'retrievedAt'],
-    ['retrievedAt'],
-    ['generatedAt']
-  ]);
+  const datePick = firstValueWithPath(row, EARNINGS_DATE_PATHS);
+  const daysPick = firstValueWithPath(row, EARNINGS_DAYS_PATHS);
+  const sourcePick = firstValueWithPath(row, EARNINGS_SOURCE_PATHS);
+  const retrievedAtPick = firstValueWithPath(row, EARNINGS_RETRIEVED_AT_PATHS);
   const earningsDate = parseDate(datePick.value);
   const daysToEvent = numberOrNull(daysPick.value);
   const computedDays = earningsDate ? daysBetween(generatedAt, earningsDate) : null;
@@ -189,8 +211,42 @@ function classifyCoverage(row, generatedAt) {
     earningsDaysSource: daysPick.path,
     computedDaysToEvent: computedDays,
     freshnessStatus: freshnessFindings.length > 0 ? 'FRESHNESS_REVIEW_REQUIRED' : 'FRESH',
-    freshnessFindings
+    freshnessFindings,
+    sourceProbe: {
+      datePathHits: collectPathHits(row, EARNINGS_DATE_PATHS),
+      daysPathHits: collectPathHits(row, EARNINGS_DAYS_PATHS),
+      sourcePathHits: collectPathHits(row, EARNINGS_SOURCE_PATHS),
+      retrievedAtPathHits: collectPathHits(row, EARNINGS_RETRIEVED_AT_PATHS)
+    }
   };
+}
+
+function classifyCoverageRootCause(coverage) {
+  if (coverage.coverageStatus === 'EARNINGS_SOURCE_MISSING') return 'UPSTREAM_EARNINGS_EVENT_ABSENT';
+  if (coverage.coverageStatus === 'EARNINGS_DAYS_ONLY_DATE_MISSING') return 'DATED_SOURCE_NOT_PERSISTED';
+  if (coverage.coverageStatus === 'EARNINGS_DATE_ONLY_DAYS_MISSING') return 'DAYS_TO_EVENT_NOT_PERSISTED';
+  if (coverage.freshnessFindings.includes('earnings_date_in_past')) return 'STALE_EARNINGS_EVENT_DATE';
+  if (coverage.freshnessFindings.includes('earnings_days_date_mismatch')) return 'EARNINGS_DAYS_DATE_MISMATCH';
+  if (coverage.coverageStatus === 'EARNINGS_PRESENT' && coverage.freshnessStatus === 'FRESH') return 'SOURCE_PRESENT_FRESH';
+  return 'EARNINGS_SOURCE_REVIEW_REQUIRED';
+}
+
+function classifyRepairLane(rootCause) {
+  if (rootCause === 'UPSTREAM_EARNINGS_EVENT_ABSENT') return 'STAGE4_OR_VENDOR_EARNINGS_SOURCE_REPAIR';
+  if (rootCause === 'DATED_SOURCE_NOT_PERSISTED') return 'STAGE6_EARNINGS_LINEAGE_PERSISTENCE_REPAIR';
+  if (rootCause === 'DAYS_TO_EVENT_NOT_PERSISTED') return 'STAGE6_DAYS_TO_EVENT_RECOMPUTE';
+  if (rootCause === 'STALE_EARNINGS_EVENT_DATE') return 'EARNINGS_SOURCE_FRESHNESS_REFRESH';
+  if (rootCause === 'EARNINGS_DAYS_DATE_MISMATCH') return 'EARNINGS_DATE_DAYS_RECONCILIATION';
+  if (rootCause === 'SOURCE_PRESENT_FRESH') return 'NO_EARNINGS_REPAIR_REQUIRED';
+  return 'EARNINGS_SOURCE_REVIEW';
+}
+
+function classifyPromotionBlockers(coverage, executionOverlap) {
+  const blockers = [];
+  if (coverage.coverageStatus !== 'EARNINGS_PRESENT') blockers.push(coverage.coverageStatus);
+  if (coverage.freshnessStatus !== 'FRESH') blockers.push(coverage.freshnessStatus);
+  blockers.push(...(executionOverlap.blockers || []));
+  return blockers.length > 0 ? blockers : ['none'];
 }
 
 function classifyExecutionOverlap(row, decisionGate = {}) {
@@ -223,6 +279,9 @@ function classifyRow(stage6File, stage6, row) {
   const decisionGate = stage6.manifest?.decisionGate || {};
   const coverage = classifyCoverage(row, generatedAt);
   const executionOverlap = classifyExecutionOverlap(row, decisionGate);
+  const coverageRootCause = classifyCoverageRootCause(coverage);
+  const repairLane = classifyRepairLane(coverageRootCause);
+  const promotionBlockedBy = classifyPromotionBlockers(coverage, executionOverlap);
   const reason = normalizeReason(row.decisionReason || row.tradePlanReason || row.executionReason);
   let rowVerdict = 'EARNINGS_COVERAGE_REPAIR_REQUIRED';
   if (reason === 'blocked_earnings_window') {
@@ -270,6 +329,9 @@ function classifyRow(stage6File, stage6, row) {
     rr: numberOrNull(row.riskRewardRatioValue),
     ...coverage,
     ...executionOverlap,
+    coverageRootCause,
+    repairLane,
+    promotionBlockedBy,
     rowVerdict,
     recommendedAction
   };
@@ -318,6 +380,12 @@ function buildReport() {
   const latestCoverageMissing = latestRows.filter((row) => row.coverageStatus === 'EARNINGS_SOURCE_MISSING').length;
   const latestAuditabilityMissing = latestRows.filter((row) => row.coverageStatus === 'EARNINGS_DAYS_ONLY_DATE_MISSING').length;
   const latestExecutionStillBlocked = latestRows.filter((row) => row.currentExecutionStillBlocked).length;
+  const latestRootCauseCounts = countBy(latestRows, (row) => row.coverageRootCause);
+  const latestRepairLaneCounts = countBy(latestRows, (row) => row.repairLane);
+  const latestPromotionBlockerCounts = countBy(
+    latestRows.flatMap((row) => row.promotionBlockedBy || []),
+    (blocker) => blocker
+  );
   const latestAction =
     latestRows.length === 0
       ? 'NO_LATEST_EARNINGS_ROWS'
@@ -328,9 +396,28 @@ function buildReport() {
           : latestExecutionStillBlocked === latestRows.length
             ? 'EARNINGS_OK_BUT_EXECUTION_BLOCKED_ELSEWHERE'
             : 'EARNINGS_POLICY_REVIEW_AFTER_SOURCE_VERIFICATION';
+  const overall =
+    latestRows.length === 0
+      ? 'pass_no_latest_earnings_rows'
+      : latestCoverageMissing + latestAuditabilityMissing > 0
+        ? 'fail_earnings_coverage_repair_required'
+        : latestExecutionStillBlocked === latestRows.length
+          ? 'warn_earnings_ok_execution_blocked_elsewhere'
+          : 'review_earnings_policy_ready_after_source_verification';
   return {
     generatedAt: new Date().toISOString(),
     scope: 'stage6_earnings_coverage_freshness_report_only',
+    overall,
+    action: latestAction,
+    latestStage6: latestRun
+      ? {
+          file: latestRun.stage6File,
+          generatedAt: latestRun.generatedAt,
+          totalRows: latestRun.rows,
+          earningsRows: latestRun.earningsRows
+        }
+      : null,
+    latestRootCause: latestRows.length === 0 ? 'none' : Object.keys(latestRootCauseCounts)[0] || 'unknown',
     safety: {
       brokerMutationAuthorized: false,
       executionPolicyChanged: false,
@@ -358,6 +445,9 @@ function buildReport() {
       latestCoverageCounts: countBy(latestRows, (row) => row.coverageStatus),
       latestFreshnessCounts: countBy(latestRows, (row) => row.freshnessStatus),
       latestVerdictCounts: countBy(latestRows, (row) => row.rowVerdict),
+      latestRootCauseCounts,
+      latestRepairLaneCounts,
+      latestPromotionBlockerCounts,
       allCoverageCounts: countBy(allRows, (row) => row.coverageStatus),
       allVerdictCounts: countBy(allRows, (row) => row.rowVerdict),
       latestAction
@@ -382,6 +472,7 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push(`- GeneratedAt: ${report.generatedAt}`);
   lines.push(`- Scope: ${report.scope}`);
+  lines.push(`- Overall: **${report.overall}**`);
   lines.push(`- Latest Stage6: ${report.summary.latestStage6File || 'N/A'}`);
   lines.push(`- Source Files: ${report.source.files}`);
   lines.push(`- Latest Earnings Rows: ${report.summary.latestRows}`);
@@ -389,6 +480,7 @@ function buildMarkdown(report) {
   lines.push(`- Latest Auditability Missing: ${report.summary.latestAuditabilityMissing}`);
   lines.push(`- Latest Execution Still Blocked Elsewhere: ${report.summary.latestExecutionStillBlocked}`);
   lines.push(`- Latest Action: **${report.summary.latestAction}**`);
+  lines.push(`- Latest Root Cause: **${report.latestRootCause || 'N/A'}**`);
   lines.push(`- Broker Mutation Authorized: ${report.safety.brokerMutationAuthorized}`);
   lines.push(`- Execution Policy Changed: ${report.safety.executionPolicyChanged}`);
   lines.push(`- DoneWhen Coverage Track: ${report.doneWhen.earningsDataCoverageSeparated}`);
@@ -407,17 +499,26 @@ function buildMarkdown(report) {
   for (const [key, value] of Object.entries(report.summary.latestVerdictCounts || {})) {
     lines.push(`| verdict:${esc(key)} | ${value} |`);
   }
+  for (const [key, value] of Object.entries(report.summary.latestRootCauseCounts || {})) {
+    lines.push(`| rootCause:${esc(key)} | ${value} |`);
+  }
+  for (const [key, value] of Object.entries(report.summary.latestRepairLaneCounts || {})) {
+    lines.push(`| repairLane:${esc(key)} | ${value} |`);
+  }
+  for (const [key, value] of Object.entries(report.summary.latestPromotionBlockerCounts || {})) {
+    lines.push(`| promotionBlockedBy:${esc(key)} | ${value} |`);
+  }
   if (report.summary.latestRows === 0) lines.push('| none | 0 |');
   lines.push('');
   lines.push('## Latest Rows');
   lines.push('');
-  lines.push('| Symbol | Decision | Reason | Coverage | Freshness | Date | Days | Source | RetrievedAt | TargetBuf% | RR@Cur | Dist% | Other Blockers | Row Verdict | Action |');
-  lines.push('| --- | --- | --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- | --- |');
+  lines.push('| Symbol | Decision | Reason | Coverage | Freshness | Root Cause | Repair Lane | Promotion Blocked By | Date | Days | Source | RetrievedAt | TargetBuf% | RR@Cur | Dist% | Other Blockers | Row Verdict | Action |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- | --- |');
   for (const row of report.latestRows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.finalDecision)} | ${esc(row.decisionReason)} | ${esc(row.coverageStatus)} | ${esc(row.freshnessStatus)} | ${esc(row.earningsDate || 'N/A')} | ${fmt(row.earningsDaysToEvent, 0)} | ${esc(row.earningsSource || 'N/A')} | ${esc(row.earningsRetrievedAt || 'N/A')} | ${fmt(row.targetBufferFromCurrentPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${esc((row.blockers || []).join(', ') || 'none')} | ${esc(row.rowVerdict)} | ${esc(row.recommendedAction)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.finalDecision)} | ${esc(row.decisionReason)} | ${esc(row.coverageStatus)} | ${esc(row.freshnessStatus)} | ${esc(row.coverageRootCause)} | ${esc(row.repairLane)} | ${esc((row.promotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.earningsDate || 'N/A')} | ${fmt(row.earningsDaysToEvent, 0)} | ${esc(row.earningsSource || 'N/A')} | ${esc(row.earningsRetrievedAt || 'N/A')} | ${fmt(row.targetBufferFromCurrentPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${esc((row.blockers || []).join(', ') || 'none')} | ${esc(row.rowVerdict)} | ${esc(row.recommendedAction)} |`);
   }
   if (report.latestRows.length === 0) {
-    lines.push('| none | none | none | none | none | N/A | N/A | N/A | N/A | N/A | N/A | N/A | none | none | none |');
+    lines.push('| none | none | none | none | none | none | none | none | N/A | N/A | N/A | N/A | N/A | N/A | N/A | none | none | none |');
   }
   lines.push('');
   lines.push('## Recent Runs');
@@ -436,6 +537,8 @@ function buildMarkdown(report) {
   lines.push('- `EARNINGS_DAYS_ONLY_DATE_MISSING` means Stage6 has a days number but lacks an auditable event date/source. Persist the date before trusting freshness.');
   lines.push('- `EARNINGS_PRESENT_BUT_EXECUTION_STILL_BLOCKED` means earnings data is not the active execution blocker; do not lower earnings gates to force a trade.');
   lines.push('- If `target_buffer_below_min` or invalid geometry appears with earnings missing, repair earnings first but keep execution blocked until price/target geometry is valid.');
+  lines.push('- `UPSTREAM_EARNINGS_EVENT_ABSENT` means Stage6 did not receive a dated earnings source from Stage4/vendor/shadow lineage; fix coverage upstream before changing gates.');
+  lines.push('- `promotionBlockedBy` is cumulative. If it includes current-entry geometry, earnings repair alone must not promote the row.');
   lines.push('');
   return `${lines.join('\n')}\n`;
 }

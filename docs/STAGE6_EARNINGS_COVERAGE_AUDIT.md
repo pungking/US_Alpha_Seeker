@@ -1,7 +1,8 @@
 # Stage6 Earnings Coverage/Freshness Audit
 
-- GeneratedAt: 2026-06-04T15:22:47.713Z
+- GeneratedAt: 2026-06-05T00:04:38.869Z
 - Scope: stage6_earnings_coverage_freshness_report_only
+- Overall: **fail_earnings_coverage_repair_required**
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-04_21-45-22.json
 - Source Files: 33
 - Latest Earnings Rows: 1
@@ -9,6 +10,7 @@
 - Latest Auditability Missing: 0
 - Latest Execution Still Blocked Elsewhere: 1
 - Latest Action: **REPAIR_EARNINGS_SOURCE_COVERAGE**
+- Latest Root Cause: **UPSTREAM_EARNINGS_EVENT_ABSENT**
 - Broker Mutation Authorized: false
 - Execution Policy Changed: false
 - DoneWhen Coverage Track: DATA_QUALITY_TRACK
@@ -21,12 +23,19 @@
 | coverage:EARNINGS_SOURCE_MISSING | 1 |
 | freshness:FRESHNESS_REVIEW_REQUIRED | 1 |
 | verdict:EARNINGS_COVERAGE_REPAIR_REQUIRED | 1 |
+| rootCause:UPSTREAM_EARNINGS_EVENT_ABSENT | 1 |
+| repairLane:STAGE4_OR_VENDOR_EARNINGS_SOURCE_REPAIR | 1 |
+| promotionBlockedBy:EARNINGS_SOURCE_MISSING | 1 |
+| promotionBlockedBy:FRESHNESS_REVIEW_REQUIRED | 1 |
+| promotionBlockedBy:target_buffer_below_min | 1 |
+| promotionBlockedBy:entry_distance_above_adaptive_band | 1 |
+| promotionBlockedBy:geometry_or_target_invalid_at_current | 1 |
 
 ## Latest Rows
 
-| Symbol | Decision | Reason | Coverage | Freshness | Date | Days | Source | RetrievedAt | TargetBuf% | RR@Cur | Dist% | Other Blockers | Row Verdict | Action |
-| --- | --- | --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- | --- |
-| TDC | WAIT_PRICE | wait_earnings_data_missing_quality_floor | EARNINGS_SOURCE_MISSING | FRESHNESS_REVIEW_REQUIRED | N/A | N/A | N/A | N/A | -4.36 | N/A | 20.80 | target_buffer_below_min, entry_distance_above_adaptive_band, geometry_or_target_invalid_at_current | EARNINGS_COVERAGE_REPAIR_REQUIRED | Repair earnings source, but do not promote; current price/target/geometry still blocks execution. |
+| Symbol | Decision | Reason | Coverage | Freshness | Root Cause | Repair Lane | Promotion Blocked By | Date | Days | Source | RetrievedAt | TargetBuf% | RR@Cur | Dist% | Other Blockers | Row Verdict | Action |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- | --- |
+| TDC | WAIT_PRICE | wait_earnings_data_missing_quality_floor | EARNINGS_SOURCE_MISSING | FRESHNESS_REVIEW_REQUIRED | UPSTREAM_EARNINGS_EVENT_ABSENT | STAGE4_OR_VENDOR_EARNINGS_SOURCE_REPAIR | EARNINGS_SOURCE_MISSING, FRESHNESS_REVIEW_REQUIRED, target_buffer_below_min, entry_distance_above_adaptive_band, geometry_or_target_invalid_at_current | N/A | N/A | N/A | N/A | -4.36 | N/A | 20.80 | target_buffer_below_min, entry_distance_above_adaptive_band, geometry_or_target_invalid_at_current | EARNINGS_COVERAGE_REPAIR_REQUIRED | Repair earnings source, but do not promote; current price/target/geometry still blocks execution. |
 
 ## Recent Runs
 
@@ -51,4 +60,6 @@
 - `EARNINGS_DAYS_ONLY_DATE_MISSING` means Stage6 has a days number but lacks an auditable event date/source. Persist the date before trusting freshness.
 - `EARNINGS_PRESENT_BUT_EXECUTION_STILL_BLOCKED` means earnings data is not the active execution blocker; do not lower earnings gates to force a trade.
 - If `target_buffer_below_min` or invalid geometry appears with earnings missing, repair earnings first but keep execution blocked until price/target geometry is valid.
+- `UPSTREAM_EARNINGS_EVENT_ABSENT` means Stage6 did not receive a dated earnings source from Stage4/vendor/shadow lineage; fix coverage upstream before changing gates.
+- `promotionBlockedBy` is cumulative. If it includes current-entry geometry, earnings repair alone must not promote the row.
 
