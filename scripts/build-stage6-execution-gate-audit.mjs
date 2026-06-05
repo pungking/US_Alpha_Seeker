@@ -568,6 +568,13 @@ function classifyRow(row) {
       fixLane: 'stage6_entry_distance_or_reprice_policy'
     };
   }
+  if (reason === 'wait_verdict_not_sidecar_actionable') {
+    return {
+      class: 'NON_ACTIONABLE_VERDICT_WAIT',
+      severity: 'high',
+      fixLane: 'stage6_sidecar_actionable_verdict_contract'
+    };
+  }
   if (reason === 'wait_target_near_current') {
     return {
       class: 'TARGET_ALREADY_NEAR_CURRENT',

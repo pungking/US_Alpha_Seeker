@@ -3,16 +3,29 @@ import fs from 'node:fs';
 const fixturePath = process.env.STAGE6_FILLABILITY_CONTRACT_FIXTURE || 'docs/fixtures/stage6_sidecar_entry_fillability_contract.fixture.json';
 const data = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+const actionableVerdicts = new Set(
+  String(data?.decisionGate?.actionableVerdicts || 'BUY,STRONG_BUY,STRONGBUY')
+    .split(',')
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter(Boolean)
+);
 const errors = [];
+const verdictKey = (value) => String(value || '').replace(/[^a-zA-Z0-9_]/g, '').toUpperCase().trim();
 for (const [idx, row] of candidates.entries()) {
   const label = `${row.symbol || `row_${idx}`}`;
   if (!row.symbol) errors.push(`${label}: symbol missing`);
   if (!['EXECUTABLE_NOW', 'WAIT_PRICE', 'BLOCKED_RISK', 'BLOCKED_EVENT'].includes(row.finalDecision)) errors.push(`${label}: invalid finalDecision`);
   if (!['PASS', 'BLOCKED', 'UNKNOWN'].includes(row.executionFeasibilityAtCurrent)) errors.push(`${label}: invalid executionFeasibilityAtCurrent`);
+  const actionableVerdict = actionableVerdicts.has(verdictKey(row.aiVerdict || row.verdictFinal || row.verdict));
   if (row.finalDecision === 'EXECUTABLE_NOW') {
+    if (!actionableVerdict) errors.push(`${label}: executable verdict is not sidecar-actionable`);
+    if (row.executionActionableVerdict !== true) errors.push(`${label}: executable must declare executionActionableVerdict=true`);
     if (row.executionFeasibilityAtCurrent !== 'PASS') errors.push(`${label}: executable must have current feasibility PASS`);
     if (Number(row.executionFeasibilityAtCurrentRr) < Number(row.executionFeasibilityAtCurrentMinRr)) errors.push(`${label}: executable current RR below min`);
     if (Number(row.executionFeasibilityAtCurrentDistancePct) > Number(row.executionFeasibilityAtCurrentMaxDistancePct)) errors.push(`${label}: executable current distance above adaptive band`);
+  }
+  if (!actionableVerdict && row.finalDecision === 'WAIT_PRICE' && row.decisionReason === 'wait_verdict_not_sidecar_actionable' && row.executionActionableVerdict !== false) {
+    errors.push(`${label}: non-actionable wait must declare executionActionableVerdict=false`);
   }
   if (row.executionFeasibilityAtCurrent === 'BLOCKED' && !String(row.decisionReason || '').startsWith('wait_') && !String(row.decisionReason || '').startsWith('blocked_')) {
     errors.push(`${label}: blocked current feasibility needs wait_/blocked_ decisionReason`);

@@ -58,6 +58,7 @@ interface AlphaCandidate {
     | 'wait_target_near_current'
     | 'wait_current_rr_below_min'
     | 'wait_current_distance_above_adaptive'
+    | 'wait_verdict_not_sidecar_actionable'
     | 'wait_earnings_data_missing'
     | 'wait_earnings_data_missing_quality_floor'
     | 'wait_insufficient_history'
@@ -146,6 +147,10 @@ interface AlphaCandidate {
   verdictRaw?: string;
   verdictFinal?: string;
   executionVerdict?: string;
+  executionActionableVerdict?: boolean;
+  executionActionablePolicy?: string | null;
+  executionActionableWaiver?: boolean;
+  executionActionableWaiverReason?: string | null;
   verdictConflict?: boolean;
   verdictConflictDetail?: string | null;
   stateVerdictConflict?: boolean;
@@ -4210,6 +4215,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const STAGE6_REQUIRE_BULLISH_VERDICT = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_STAGE6_REQUIRE_BULLISH_VERDICT ?? 'true'
       );
+      const stage6ActionableVerdictKeys = String((import.meta as any)?.env?.VITE_STAGE6_ACTIONABLE_VERDICTS ?? 'BUY,STRONG_BUY,STRONGBUY')
+          .split(',')
+          .map((value) => toVerdictKey(value))
+          .filter(Boolean);
+      const STAGE6_ACTIONABLE_VERDICTS = new Set(
+          stage6ActionableVerdictKeys.length > 0 ? stage6ActionableVerdictKeys : ['BUY', 'STRONG_BUY', 'STRONGBUY']
+      );
+      const STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER = parseBooleanFlag(
+          (import.meta as any)?.env?.VITE_STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER ?? 'false'
+      );
       const stage6EarningsBlackoutDaysRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_BLACKOUT_DAYS ?? 5
       );
@@ -4504,6 +4519,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               key.includes('SPECULATIVEBUY') ||
               key.includes('매수')
           );
+      };
+      const isSidecarActionableVerdictForExecution = (verdict: string | null | undefined) => {
+          const key = toVerdictKey(verdict);
+          if (!key || key === 'NA' || key === 'N/A' || key === 'NONE' || key === 'NULL' || key === 'UNDEFINED' || key === 'TBD') {
+              return false;
+          }
+          if (STAGE6_ACTIONABLE_VERDICTS.has(key)) return true;
+          const speculative = key.includes('SPECULATIVE_BUY') || key.includes('SPECULATIVEBUY');
+          return speculative && STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER;
       };
       const ENTRY_FEASIBILITY_VERDICT_ENFORCE = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_VERDICT_ENFORCE ?? 'true'
@@ -5417,6 +5441,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision = 'WAIT_PRICE';
               decisionReason = originalStopCurrentFeasibility.decisionReason;
           }
+          const executionActionableVerdict = isSidecarActionableVerdictForExecution(aiVerdictKey);
+          const speculativeBuyWaiverApplied =
+              STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER &&
+              (aiVerdictKey.includes('SPECULATIVE_BUY') || aiVerdictKey.includes('SPECULATIVEBUY')) &&
+              executionActionableVerdict;
+          if (finalDecision === 'EXECUTABLE_NOW' && !executionActionableVerdict) {
+              finalDecision = 'WAIT_PRICE';
+              decisionReason = 'wait_verdict_not_sidecar_actionable';
+          }
           const executionBucket: AlphaCandidate["executionBucket"] =
               finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST';
           const useAdaptiveCurrentEntry = decisionReason === 'executable_adaptive_current' && livePrice != null;
@@ -5464,7 +5497,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       ? 'ADAPTIVE_RECALC_STOP'
                   : decisionReason === 'wait_breakout_retest_required'
                       ? 'BREAKOUT'
-                      : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current' || decisionReason === 'wait_current_distance_above_adaptive'
+                      : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current' || decisionReason === 'wait_current_distance_above_adaptive' || decisionReason === 'wait_verdict_not_sidecar_actionable'
                           ? 'NO_TRADE'
                           : 'PULLBACK';
           const entryTactic: AlphaCandidate["entryTactic"] =
@@ -5476,7 +5509,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       ? 'RECALCULATED_STOP_REVIEW'
                   : decisionReason === 'wait_breakout_retest_required'
                       ? 'BREAKOUT_RETEST'
-                      : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current' || decisionReason === 'wait_current_distance_above_adaptive'
+                      : decisionReason === 'wait_current_rr_below_min' || decisionReason === 'wait_target_near_current' || decisionReason === 'wait_current_distance_above_adaptive' || decisionReason === 'wait_verdict_not_sidecar_actionable'
                           ? 'NO_TRADE_CURRENT_RR_BAD'
                           : hasGeometry
                               ? 'PULLBACK_LIMIT'
@@ -5517,6 +5550,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionBucket,
               finalDecision,
               decisionReason,
+              executionActionableVerdict,
+              executionActionablePolicy: Array.from(STAGE6_ACTIONABLE_VERDICTS).join(','),
+              executionActionableWaiver: speculativeBuyWaiverApplied,
+              executionActionableWaiverReason: speculativeBuyWaiverApplied ? 'speculative_buy_explicit_waiver' : null,
               chosenPlanType,
               entryTactic,
               rrAtCurrentPrice,
@@ -5637,6 +5674,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionReason: executionContract.executionReason,
               finalDecision: executionContract.finalDecision,
               decisionReason: executionContract.decisionReason,
+              executionActionableVerdict: executionContract.executionActionableVerdict,
+              executionActionablePolicy: executionContract.executionActionablePolicy,
+              executionActionableWaiver: executionContract.executionActionableWaiver,
+              executionActionableWaiverReason: executionContract.executionActionableWaiverReason,
               chosenPlanType: executionContract.chosenPlanType,
               entryTactic: executionContract.entryTactic,
               rrAtCurrentPrice: executionContract.rrAtCurrentPrice,
@@ -5734,7 +5775,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hardCutBlocked: AlphaCandidate[] = scoredCandidates.filter(item => isRiskOffVerdict(item.aiVerdict));
       const primaryPool: AlphaCandidate[] = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
       const modelTop6Pool: AlphaCandidate[] = primaryPool.slice(0, 6);
-      const executablePool: AlphaCandidate[] = primaryPool.filter(item => item.executionBucket === 'EXECUTABLE');
+      const executablePool: AlphaCandidate[] = primaryPool.filter(
+          item => item.executionBucket === 'EXECUTABLE' && item.executionActionableVerdict !== false
+      );
       const resolveExecutionSortScore = (item: any, useBase: boolean): number => {
           const primaryRaw = Number(useBase ? item?.executionScoreBase : item?.executionScore);
           if (Number.isFinite(primaryRaw)) return primaryRaw;
@@ -5760,6 +5803,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return sortByExecutionScore(a, b, true);
       });
       const watchlistPool: AlphaCandidate[] = primaryPool.filter(item => item.executionBucket === 'WATCHLIST');
+      const nonActionableExecutableBlockedCount = primaryPool.filter(
+          item => item.decisionReason === 'wait_verdict_not_sidecar_actionable'
+      ).length;
       const invalidGeometryBlocked: AlphaCandidate[] = watchlistPool.filter(item => item.executionReason === 'INVALID_GEOMETRY');
       const modelTop6Watchlist: AlphaCandidate[] = modelTop6Pool.filter(item => item.executionBucket === 'WATCHLIST');
       const decisionCountsPrimary = primaryPool.reduce<Record<string, number>>((acc, item) => {
@@ -5877,9 +5923,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           "info"
       );
       addLog(
-          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} earnings_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} wait_current_distance=${decisionReasonCountsPrimary.wait_current_distance_above_adaptive || 0} wait_earnings_missing=${decisionReasonCountsPrimary.wait_earnings_data_missing || 0} wait_earnings_quality=${decisionReasonCountsPrimary.wait_earnings_data_missing_quality_floor || 0} wait_history=${decisionReasonCountsPrimary.wait_insufficient_history || 0} wait_state_conflict=${decisionReasonCountsPrimary.wait_state_verdict_conflict || 0} stale_blocked=${decisionReasonCountsPrimary.blocked_symbol_stale || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_missing_blocked=${decisionReasonCountsPrimary.blocked_earnings_data_missing || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} state_conflict_blocked=${decisionReasonCountsPrimary.blocked_state_verdict_conflict || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
+          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} earnings_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} wait_current_distance=${decisionReasonCountsPrimary.wait_current_distance_above_adaptive || 0} wait_non_actionable_verdict=${decisionReasonCountsPrimary.wait_verdict_not_sidecar_actionable || 0} wait_earnings_missing=${decisionReasonCountsPrimary.wait_earnings_data_missing || 0} wait_earnings_quality=${decisionReasonCountsPrimary.wait_earnings_data_missing_quality_floor || 0} wait_history=${decisionReasonCountsPrimary.wait_insufficient_history || 0} wait_state_conflict=${decisionReasonCountsPrimary.wait_state_verdict_conflict || 0} stale_blocked=${decisionReasonCountsPrimary.blocked_symbol_stale || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_missing_blocked=${decisionReasonCountsPrimary.blocked_earnings_data_missing || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} state_conflict_blocked=${decisionReasonCountsPrimary.blocked_state_verdict_conflict || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
           "info"
       );
+      if (nonActionableExecutableBlockedCount > 0) {
+          addLog(
+              `Execution actionable contract: blocked ${nonActionableExecutableBlockedCount} raw executable non-actionable verdict rows before executable selection.`,
+              "warn"
+          );
+      }
       const verdictConflictCountPrimary = primaryPool.filter((item) => Boolean(item.verdictConflict)).length;
       const stateVerdictConflictCountPrimary = primaryPool.filter((item) => Boolean(item.stateVerdictConflict)).length;
       if (verdictConflictCountPrimary > 0 || stateVerdictConflictCountPrimary > 0) {
@@ -5911,7 +5963,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return acc;
       }, {});
       addLog(
-          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} executable_earnings_data_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} wait_current_distance_above_adaptive=${watchlistReasonCounts.wait_current_distance_above_adaptive || 0} wait_earnings_data_missing=${watchlistReasonCounts.wait_earnings_data_missing || 0} wait_earnings_data_missing_quality_floor=${watchlistReasonCounts.wait_earnings_data_missing_quality_floor || 0} wait_insufficient_history=${watchlistReasonCounts.wait_insufficient_history || 0} wait_state_verdict_conflict=${watchlistReasonCounts.wait_state_verdict_conflict || 0} blocked_symbol_stale=${watchlistReasonCounts.blocked_symbol_stale || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_data_missing=${watchlistReasonCounts.blocked_earnings_data_missing || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0} blocked_state_verdict_conflict=${watchlistReasonCounts.blocked_state_verdict_conflict || 0}`,
+          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} executable_earnings_data_missing_haircut=${decisionReasonCountsPrimary.executable_earnings_data_missing_haircut || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} wait_current_distance_above_adaptive=${watchlistReasonCounts.wait_current_distance_above_adaptive || 0} wait_verdict_not_sidecar_actionable=${watchlistReasonCounts.wait_verdict_not_sidecar_actionable || 0} wait_earnings_data_missing=${watchlistReasonCounts.wait_earnings_data_missing || 0} wait_earnings_data_missing_quality_floor=${watchlistReasonCounts.wait_earnings_data_missing_quality_floor || 0} wait_insufficient_history=${watchlistReasonCounts.wait_insufficient_history || 0} wait_state_verdict_conflict=${watchlistReasonCounts.wait_state_verdict_conflict || 0} blocked_symbol_stale=${watchlistReasonCounts.blocked_symbol_stale || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_data_missing=${watchlistReasonCounts.blocked_earnings_data_missing || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0} blocked_state_verdict_conflict=${watchlistReasonCounts.blocked_state_verdict_conflict || 0}`,
           "info"
       );
       if (hardCutBlocked.length > 0) {
@@ -6342,6 +6394,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               tradePlanDecision: normalizeOptionalText(item.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item.tradePlanReason),
               executionVerdict: normalizeOptionalText(item.executionVerdict),
+              executionActionableVerdict: Boolean(item.executionActionableVerdict),
+              executionActionablePolicy: normalizeOptionalText(item.executionActionablePolicy),
+              executionActionableWaiver: Boolean(item.executionActionableWaiver),
+              executionActionableWaiverReason: normalizeOptionalText(item.executionActionableWaiverReason),
               rankRaw: toOptionalFiniteNumber(item.rankRaw),
               rankFinal: toOptionalFiniteNumber(item.rankFinal),
               modelRank: toOptionalFiniteNumber(item.modelRank),
@@ -6381,6 +6437,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               sector: normalizeOptionalText(item?.sectorTheme || item?.sector),
               aiVerdict: normalizeOptionalText(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict),
               executionVerdict: normalizeOptionalText(item?.executionVerdict),
+              executionActionableVerdict: Boolean(item?.executionActionableVerdict),
+              executionActionablePolicy: normalizeOptionalText(item?.executionActionablePolicy),
+              executionActionableWaiver: Boolean(item?.executionActionableWaiver),
+              executionActionableWaiverReason: normalizeOptionalText(item?.executionActionableWaiverReason),
               finalDecision: normalizeOptionalText(item?.finalDecision),
               decisionReason: normalizeOptionalText(item?.decisionReason || item?.executionReason),
               chosenPlanType: normalizeOptionalText(item?.chosenPlanType),
@@ -6594,6 +6654,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
                       minConviction: STAGE6_MIN_CONVICTION,
                       requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
+                      actionableVerdicts: Array.from(STAGE6_ACTIONABLE_VERDICTS),
+                      speculativeBuyExecutableWaiver: STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER,
                       entryFeasibilityMaxDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
                       earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
                       earningsMissingPolicy: STAGE6_EARNINGS_MISSING_POLICY,
@@ -6771,6 +6833,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           finalDecision: item?.finalDecision,
           decisionReason: item?.decisionReason || item?.executionReason,
           executionBucket: item?.executionBucket,
+          executionVerdict: item?.executionVerdict,
+          executionActionableVerdict: Boolean(item?.executionActionableVerdict),
+          executionActionablePolicy: item?.executionActionablePolicy,
+          executionActionableWaiver: Boolean(item?.executionActionableWaiver),
+          executionActionableWaiverReason: item?.executionActionableWaiverReason,
           entryPrice: Number.isFinite(Number(item?.entryExecPrice ?? item?.entryPrice))
               && Number(item.entryExecPrice ?? item.entryPrice) > 0
               ? Number(item.entryExecPrice ?? item.entryPrice)

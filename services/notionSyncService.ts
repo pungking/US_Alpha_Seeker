@@ -18,6 +18,11 @@ export interface NotionSyncCandidate {
   finalDecision?: string;
   decisionReason?: string;
   executionBucket?: string;
+  executionVerdict?: string;
+  executionActionableVerdict?: boolean;
+  executionActionablePolicy?: string;
+  executionActionableWaiver?: boolean;
+  executionActionableWaiverReason?: string;
   entryPrice?: number;
   targetPrice?: number;
   stopLoss?: number;
@@ -119,4 +124,3 @@ export async function syncPipelineToNotion(payload: NotionSyncPayload): Promise<
     };
   }
 }
-

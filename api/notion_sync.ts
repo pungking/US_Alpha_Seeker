@@ -239,6 +239,8 @@ const handler = async (req: any, res: any) => {
       const alphaSignal = alphaSignalFromVerdict(row?.aiVerdict);
       const baseNotes = `decision=${String(row?.finalDecision || "N/A")} reason=${String(row?.decisionReason || "N/A")} bucket=${String(
         row?.executionBucket || "N/A"
+      )} actionable=${String(row?.executionActionableVerdict ?? "N/A")} policy=${String(row?.executionActionablePolicy || "N/A")} waiver=${String(
+        row?.executionActionableWaiver ?? "N/A"
       )}`;
 
       await upsertByTitle(notionToken, dbScores, "Ticker", symbol, {

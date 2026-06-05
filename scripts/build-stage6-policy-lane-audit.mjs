@@ -184,8 +184,17 @@ function currentDistanceDecision(row) {
   };
 }
 
+function actionableVerdictDecision(row) {
+  if (!isReason(row, 'wait_verdict_not_sidecar_actionable')) return null;
+  return {
+    laneDecision: 'ACTIONABLE_VERDICT_CONTRACT_WAIT',
+    recommendedAction: 'Keep WAIT_PRICE. Stage6 may track speculative alpha, but executablePicks must match sidecar actionable verdicts unless an explicit producer waiver is approved.'
+  };
+}
+
 function classifyPolicyLane(row) {
   return (
+    actionableVerdictDecision(row) ||
     currentDistanceDecision(row) ||
     breakoutDecision(row) ||
     structureDecision(row) ||
@@ -199,6 +208,7 @@ function classifyPolicyLane(row) {
 }
 
 function laneName(row) {
+  if (isReason(row, 'wait_verdict_not_sidecar_actionable')) return 'actionableVerdictContract';
   if (isReason(row, 'wait_breakout_retest_required')) return 'breakoutRetest';
   if (isReason(row, 'wait_current_distance_above_adaptive')) return 'currentDistance';
   if (isReason(row, 'wait_structure_confirmation_required')) return 'structureConfirmation';
