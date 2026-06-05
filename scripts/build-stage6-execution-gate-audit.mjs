@@ -10,7 +10,7 @@ const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const DEFAULT_ZERO_EXECUTABLE_WINDOW = 10;
 const DEFAULT_MAX_CONSECUTIVE_ZERO_EXECUTABLE_RUNS = 3;
 const DEFAULT_MAX_RECENT_ZERO_EXECUTABLE_RUNS = 5;
-const DEFAULT_ACTIONABLE_VERDICTS = ['BUY', 'STRONG_BUY'];
+const DEFAULT_ACTIONABLE_VERDICTS = ['BUY', 'STRONG_BUY', 'STRONGBUY'];
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -375,6 +375,10 @@ function extractRowsFromNotionPipelinePayload(filePath, payload) {
         currentEntryStructureVerdict: currentEntryStructure.verdict,
         currentEntryStructureConfirmed: currentEntryStructure.confirmed,
         currentEntryStructureReasons: currentEntryStructure.reasons,
+        structurePolicyVerdict: normalizeText(row?.structurePolicyVerdict ?? row?.structurePolicy?.verdict),
+        structurePolicyReviewReady: Boolean(row?.structurePolicyReviewReady ?? row?.structurePolicy?.reviewReady),
+        structurePolicyReasons: normalizeReasonArray(row?.structurePolicyReasons ?? row?.structurePolicy?.reasons),
+        structurePolicyRecommendedAction: normalizeText(row?.structurePolicyRecommendedAction ?? row?.structurePolicy?.recommendedAction),
         breakoutRetestProofVerdict: normalizeText(row?.breakoutRetestProofVerdict ?? row?.breakoutRetestProof?.verdict),
         breakoutRetestProofConfirmed: Boolean(row?.breakoutRetestProofConfirmed ?? row?.breakoutRetestProof?.confirmed),
         breakoutRetestProofReviewReady: Boolean(row?.breakoutRetestProofReviewReady ?? row?.breakoutRetestProof?.reviewReady),
@@ -382,6 +386,16 @@ function extractRowsFromNotionPipelinePayload(filePath, payload) {
         breakoutRetestProofRetestLevel: toOptionalNumber(row?.breakoutRetestProofRetestLevel ?? row?.breakoutRetestProof?.retestLevel),
         breakoutRetestProofBarsSinceRetest: toOptionalNumber(row?.breakoutRetestProofBarsSinceRetest ?? row?.breakoutRetestProof?.barsSinceRetest),
         breakoutRetestProofCurrentExtensionPct: toOptionalNumber(row?.breakoutRetestProofCurrentExtensionPct ?? row?.breakoutRetestProof?.currentExtensionFromRetestPct),
+        breakoutRetestPromotionVerdict: normalizeText(row?.breakoutRetestPromotionVerdict ?? row?.breakoutRetestPromotion?.verdict),
+        breakoutRetestPromotionEligible: Boolean(row?.breakoutRetestPromotionEligible ?? row?.breakoutRetestPromotion?.eligible),
+        breakoutRetestPromotionEnabled: Boolean(row?.breakoutRetestPromotionEnabled ?? row?.breakoutRetestPromotion?.enabled),
+        breakoutRetestPromotionReasons: normalizeReasonArray(row?.breakoutRetestPromotionReasons ?? row?.breakoutRetestPromotion?.reasons),
+        breakoutRetestPromotionRecommendedAction: normalizeText(row?.breakoutRetestPromotionRecommendedAction ?? row?.breakoutRetestPromotion?.recommendedAction),
+        targetRecalibrationVerdict: normalizeText(row?.targetRecalibrationVerdict ?? row?.targetRecalibrationPolicy?.verdict),
+        targetRecalibrationRequired: Boolean(row?.targetRecalibrationRequired ?? row?.targetRecalibrationPolicy?.recalibrationRequired),
+        targetNoChaseRequired: Boolean(row?.targetNoChaseRequired ?? row?.targetRecalibrationPolicy?.noChaseRequired),
+        targetRecalibrationReasons: normalizeReasonArray(row?.targetRecalibrationReasons ?? row?.targetRecalibrationPolicy?.reasons),
+        targetRecalibrationRecommendedAction: normalizeText(row?.targetRecalibrationRecommendedAction ?? row?.targetRecalibrationPolicy?.recommendedAction),
         tradePlanDecision: normalizeText(row?.tradePlanDecision) || null,
         tradePlanReason: normalizeText(row?.tradePlanReason) || null,
         trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
@@ -509,6 +523,10 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
       currentEntryStructureVerdict: currentEntryStructure.verdict,
       currentEntryStructureConfirmed: currentEntryStructure.confirmed,
       currentEntryStructureReasons: currentEntryStructure.reasons,
+      structurePolicyVerdict: normalizeText(row?.structurePolicyVerdict ?? notion?.structurePolicyVerdict ?? row?.structurePolicy?.verdict),
+      structurePolicyReviewReady: Boolean(row?.structurePolicyReviewReady ?? notion?.structurePolicyReviewReady ?? row?.structurePolicy?.reviewReady),
+      structurePolicyReasons: normalizeReasonArray(row?.structurePolicyReasons ?? notion?.structurePolicyReasons ?? row?.structurePolicy?.reasons),
+      structurePolicyRecommendedAction: normalizeText(row?.structurePolicyRecommendedAction ?? notion?.structurePolicyRecommendedAction ?? row?.structurePolicy?.recommendedAction),
       breakoutRetestProofVerdict: normalizeText(row?.breakoutRetestProofVerdict ?? notion?.breakoutRetestProofVerdict ?? row?.breakoutRetestProof?.verdict),
       breakoutRetestProofConfirmed: Boolean(row?.breakoutRetestProofConfirmed ?? notion?.breakoutRetestProofConfirmed ?? row?.breakoutRetestProof?.confirmed),
       breakoutRetestProofReviewReady: Boolean(row?.breakoutRetestProofReviewReady ?? notion?.breakoutRetestProofReviewReady ?? row?.breakoutRetestProof?.reviewReady),
@@ -516,6 +534,16 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
       breakoutRetestProofRetestLevel: toOptionalNumber(row?.breakoutRetestProofRetestLevel ?? notion?.breakoutRetestProofRetestLevel ?? row?.breakoutRetestProof?.retestLevel),
       breakoutRetestProofBarsSinceRetest: toOptionalNumber(row?.breakoutRetestProofBarsSinceRetest ?? notion?.breakoutRetestProofBarsSinceRetest ?? row?.breakoutRetestProof?.barsSinceRetest),
       breakoutRetestProofCurrentExtensionPct: toOptionalNumber(row?.breakoutRetestProofCurrentExtensionPct ?? notion?.breakoutRetestProofCurrentExtensionPct ?? row?.breakoutRetestProof?.currentExtensionFromRetestPct),
+      breakoutRetestPromotionVerdict: normalizeText(row?.breakoutRetestPromotionVerdict ?? notion?.breakoutRetestPromotionVerdict ?? row?.breakoutRetestPromotion?.verdict),
+      breakoutRetestPromotionEligible: Boolean(row?.breakoutRetestPromotionEligible ?? notion?.breakoutRetestPromotionEligible ?? row?.breakoutRetestPromotion?.eligible),
+      breakoutRetestPromotionEnabled: Boolean(row?.breakoutRetestPromotionEnabled ?? notion?.breakoutRetestPromotionEnabled ?? row?.breakoutRetestPromotion?.enabled),
+      breakoutRetestPromotionReasons: normalizeReasonArray(row?.breakoutRetestPromotionReasons ?? notion?.breakoutRetestPromotionReasons ?? row?.breakoutRetestPromotion?.reasons),
+      breakoutRetestPromotionRecommendedAction: normalizeText(row?.breakoutRetestPromotionRecommendedAction ?? notion?.breakoutRetestPromotionRecommendedAction ?? row?.breakoutRetestPromotion?.recommendedAction),
+      targetRecalibrationVerdict: normalizeText(row?.targetRecalibrationVerdict ?? notion?.targetRecalibrationVerdict ?? row?.targetRecalibrationPolicy?.verdict),
+      targetRecalibrationRequired: Boolean(row?.targetRecalibrationRequired ?? notion?.targetRecalibrationRequired ?? row?.targetRecalibrationPolicy?.recalibrationRequired),
+      targetNoChaseRequired: Boolean(row?.targetNoChaseRequired ?? notion?.targetNoChaseRequired ?? row?.targetRecalibrationPolicy?.noChaseRequired),
+      targetRecalibrationReasons: normalizeReasonArray(row?.targetRecalibrationReasons ?? notion?.targetRecalibrationReasons ?? row?.targetRecalibrationPolicy?.reasons),
+      targetRecalibrationRecommendedAction: normalizeText(row?.targetRecalibrationRecommendedAction ?? notion?.targetRecalibrationRecommendedAction ?? row?.targetRecalibrationPolicy?.recommendedAction),
       tradePlanDecision: normalizeText(row?.tradePlanDecision || notion?.tradePlanDecision) || null,
       tradePlanReason: normalizeText(row?.tradePlanReason || notion?.tradePlanReason) || null,
       trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
@@ -541,10 +569,19 @@ function classifyRow(row) {
     };
   }
   if (reason === 'wait_breakout_retest_required') {
+    if (row.breakoutRetestPromotionVerdict) {
+      return {
+        class: row.breakoutRetestPromotionEligible ? 'BREAKOUT_PROOF_CONFIRMED_REVIEW' : 'BREAKOUT_RETEST_REQUIRED',
+        severity: row.breakoutRetestPromotionEligible ? 'medium' : 'high',
+        fixLane: row.breakoutRetestPromotionEligible
+          ? 'stage6_breakout_proof_confirmed_policy_gate'
+          : 'stage6_breakout_retest_proof_confirmation'
+      };
+    }
     return {
       class: 'BREAKOUT_RETEST_REQUIRED',
       severity: 'high',
-      fixLane: 'stage6_breakout_retest_lane'
+      fixLane: 'stage6_breakout_retest_proof_confirmation'
     };
   }
   if (reason === 'wait_current_rr_below_min') {
@@ -577,7 +614,7 @@ function classifyRow(row) {
   }
   if (reason === 'wait_target_near_current') {
     return {
-      class: 'TARGET_ALREADY_NEAR_CURRENT',
+      class: row.targetNoChaseRequired ? 'TARGET_RECALIBRATION_OR_NO_TRADE' : 'TARGET_ALREADY_NEAR_CURRENT',
       severity: 'medium',
       fixLane: 'target_recalibration_or_no_trade'
     };
@@ -638,6 +675,15 @@ function classifyRow(row) {
     return { class: 'NORMAL_RR_BLOCK', severity: 'ok', fixLane: 'none' };
   }
   if (reason === 'wait_structure_confirmation_required') {
+    if (row.structurePolicyVerdict) {
+      return {
+        class: row.structurePolicyReviewReady ? 'STRUCTURE_CONFIRMATION_OVERBLOCK_REVIEW' : 'STRUCTURE_CONFIRMATION_REQUIRED',
+        severity: row.structurePolicyReviewReady ? 'medium' : 'high',
+        fixLane: row.structurePolicyReviewReady
+          ? 'stage6_structure_proof_policy_review'
+          : 'current_entry_structure_validation'
+      };
+    }
     return {
       class: 'STRUCTURE_CONFIRMATION_REQUIRED',
       severity: 'high',
@@ -656,7 +702,7 @@ function classifyRow(row) {
 
 function isBuyOrStrongBuy(row) {
   const verdict = String(row?.verdict || '').trim().toUpperCase();
-  return verdict === 'BUY' || verdict === 'STRONG_BUY';
+  return verdict === 'BUY' || verdict === 'STRONG_BUY' || verdict === 'STRONGBUY';
 }
 
 function getActionableVerdicts() {
@@ -719,13 +765,19 @@ function classifyWatchlistOnlyAction(row, actionableVerdicts = getActionableVerd
   if (decision === 'EXECUTABLE_NOW' && !isActionableVerdict(row, actionableVerdicts)) return 'EXECUTABLE_NON_ACTIONABLE_VERDICT_REVIEW';
   if (decision === 'EXECUTABLE_NOW') return 'EXECUTABLE_ACTIONABLE_NO_ACTION';
   if (!isBuyOrStrongBuy(row)) return 'NON_BUY_VERDICT_REVIEW';
-  if (reason === 'wait_breakout_retest_required') return 'BREAKOUT_RETEST_LANE_REVIEW';
+  if (reason === 'wait_breakout_retest_required') {
+    return row.breakoutRetestPromotionEligible
+      ? 'BREAKOUT_PROOF_CONFIRMED_POLICY_GATE'
+      : 'BREAKOUT_RETEST_PROOF_REQUIRED';
+  }
   if (reason === 'wait_current_distance_above_adaptive') return 'CURRENT_ENTRY_DISTANCE_REVIEW';
-  if (reason === 'wait_structure_confirmation_required') return 'STRUCTURE_CONFIRMATION_LANE_REVIEW';
+  if (reason === 'wait_structure_confirmation_required') {
+    return row.structurePolicyReviewReady ? 'STRUCTURE_POLICY_REVIEW_READY' : 'STRUCTURE_CONFIRMATION_REQUIRED';
+  }
   if (reason === 'wait_earnings_data_missing_quality_floor' || reason === 'wait_earnings_data_missing') {
     return 'EARNINGS_DATA_FRESHNESS_REVIEW';
   }
-  if (reason === 'wait_target_near_current') return 'TARGET_NEAR_CURRENT_NO_CHASE_REVIEW';
+  if (reason === 'wait_target_near_current') return 'TARGET_RECALIBRATION_NO_CHASE_REQUIRED';
   if (reason.startsWith('blocked_quality_')) return 'QUALITY_VERDICT_NORMALIZATION_REVIEW';
   if (reason.startsWith('blocked_stop_') || reason.startsWith('blocked_rr_')) return 'RISK_GEOMETRY_REVIEW';
   return 'MANUAL_STAGE6_POLICY_REVIEW';

@@ -1,10 +1,10 @@
 # Stage6 Policy Lane Audit
 
-- GeneratedAt: 2026-06-05T15:32:15.736Z
+- GeneratedAt: 2026-06-05T18:40:30.541Z
 - Source Audit: state/stage6-execution-gate-audit.json
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-06_00-23-47.json
 - Latest Verdict: **WATCHLIST_WAIT_JUSTIFIED_OR_DATA_REPAIR_REQUIRED**
-- Latest Review-Ready Rows: 1
+- Latest Review-Ready Rows: 2
 - Latest Promotion-Review Rows: 0
 - Broker Mutation Authorized: false
 - Execution Policy Changed: false
@@ -35,6 +35,7 @@
 | Symbol | Lane | Decision | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Action |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
 | CRMD | breakoutRetest | BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE | 120.00 | 79.78 | 3.93 | 18.74 | 78.50 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Retest evidence exists but is stale or over-extended; keep WAIT_PRICE until producer emits confirmed fresh retest proof. |
+| INCY | targetNearCurrent | TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED | 16.00 | 3.84 | 0.12 | 11.97 | 1.85 | VALID_GEOMETRY | RR_CURRENT_WEAK | Recompute target/stop thesis; do not use sidecar chase to make this executable. |
 
 ## Latest Rows
 

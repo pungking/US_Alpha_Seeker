@@ -44,7 +44,7 @@ function isLatestRow(row, latestStage6File) {
 
 function isBuyOrStrongBuy(row) {
   const verdict = String(row?.verdict || '').toUpperCase();
-  return verdict === 'BUY' || verdict === 'STRONG_BUY';
+  return verdict === 'BUY' || verdict === 'STRONG_BUY' || verdict === 'STRONGBUY';
 }
 
 function isReason(row, reason) {
@@ -75,6 +75,12 @@ function rowReasonText(row, field) {
 
 function targetNearCurrentDecision(row) {
   if (!isReason(row, 'wait_target_near_current')) return null;
+  if (row.targetRecalibrationVerdict) {
+    return {
+      laneDecision: row.targetRecalibrationVerdict,
+      recommendedAction: row.targetRecalibrationRecommendedAction || 'Recompute target/stop thesis; do not use sidecar chase to make this executable.'
+    };
+  }
   if (row.currentRrStatus === 'RR_CURRENT_TARGET_ALREADY_REACHED') {
     return {
       laneDecision: 'TARGET_REACHED_OR_NEAR_CURRENT_NO_CHASE',
@@ -104,6 +110,14 @@ function earningsMissingDecision(row) {
 
 function breakoutDecision(row) {
   if (!isReason(row, 'wait_breakout_retest_required')) return null;
+  if (row.breakoutRetestPromotionVerdict) {
+    return {
+      laneDecision: row.breakoutRetestPromotionVerdict,
+      recommendedAction:
+        row.breakoutRetestPromotionRecommendedAction ||
+        'Review-ready is diagnostic only. Promotion requires proofConfirmed=true and an explicit producer policy flag.'
+    };
+  }
   if (row.breakoutRetestProofConfirmed === true || row.breakoutRetestProofVerdict === 'BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE') {
     return {
       laneDecision: 'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
@@ -143,6 +157,14 @@ function breakoutDecision(row) {
 
 function structureDecision(row) {
   if (!isReason(row, 'wait_structure_confirmation_required')) return null;
+  if (row.structurePolicyVerdict) {
+    return {
+      laneDecision: row.structurePolicyVerdict,
+      recommendedAction:
+        row.structurePolicyRecommendedAction ||
+        'Keep WAIT_PRICE unless fresh structure proof changes in the next Stage6 artifact.'
+    };
+  }
   const structureVerdict = String(row.currentEntryStructureVerdict || '').trim();
   const missingStructureEvidence = !structureVerdict || structureVerdict === 'N/A';
   const structureRejected = structureVerdict.startsWith('STRUCTURE_REJECT');
@@ -266,6 +288,12 @@ function buildReport(input) {
     earningsDataMissing: latestRows.filter((row) => row.lane === 'earningsDataMissing')
   };
   const reviewReadyDecisions = new Set([
+    'STRUCTURE_EXPLICIT_REJECT_OVERBLOCK_REVIEW_READY',
+    'STRUCTURE_PROOF_MISSING_OVERBLOCK_REVIEW_READY',
+    'STRUCTURE_CONFIRMED_WAIT_REVIEW_READY',
+    'BREAKOUT_REVIEW_READY_NOT_PROMOTABLE',
+    'BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED',
+    'TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED',
     'BREAKOUT_RETEST_POLICY_REVIEW_READY',
     'BREAKOUT_RETEST_REVIEW_LOW_DISTANCE',
     'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
@@ -277,6 +305,8 @@ function buildReport(input) {
     'EARNINGS_DATA_OVERBLOCK_REVIEW_READY'
   ]);
   const promotionReviewReadyDecisions = new Set([
+    'BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED',
+    'BREAKOUT_PROOF_CONFIRMED_PROMOTION_ENABLED',
     'BREAKOUT_RETEST_POLICY_REVIEW_READY',
     'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
     'CURRENT_ENTRY_DISTANCE_POLICY_REVIEW_READY',
@@ -363,6 +393,9 @@ function compactRow(row) {
     currentEntryStructureVerdict: row.currentEntryStructureVerdict || null,
     currentEntryStructureConfirmed: Boolean(row.currentEntryStructureConfirmed),
     currentEntryStructureReasons: row.currentEntryStructureReasons || [],
+    structurePolicyVerdict: row.structurePolicyVerdict || null,
+    structurePolicyReviewReady: Boolean(row.structurePolicyReviewReady),
+    structurePolicyReasons: row.structurePolicyReasons || [],
     breakoutRetestProofVerdict: row.breakoutRetestProofVerdict || null,
     breakoutRetestProofConfirmed: Boolean(row.breakoutRetestProofConfirmed),
     breakoutRetestProofReviewReady: Boolean(row.breakoutRetestProofReviewReady),
@@ -370,6 +403,14 @@ function compactRow(row) {
     breakoutRetestProofRetestLevel: row.breakoutRetestProofRetestLevel ?? null,
     breakoutRetestProofBarsSinceRetest: row.breakoutRetestProofBarsSinceRetest ?? null,
     breakoutRetestProofCurrentExtensionPct: row.breakoutRetestProofCurrentExtensionPct ?? null,
+    breakoutRetestPromotionVerdict: row.breakoutRetestPromotionVerdict || null,
+    breakoutRetestPromotionEligible: Boolean(row.breakoutRetestPromotionEligible),
+    breakoutRetestPromotionEnabled: Boolean(row.breakoutRetestPromotionEnabled),
+    breakoutRetestPromotionReasons: row.breakoutRetestPromotionReasons || [],
+    targetRecalibrationVerdict: row.targetRecalibrationVerdict || null,
+    targetRecalibrationRequired: Boolean(row.targetRecalibrationRequired),
+    targetNoChaseRequired: Boolean(row.targetNoChaseRequired),
+    targetRecalibrationReasons: row.targetRecalibrationReasons || [],
     blockerClass: row.blockerClass,
     fixLane: row.fixLane
   };

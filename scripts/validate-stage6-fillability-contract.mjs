@@ -11,6 +11,8 @@ const actionableVerdicts = new Set(
 );
 const errors = [];
 const verdictKey = (value) => String(value || '').replace(/[^a-zA-Z0-9_]/g, '').toUpperCase().trim();
+const breakoutPromotionEnabled = data?.decisionGate?.breakoutRetestProofPromotionEnabled === true;
+const isTrue = (value) => value === true || String(value).toLowerCase() === 'true';
 for (const [idx, row] of candidates.entries()) {
   const label = `${row.symbol || `row_${idx}`}`;
   if (!row.symbol) errors.push(`${label}: symbol missing`);
@@ -29,6 +31,28 @@ for (const [idx, row] of candidates.entries()) {
   }
   if (row.executionFeasibilityAtCurrent === 'BLOCKED' && !String(row.decisionReason || '').startsWith('wait_') && !String(row.decisionReason || '').startsWith('blocked_')) {
     errors.push(`${label}: blocked current feasibility needs wait_/blocked_ decisionReason`);
+  }
+  if (row.decisionReason === 'executable_breakout_retest_confirmed' && !breakoutPromotionEnabled) {
+    errors.push(`${label}: breakout proof promotion executable used while decisionGate breakoutRetestProofPromotionEnabled=false`);
+  }
+  if (row.decisionReason === 'wait_breakout_retest_required') {
+    if (row.finalDecision === 'EXECUTABLE_NOW') errors.push(`${label}: breakout retest wait cannot be executable`);
+    if (!isTrue(row.breakoutRetestProofConfirmed) && isTrue(row.breakoutRetestPromotionEligible)) {
+      errors.push(`${label}: breakout promotion eligible without proofConfirmed=true`);
+    }
+    if (isTrue(row.breakoutRetestProofReviewReady) && !String(row.breakoutRetestPromotionVerdict || '').includes('NOT_PROMOTABLE')) {
+      errors.push(`${label}: reviewReady breakout row must remain explicitly non-promotable unless proofConfirmed=true`);
+    }
+  }
+  if (row.decisionReason === 'wait_structure_confirmation_required') {
+    if (!row.structurePolicyVerdict) errors.push(`${label}: structure wait missing structurePolicyVerdict`);
+    if (String(row.currentEntryStructureVerdict || '').startsWith('STRUCTURE_REJECT') && row.finalDecision !== 'WAIT_PRICE') {
+      errors.push(`${label}: explicit structure reject must remain WAIT_PRICE`);
+    }
+  }
+  if (row.decisionReason === 'wait_target_near_current') {
+    if (!isTrue(row.targetNoChaseRequired)) errors.push(`${label}: target-near-current row must declare targetNoChaseRequired=true`);
+    if (!isTrue(row.targetRecalibrationRequired)) errors.push(`${label}: target-near-current row must require target recalibration`);
   }
 }
 if (!candidates.length) errors.push('fixture has no candidates');
