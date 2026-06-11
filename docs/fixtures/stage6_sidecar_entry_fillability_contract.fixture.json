@@ -8,7 +8,9 @@
     "actionableVerdicts": "BUY,STRONG_BUY,STRONGBUY",
     "speculativeBuyExecutableWaiver": false,
     "breakoutRetestProofPromotionEnabled": false,
-    "breakoutRetestProofPromotionRule": "proofConfirmed_required_and_flag_disabled_by_default"
+    "breakoutRetestProofPromotionRule": "proofConfirmed_and_current_rr_target_buffer_required; reviewReady_never_promotes",
+    "adaptiveCurrentEntryRule": "WAIT_PULLBACK_TOO_DEEP cannot promote without recalculated-stop structure proof or confirmed breakout retest proof",
+    "targetGeometryRule": "target/current geometry requires Stage6 recalibration or NO_TRADE; sidecar reprice must not chase target-near-current cases"
   },
   "candidates": [
     {

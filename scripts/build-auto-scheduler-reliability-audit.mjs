@@ -11,6 +11,25 @@ for (const file of files) {
   if (file.endsWith('schedule.yml') && exists) checks.push({id:'schedule:cron',status:/cron:/.test(text)?'PASS':'FAIL',detail:'cron trigger exists'});
   if (exists) checks.push({id:`${file}:artifact_or_summary`,status:/upload-artifact|GITHUB_STEP_SUMMARY|artifact/i.test(text)?'PASS':'WARN',detail:'failure evidence path'});
 }
+const alphaFile='components/AlphaAnalysis.tsx';
+const autoText=fs.existsSync(alphaFile)?fs.readFileSync(alphaFile,'utf8'):'';
+const autoMismatchPattern=/code:\s*['"]TELEGRAM_CONTRACT_MISMATCH['"][\s\S]{0,800}?telegram_transmission_suppressed_stage6_dispatch_allowed/;
+checks.push({
+  id:'auto:telegram_contract_mismatch_non_blocking',
+  status:autoMismatchPattern.test(autoText)?'PASS':'FAIL',
+  detail:'TELEGRAM_CONTRACT_MISMATCH suppresses Telegram only and leaves Stage6 dispatch allowed'
+});
+const mismatchThrowPattern=/throw new Error\([^;\n]*(TELEGRAM_CONTRACT_MISMATCH|CONTRACT_MISMATCH)[^;\n]*\)/;
+checks.push({
+  id:'auto:telegram_contract_mismatch_no_throw',
+  status:mismatchThrowPattern.test(autoText)?'FAIL':'PASS',
+  detail:'contract mismatch must not throw from Auto-Scheduler path'
+});
+checks.push({
+  id:'auto:telegram_integrity_failure_archived',
+  status:/archiveTelegramIntegrityFailure\(\s*['"]AUTO['"][\s\S]{0,900}?TELEGRAM_CONTRACT_MISMATCH/.test(autoText)?'PASS':'WARN',
+  detail:'non-blocking contract mismatch still leaves Drive/audit evidence'
+});
 const fail=checks.filter(c=>c.status==='FAIL').length;
 const warn=checks.filter(c=>c.status==='WARN').length;
 const report={generatedAt:new Date().toISOString(),overall:fail?'fail':warn?'warn':'pass',checks};

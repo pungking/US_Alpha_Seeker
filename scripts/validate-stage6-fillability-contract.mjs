@@ -35,6 +35,9 @@ for (const [idx, row] of candidates.entries()) {
   if (row.decisionReason === 'executable_breakout_retest_confirmed' && !breakoutPromotionEnabled) {
     errors.push(`${label}: breakout proof promotion executable used while decisionGate breakoutRetestProofPromotionEnabled=false`);
   }
+  if (row.decisionReason === 'executable_adaptive_current') {
+    errors.push(`${label}: proof-less executable_adaptive_current is not allowed; use executable_current_recalculated_stop or executable_breakout_retest_confirmed`);
+  }
   if (row.decisionReason === 'wait_breakout_retest_required') {
     if (row.finalDecision === 'EXECUTABLE_NOW') errors.push(`${label}: breakout retest wait cannot be executable`);
     if (!isTrue(row.breakoutRetestProofConfirmed) && isTrue(row.breakoutRetestPromotionEligible)) {

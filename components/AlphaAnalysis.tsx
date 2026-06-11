@@ -786,9 +786,19 @@ const deriveBreakoutRetestProof = (input: {
   rrAtCurrentPrice: number | null;
   targetBufferFromCurrentPct: number | null;
   entryDistancePct: number | null;
+  minRr?: number | null;
+  minTargetBufferPct?: number | null;
   priceHistory: any;
 }): BreakoutRetestProofPayload => {
   const policy = BREAKOUT_RETEST_PROOF_POLICY;
+  const minRr =
+    input.minRr != null && Number.isFinite(input.minRr) && input.minRr > 0
+      ? input.minRr
+      : 1.8;
+  const minTargetBufferPct =
+    input.minTargetBufferPct != null && Number.isFinite(input.minTargetBufferPct) && input.minTargetBufferPct > 0
+      ? input.minTargetBufferPct
+      : 2;
   const bars = normalizeStage6StructureBars(input.priceHistory);
   const latest = bars[bars.length - 1] || null;
   const price = input.price;
@@ -820,7 +830,12 @@ const deriveBreakoutRetestProof = (input: {
   if (!(price != null && entry != null && target != null && stop != null && price > 0 && entry > 0 && target > price && price > stop)) {
     return { verdict: 'BREAKOUT_RETEST_INPUT_INVALID', confirmed: false, reviewReady: false, reasons: ['price_entry_target_stop_invalid'], ...basePayload };
   }
-  if (input.rrAtCurrentPrice == null || input.rrAtCurrentPrice < 1.8 || input.targetBufferFromCurrentPct == null || input.targetBufferFromCurrentPct < 2) {
+  if (
+    input.rrAtCurrentPrice == null ||
+    input.rrAtCurrentPrice < minRr ||
+    input.targetBufferFromCurrentPct == null ||
+    input.targetBufferFromCurrentPct < minTargetBufferPct
+  ) {
     return { verdict: 'BREAKOUT_RETEST_CURRENT_RR_WEAK', confirmed: false, reviewReady: false, reasons: ['current_rr_or_target_buffer_weak'], ...basePayload };
   }
 
@@ -839,7 +854,7 @@ const deriveBreakoutRetestProof = (input: {
   if (latest && latest.close < entry) reasons.push('latest_close_below_retest_level');
 
   const confirmed = reasons.length === 0;
-  const reviewReady = !confirmed && input.rrAtCurrentPrice >= 1.8 && input.targetBufferFromCurrentPct >= 2;
+  const reviewReady = !confirmed && input.rrAtCurrentPrice >= minRr && input.targetBufferFromCurrentPct >= minTargetBufferPct;
   const verdict = confirmed
     ? 'BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE'
     : reviewReady
@@ -867,6 +882,9 @@ const deriveStructurePolicyReview = (input: {
   targetBufferFromCurrentPct: number | null;
   entryDistancePct: number | null;
   currentFeasibilityStatus: string | null;
+  minRr?: number | null;
+  minTargetBufferPct?: number | null;
+  maxReviewDistancePct?: number | null;
 }): Stage6PolicyReviewPayload => {
   if (input.decisionReason !== 'wait_structure_confirmation_required') {
     return {
@@ -878,17 +896,29 @@ const deriveStructurePolicyReview = (input: {
   }
   const verdict = String(input.structureVerdict || '').toUpperCase();
   const explicitReject = verdict.startsWith('STRUCTURE_REJECT');
+  const minRr =
+    input.minRr != null && Number.isFinite(input.minRr) && input.minRr > 0
+      ? input.minRr
+      : 1.8;
+  const minTargetBufferPct =
+    input.minTargetBufferPct != null && Number.isFinite(input.minTargetBufferPct) && input.minTargetBufferPct > 0
+      ? input.minTargetBufferPct
+      : 2;
+  const maxReviewDistancePct =
+    input.maxReviewDistancePct != null && Number.isFinite(input.maxReviewDistancePct) && input.maxReviewDistancePct > 0
+      ? input.maxReviewDistancePct
+      : CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct;
   const currentRrOk =
     input.rrAtCurrentPrice != null &&
     Number.isFinite(input.rrAtCurrentPrice) &&
-    input.rrAtCurrentPrice >= 1.8 &&
+    input.rrAtCurrentPrice >= minRr &&
     input.targetBufferFromCurrentPct != null &&
     Number.isFinite(input.targetBufferFromCurrentPct) &&
-    input.targetBufferFromCurrentPct >= 2;
+    input.targetBufferFromCurrentPct >= minTargetBufferPct;
   const distanceModerate =
     input.entryDistancePct != null &&
     Number.isFinite(input.entryDistancePct) &&
-    input.entryDistancePct <= CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct;
+    input.entryDistancePct <= maxReviewDistancePct;
   const reasons = [
     ...input.structureReasons,
     ...(currentRrOk ? [] : ['current_rr_or_target_buffer_weak']),
@@ -951,8 +981,7 @@ const deriveBreakoutRetestPromotion = (input: {
   }
   const reasons = [...input.proof.reasons];
   if (!input.proof.confirmed) reasons.push('proof_not_confirmed');
-  if (input.currentFeasibilityStatus !== 'PASS') reasons.push('current_feasibility_not_pass');
-  const eligible = input.proof.confirmed === true && input.currentFeasibilityStatus === 'PASS';
+  const eligible = input.proof.confirmed === true;
   if (eligible && input.promotionEnabled) {
     return {
       verdict: 'BREAKOUT_PROOF_CONFIRMED_PROMOTION_ENABLED',
@@ -996,6 +1025,7 @@ const deriveTargetRecalibrationPolicy = (input: {
   target: number | null;
   price: number | null;
   minTargetBufferPct?: number | null;
+  minRr?: number | null;
 }): Stage6TargetPolicyPayload => {
   const targetAlreadyReached =
     input.price != null &&
@@ -1009,6 +1039,12 @@ const deriveTargetRecalibrationPolicy = (input: {
     input.minTargetBufferPct > 0
       ? input.minTargetBufferPct
       : 2;
+  const minRr =
+    input.minRr != null &&
+    Number.isFinite(input.minRr) &&
+    input.minRr > 0
+      ? input.minRr
+      : 1.8;
   const targetBufferWeak =
     input.targetBufferFromCurrentPct == null ||
     !Number.isFinite(input.targetBufferFromCurrentPct) ||
@@ -1016,7 +1052,7 @@ const deriveTargetRecalibrationPolicy = (input: {
   const currentRrWeak =
     input.rrAtCurrentPrice == null ||
     !Number.isFinite(input.rrAtCurrentPrice) ||
-    input.rrAtCurrentPrice < 1.8;
+    input.rrAtCurrentPrice < minRr;
   const targetGeometryRequiresAction = targetAlreadyReached || targetBufferWeak;
   if (input.decisionReason !== 'wait_target_near_current' && !targetGeometryRequiresAction) {
     return {
@@ -1236,8 +1272,8 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         desc: "PULLBACK 실행 시나리오 기준으로 가격/기하학/리스크 조건을 통과했습니다."
     },
     'REASON_EXECUTABLE_ADAPTIVE_CURRENT': {
-        title: "✅ Reason: executable_adaptive_current",
-        desc: "현재가 기준 손익비와 목표 버퍼가 모두 살아 있어, 명시적 설정이 켜진 경우에만 현재가 적응형 진입 후보로 인정합니다."
+        title: "⚠️ Legacy Reason: executable_adaptive_current",
+        desc: "레거시 현재가 적응형 진입 사유입니다. 신규 Stage6 producer는 눌림 과다 케이스를 이 사유만으로 승격하지 않고, 재계산 손절 구조 확인 또는 breakout proofConfirmed=true를 요구합니다."
     },
     'REASON_EXECUTABLE_CURRENT_RECALCULATED_STOP': {
         title: "✅ Reason: executable_current_recalculated_stop",
@@ -1589,7 +1625,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const getDecisionReasonLabel = (reason?: string | null) => {
       const key = String(reason || '').toLowerCase().trim();
       if (key === 'executable_pullback') return 'Pullback Confirmed';
-      if (key === 'executable_adaptive_current') return 'Adaptive Current Entry';
+      if (key === 'executable_adaptive_current') return 'Legacy Adaptive Current Entry';
       if (key === 'executable_current_recalculated_stop') return 'Current Entry / Recalculated Stop';
       if (key === 'wait_pullback_not_reached') return 'Pullback Not Reached';
       if (key === 'wait_pullback_too_deep_valid_thesis') return 'Pullback Too Deep / Valid Thesis';
@@ -5357,6 +5393,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice,
               targetBufferFromCurrentPct,
               entryDistancePct: entryDistancePctShadow,
+              minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
+              minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
               priceHistory: item?.priceHistory || item?.fullHistory || item?.history || []
           });
           type CurrentFeasibilityStatus = 'PASS' | 'BLOCKED' | 'UNKNOWN';
@@ -5656,21 +5694,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           ) {
               finalDecision = 'EXECUTABLE_NOW';
               decisionReason = 'executable_breakout_retest_confirmed';
-          } else if (
-              executionReason === 'WAIT_PULLBACK_TOO_DEEP' &&
-              STAGE6_ADAPTIVE_CURRENT_ENTRY_ENABLED &&
-              rrAtCurrentPrice != null &&
-              Number.isFinite(rrAtCurrentPrice) &&
-              rrAtCurrentPrice >= STAGE6_CURRENT_ENTRY_MIN_RR &&
-              targetBufferFromCurrentPct != null &&
-              Number.isFinite(targetBufferFromCurrentPct) &&
-              targetBufferFromCurrentPct >= STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT &&
-              entryDistancePctShadow != null &&
-              Number.isFinite(entryDistancePctShadow) &&
-              entryDistancePctShadow <= STAGE6_BREAKOUT_RETEST_DISTANCE_PCT
-          ) {
-              finalDecision = 'EXECUTABLE_NOW';
-              decisionReason = 'executable_adaptive_current';
           } else if (executionReason === 'WAIT_PULLBACK_TOO_DEEP') {
               finalDecision = 'WAIT_PRICE';
               if (
@@ -5811,7 +5834,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice,
               targetBufferFromCurrentPct,
               entryDistancePct: entryDistancePctShadow,
-              currentFeasibilityStatus: originalStopCurrentFeasibility.status
+              currentFeasibilityStatus: originalStopCurrentFeasibility.status,
+              minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
+              minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
+              maxReviewDistancePct: CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct
           });
           const breakoutRetestPromotion = deriveBreakoutRetestPromotion({
               decisionReason,
@@ -5825,6 +5851,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice,
               target: mirroredTarget,
               price: livePrice,
+              minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
               minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
           });
           const qualityScore = computeAlphaQualityScore({
@@ -7039,7 +7066,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestDistancePct: STAGE6_BREAKOUT_RETEST_DISTANCE_PCT,
               breakoutRetestProofPolicy: BREAKOUT_RETEST_PROOF_POLICY,
               breakoutRetestProofPromotionEnabled: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED,
-              breakoutRetestProofPromotionRule: "proofConfirmed_required_and_flag_disabled_by_default",
+              breakoutRetestProofPromotionRule: "proofConfirmed_and_current_rr_target_buffer_required; reviewReady_never_promotes",
+              adaptiveCurrentEntryRule: "WAIT_PULLBACK_TOO_DEEP cannot promote without recalculated-stop structure proof or confirmed breakout retest proof",
+              targetGeometryRule: "target/current geometry requires Stage6 recalibration or NO_TRADE; sidecar reprice must not chase target-near-current cases",
               structurePolicyReview: CURRENT_ENTRY_STRUCTURE_POLICY,
               stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,
               stateConflictStates: Array.from(STAGE6_STATE_CONFLICT_STATES),
@@ -7332,20 +7361,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               if (!contractCheck.ok) {
                   addLog(
                       `TELEGRAM_CONTRACT_MISMATCH: ${contractCheck.mismatches[0] || 'unknown mismatch'}`,
-                      "err"
+                      "warn"
                   );
                   contractCheck.mismatches.slice(1, 4).forEach((m) => addLog(`[CONTRACT_DIFF] ${m}`, "warn"));
-                  throw new Error(`TELEGRAM_CONTRACT_MISMATCH (${contractCheck.mismatches.length})`);
-              }
-              
-              telegramPayload = brief;
-              addLog("Brief Generated. Relaying...", "ok");
+                  await archiveTelegramIntegrityFailure(
+                      'AUTO',
+                      resultsToCheck,
+                      brief,
+                      contractCheck,
+                      `TELEGRAM_CONTRACT_MISMATCH (${contractCheck.mismatches.length})`
+                  );
+                  (window as any).__AUTO_WARNINGS = [
+                      ...(((window as any).__AUTO_WARNINGS || []) as any[]),
+                      {
+                          code: 'TELEGRAM_CONTRACT_MISMATCH',
+                          mismatches: contractCheck.mismatches,
+                          generatedAt: new Date().toISOString(),
+                          action: 'telegram_transmission_suppressed_stage6_dispatch_allowed'
+                      }
+                  ];
+                  telegramPayload = '';
+                  addLog('Telegram Integrity Gate suppressed AUTO Telegram only; Stage6 dispatch remains allowed.', "warn");
+              } else {
+                  telegramPayload = brief;
+                  addLog("Brief Generated. Relaying...", "ok");
 
-              if (accessToken) {
-                const fileName = `TELEGRAM_BRIEF_REPORT_${getKstTimestamp()}.md`;
-                const archivedBrief = buildTelegramMessage(brief);
-                await archiveReport(accessToken, fileName, archivedBrief);
-                addLog("Telegram Brief Archived to Drive.", "ok");
+                  if (accessToken) {
+                    const fileName = `TELEGRAM_BRIEF_REPORT_${getKstTimestamp()}.md`;
+                    const archivedBrief = buildTelegramMessage(brief);
+                    await archiveReport(accessToken, fileName, archivedBrief);
+                    addLog("Telegram Brief Archived to Drive.", "ok");
+                  }
               }
 
           } catch (e: any) {

@@ -1,10 +1,10 @@
 # Stage6 Policy Lane Audit
 
-- GeneratedAt: 2026-06-05T18:40:30.541Z
+- GeneratedAt: 2026-06-11T09:33:21.282Z
 - Source Audit: state/stage6-execution-gate-audit.json
-- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-06_00-23-47.json
+- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-10_22-22-25.json
 - Latest Verdict: **WATCHLIST_WAIT_JUSTIFIED_OR_DATA_REPAIR_REQUIRED**
-- Latest Review-Ready Rows: 2
+- Latest Review-Ready Rows: 1
 - Latest Promotion-Review Rows: 0
 - Broker Mutation Authorized: false
 - Execution Policy Changed: false
@@ -15,10 +15,10 @@
 
 | Lane | Latest Rows | Latest Decisions |
 | --- | ---: | --- |
-| breakoutRetest | 1 | BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE:1 |
+| breakoutRetest | 1 | BREAKOUT_REVIEW_READY_NOT_PROMOTABLE:1 |
 | currentDistance | 0 | none |
-| structureConfirmation | 3 | STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED:3 |
-| targetNearCurrent | 2 | TARGET_REACHED_OR_NEAR_CURRENT_NO_CHASE:1, TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED:1 |
+| structureConfirmation | 3 | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED:3 |
+| targetNearCurrent | 1 | TARGET_ALREADY_REACHED_NO_TRADE:1 |
 | earningsDataMissing | 0 | none |
 
 ## Confirmation Proof Quality
@@ -27,26 +27,24 @@
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | latest | structureConfirmation | 3 | 0 | 3 | 0 | 0 | 0 | 0 |
 | latest | breakoutRetest | 1 | 0 | 0 | 0 | 1 | 1 | 1 |
-| all | structureConfirmation | 44 | 0 | 44 | 0 | 0 | 0 | 0 |
-| all | breakoutRetest | 19 | 0 | 0 | 0 | 5 | 5 | 19 |
+| all | structureConfirmation | 66 | 0 | 66 | 0 | 0 | 0 | 0 |
+| all | breakoutRetest | 28 | 0 | 0 | 0 | 14 | 14 | 28 |
 
 ## Latest Review-Ready Rows
 
 | Symbol | Lane | Decision | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Action |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
-| CRMD | breakoutRetest | BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE | 120.00 | 79.78 | 3.93 | 18.74 | 78.50 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Retest evidence exists but is stale or over-extended; keep WAIT_PRICE until producer emits confirmed fresh retest proof. |
-| INCY | targetNearCurrent | TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED | 16.00 | 3.84 | 0.12 | 11.97 | 1.85 | VALID_GEOMETRY | RR_CURRENT_WEAK | Recompute target/stop thesis; do not use sidecar chase to make this executable. |
+| ZVRA | breakoutRetest | BREAKOUT_REVIEW_READY_NOT_PROMOTABLE | 155.00 | 37.84 | 2.94 | 28.38 | 92.78 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Review-ready is diagnostic only. Promotion requires proofConfirmed=true. |
 
 ## Latest Rows
 
 | Symbol | Verdict | Lane | Stage6 Reason | Lane Decision | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
-| CPRX | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED | 26.00 | 0.20 | 19.37 | 4.19 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Stage6 supplied explicit structure rejection metadata, so this is not a broad unproven wait. |
-| CRMD | BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE | 120.00 | 3.93 | 18.74 | 78.50 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Retest evidence exists but is stale or over-extended; keep WAIT_PRICE until producer emits confirmed fresh retest proof. |
-| EXEL | BUY | targetNearCurrent | wait_target_near_current | TARGET_REACHED_OR_NEAR_CURRENT_NO_CHASE | 12.00 | N/A | 16.14 | -5.36 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Keep no-trade; require target refresh or fresh thesis before any execution candidate. |
-| FFBC | STRONG_BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED | 21.00 | 0.72 | 10.27 | 8.36 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Stage6 supplied explicit structure rejection metadata, so this is not a broad unproven wait. |
-| INCY | STRONG_BUY | targetNearCurrent | wait_target_near_current | TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED | 16.00 | 0.12 | 11.97 | 1.85 | VALID_GEOMETRY | RR_CURRENT_WEAK | Recompute target/stop thesis; do not use sidecar chase to make this executable. |
-| TGTX | STRONG_BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED | 50.00 | 0.88 | 20.52 | 19.08 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Stage6 supplied explicit structure rejection metadata, so this is not a broad unproven wait. |
+| DAVE | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | 52.00 | 0.69 | 27.41 | 19.81 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
+| DUOL | STRONG_BUY | targetNearCurrent | wait_target_near_current | TARGET_ALREADY_REACHED_NO_TRADE | 8.00 | N/A | 17.31 | -9.80 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Keep no-trade. Require fresh target/thesis recalibration before this can become executable. |
+| FFBC | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | 20.00 | 0.50 | 11.79 | 6.53 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
+| INCY | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | 15.00 | 0.40 | 8.65 | 5.42 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
+| ZVRA | STRONG_BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_REVIEW_READY_NOT_PROMOTABLE | 155.00 | 2.94 | 28.38 | 92.78 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Review-ready is diagnostic only. Promotion requires proofConfirmed=true. |
 
 ## Policy Interpretation
 
