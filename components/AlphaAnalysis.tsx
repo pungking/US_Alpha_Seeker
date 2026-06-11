@@ -5900,7 +5900,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER &&
               (aiVerdictKey.includes('SPECULATIVE_BUY') || aiVerdictKey.includes('SPECULATIVEBUY')) &&
               executionActionableVerdict;
-          if (finalDecision === 'EXECUTABLE_NOW' && !executionActionableVerdict) {
+          const speculativeBuyBlockedByPolicy =
+              (aiVerdictKey.includes('SPECULATIVE_BUY') || aiVerdictKey.includes('SPECULATIVEBUY')) &&
+              !STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER;
+          if (
+              speculativeBuyBlockedByPolicy &&
+              finalDecision !== 'BLOCKED_RISK' &&
+              finalDecision !== 'BLOCKED_EVENT'
+          ) {
+              finalDecision = 'WAIT_PRICE';
+              decisionReason = 'wait_verdict_not_sidecar_actionable';
+          } else if (finalDecision === 'EXECUTABLE_NOW' && !executionActionableVerdict) {
               finalDecision = 'WAIT_PRICE';
               decisionReason = 'wait_verdict_not_sidecar_actionable';
           }
