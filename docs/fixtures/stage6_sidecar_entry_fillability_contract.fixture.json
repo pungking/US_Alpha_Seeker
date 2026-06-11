@@ -10,7 +10,13 @@
     "breakoutRetestProofPromotionEnabled": false,
     "breakoutRetestProofPromotionRule": "proofConfirmed_and_current_rr_target_buffer_required; reviewReady_never_promotes",
     "adaptiveCurrentEntryRule": "WAIT_PULLBACK_TOO_DEEP cannot promote without recalculated-stop structure proof or confirmed breakout retest proof",
-    "targetGeometryRule": "target/current geometry requires Stage6 recalibration or NO_TRADE; sidecar reprice must not chase target-near-current cases"
+    "targetGeometryRule": "target/current geometry requires Stage6 recalibration or NO_TRADE; sidecar reprice must not chase target-near-current cases",
+    "zeroExecutableTuningPriority": [
+      "TARGET_RECALIBRATION",
+      "STOP_TARGET_RISK_GEOMETRY_RECALCULATION",
+      "BREAKOUT_PROOF_CONFIRMED_GENERATION"
+    ],
+    "zeroExecutableStructureRule": "structure waits require stronger producer proof; do not relax structure gates as the default zero-executable response"
   },
   "candidates": [
     {
@@ -36,7 +42,14 @@
       "executionFeasibilityAtCurrentMinRr": 1.8,
       "executionFeasibilityAtCurrentMaxDistancePct": 6,
       "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
-      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT"
+      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT",
+      "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutableTuningVerdict": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutablePrimaryTuningTarget": false,
+      "zeroExecutableTuningReasons": [
+        "not_zero_executable_policy_lane"
+      ],
+      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
     },
     {
       "symbol": "WAIT1",
@@ -63,7 +76,14 @@
       "executionFeasibilityAtCurrentMinRr": 1.8,
       "executionFeasibilityAtCurrentMaxDistancePct": 6,
       "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
-      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT"
+      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT",
+      "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutableTuningVerdict": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutablePrimaryTuningTarget": false,
+      "zeroExecutableTuningReasons": [
+        "not_zero_executable_policy_lane"
+      ],
+      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
     },
     {
       "symbol": "SPEC_WAIT",
@@ -88,7 +108,14 @@
       "executionFeasibilityAtCurrentMinRr": 1.8,
       "executionFeasibilityAtCurrentMaxDistancePct": 6,
       "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
-      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT"
+      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT",
+      "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutableTuningVerdict": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutablePrimaryTuningTarget": false,
+      "zeroExecutableTuningReasons": [
+        "not_zero_executable_policy_lane"
+      ],
+      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
     },
     {
       "symbol": "STRUCT_REJECT_WAIT",
@@ -120,7 +147,15 @@
         "stop_too_far_below_support",
         "current_rr_or_target_buffer_weak"
       ],
-      "structurePolicyRecommendedAction": "Keep WAIT_PRICE."
+      "structurePolicyRecommendedAction": "Keep WAIT_PRICE.",
+      "zeroExecutableTuningLane": "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
+      "zeroExecutableTuningVerdict": "STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED",
+      "zeroExecutablePrimaryTuningTarget": false,
+      "zeroExecutableTuningReasons": [
+        "stop_too_far_below_support",
+        "current_rr_or_target_buffer_weak"
+      ],
+      "zeroExecutableTuningRecommendedAction": "Do not relax structure gates. Keep WAIT unless Stage6 emits stronger structure proof."
     },
     {
       "symbol": "BREAKOUT_REVIEW_WAIT",
@@ -154,7 +189,15 @@
         "current_extension_from_retest_high",
         "proof_not_confirmed"
       ],
-      "breakoutRetestPromotionRecommendedAction": "Review-ready is diagnostic only."
+      "breakoutRetestPromotionRecommendedAction": "Review-ready is diagnostic only.",
+      "zeroExecutableTuningLane": "BREAKOUT_PROOF_CONFIRMED_GENERATION",
+      "zeroExecutableTuningVerdict": "BREAKOUT_REVIEW_READY_NOT_PROMOTABLE",
+      "zeroExecutablePrimaryTuningTarget": true,
+      "zeroExecutableTuningReasons": [
+        "current_extension_from_retest_high",
+        "proof_not_confirmed"
+      ],
+      "zeroExecutableTuningRecommendedAction": "Generate fresh retest proof and set proofConfirmed=true before any executable promotion."
     },
     {
       "symbol": "TARGET_NEAR_WAIT",
@@ -191,7 +234,15 @@
         "target_buffer_below_min",
         "current_rr_below_min"
       ],
-      "riskGeometryRecommendedAction": "Treat as target recalibration or no-trade. Sidecar chase/reprice must not solve target-near-current geometry."
+      "riskGeometryRecommendedAction": "Treat as target recalibration or no-trade. Sidecar chase/reprice must not solve target-near-current geometry.",
+      "zeroExecutableTuningLane": "TARGET_RECALIBRATION",
+      "zeroExecutableTuningVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED",
+      "zeroExecutablePrimaryTuningTarget": true,
+      "zeroExecutableTuningReasons": [
+        "target_buffer_below_review_floor",
+        "current_rr_weak_or_unavailable"
+      ],
+      "zeroExecutableTuningRecommendedAction": "Recompute target/stop thesis."
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -219,7 +270,14 @@
       "riskGeometryReasons": [
         "required_stop_distance_out_of_policy"
       ],
-      "riskGeometryRecommendedAction": "Keep blocked until Stage6 emits valid stop recalibration evidence."
+      "riskGeometryRecommendedAction": "Keep blocked until Stage6 emits valid stop recalibration evidence.",
+      "zeroExecutableTuningLane": "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION",
+      "zeroExecutableTuningVerdict": "STOP_GEOMETRY_RECALIBRATION_REQUIRED",
+      "zeroExecutablePrimaryTuningTarget": true,
+      "zeroExecutableTuningReasons": [
+        "required_stop_distance_out_of_policy"
+      ],
+      "zeroExecutableTuningRecommendedAction": "Keep blocked until Stage6 emits valid stop recalibration evidence."
     }
   ]
 }

@@ -13,6 +13,7 @@ const errors = [];
 const verdictKey = (value) => String(value || '').replace(/[^a-zA-Z0-9_]/g, '').toUpperCase().trim();
 const breakoutPromotionEnabled = data?.decisionGate?.breakoutRetestProofPromotionEnabled === true;
 const isTrue = (value) => value === true || String(value).toLowerCase() === 'true';
+const tuningLane = (row) => String(row.zeroExecutableTuningLane || '').trim().toUpperCase();
 const riskGeometryReasons = new Set([
   'blocked_invalid_geometry',
   'blocked_stop_too_tight',
@@ -50,6 +51,9 @@ for (const [idx, row] of candidates.entries()) {
   }
   if (row.decisionReason === 'wait_breakout_retest_required') {
     if (row.finalDecision === 'EXECUTABLE_NOW') errors.push(`${label}: breakout retest wait cannot be executable`);
+    if (tuningLane(row) !== 'BREAKOUT_PROOF_CONFIRMED_GENERATION') {
+      errors.push(`${label}: breakout wait must route to BREAKOUT_PROOF_CONFIRMED_GENERATION`);
+    }
     if (!isTrue(row.breakoutRetestProofConfirmed) && isTrue(row.breakoutRetestPromotionEligible)) {
       errors.push(`${label}: breakout promotion eligible without proofConfirmed=true`);
     }
@@ -59,6 +63,12 @@ for (const [idx, row] of candidates.entries()) {
   }
   if (row.decisionReason === 'wait_structure_confirmation_required') {
     if (!row.structurePolicyVerdict) errors.push(`${label}: structure wait missing structurePolicyVerdict`);
+    if (tuningLane(row) !== 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
+      errors.push(`${label}: structure wait must be marked as proof-required, not a relaxation lane`);
+    }
+    if (isTrue(row.zeroExecutablePrimaryTuningTarget)) {
+      errors.push(`${label}: structure wait cannot be a primary zero-executable tuning target`);
+    }
     if (String(row.currentEntryStructureVerdict || '').startsWith('STRUCTURE_REJECT') && row.finalDecision !== 'WAIT_PRICE') {
       errors.push(`${label}: explicit structure reject must remain WAIT_PRICE`);
     }
@@ -66,11 +76,20 @@ for (const [idx, row] of candidates.entries()) {
   if (row.decisionReason === 'wait_target_near_current') {
     if (!isTrue(row.targetNoChaseRequired)) errors.push(`${label}: target-near-current row must declare targetNoChaseRequired=true`);
     if (!isTrue(row.targetRecalibrationRequired)) errors.push(`${label}: target-near-current row must require target recalibration`);
+    if (tuningLane(row) !== 'TARGET_RECALIBRATION') errors.push(`${label}: target-near-current row must route to TARGET_RECALIBRATION`);
+    if (!isTrue(row.zeroExecutablePrimaryTuningTarget)) errors.push(`${label}: target recalibration must be a primary zero-executable tuning target`);
   }
   if (riskGeometryReasons.has(row.decisionReason)) {
     if (!row.riskGeometryPolicyVerdict) errors.push(`${label}: risk geometry row missing riskGeometryPolicyVerdict`);
     if ((row.decisionReason === 'wait_target_near_current' || row.decisionReason === 'blocked_target_too_close') && !isTrue(row.riskGeometryNoTradeRequired)) {
       errors.push(`${label}: target geometry row must declare riskGeometryNoTradeRequired=true`);
+    }
+    if (
+      row.decisionReason !== 'wait_target_near_current' &&
+      (isTrue(row.riskGeometryRecalibrationRequired) || isTrue(row.riskGeometryRecalculatedStopCandidate)) &&
+      !['STOP_TARGET_RISK_GEOMETRY_RECALCULATION', 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'].includes(tuningLane(row))
+    ) {
+      errors.push(`${label}: risk geometry recalibration row must route to risk geometry tuning lane`);
     }
   }
 }

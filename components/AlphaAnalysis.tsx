@@ -150,6 +150,11 @@ interface AlphaCandidate {
   riskGeometryRecalculatedStopCandidate?: boolean | null;
   riskGeometryReasons?: string[] | null;
   riskGeometryRecommendedAction?: string | null;
+  zeroExecutableTuningLane?: string | null;
+  zeroExecutableTuningVerdict?: string | null;
+  zeroExecutablePrimaryTuningTarget?: boolean | null;
+  zeroExecutableTuningReasons?: string[] | null;
+  zeroExecutableTuningRecommendedAction?: string | null;
   tradePlanDecision?: string | null;
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
@@ -617,6 +622,14 @@ type Stage6RiskGeometryPolicyPayload = {
   recalibrationRequired: boolean;
   noTradeRequired: boolean;
   recalculatedStopCandidate: boolean;
+  reasons: string[];
+  recommendedAction: string;
+};
+
+type Stage6ZeroExecutableTuningPayload = {
+  lane: string;
+  verdict: string;
+  primaryTuningTarget: boolean;
   reasons: string[];
   recommendedAction: string;
 };
@@ -1244,6 +1257,70 @@ const deriveRiskGeometryPolicy = (input: {
     recommendedAction: recalculatedStopCandidate && currentRrOk && targetBufferOk
       ? 'Review producer-side RR with recalculated stop; do not lower sidecar fillability floor.'
       : 'Keep WAIT/BLOCKED. Current RR/target buffer does not justify execution.'
+  };
+};
+
+const deriveZeroExecutableTuningPolicy = (input: {
+  decisionReason: string | null;
+  targetPolicy: Stage6TargetPolicyPayload;
+  riskGeometryPolicy: Stage6RiskGeometryPolicyPayload;
+  breakoutPromotion: Stage6BreakoutPromotionPayload;
+  structurePolicy: Stage6PolicyReviewPayload;
+}): Stage6ZeroExecutableTuningPayload => {
+  const reason = String(input.decisionReason || '');
+  if (input.targetPolicy.recalibrationRequired) {
+    return {
+      lane: 'TARGET_RECALIBRATION',
+      verdict: input.targetPolicy.verdict,
+      primaryTuningTarget: true,
+      reasons: input.targetPolicy.reasons,
+      recommendedAction: input.targetPolicy.recommendedAction
+    };
+  }
+  if (input.riskGeometryPolicy.recalculatedStopCandidate) {
+    return {
+      lane: 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION',
+      verdict: input.riskGeometryPolicy.verdict,
+      primaryTuningTarget: true,
+      reasons: input.riskGeometryPolicy.reasons,
+      recommendedAction: input.riskGeometryPolicy.recommendedAction
+    };
+  }
+  if (input.riskGeometryPolicy.recalibrationRequired) {
+    return {
+      lane: input.riskGeometryPolicy.noTradeRequired
+        ? 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'
+        : 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION',
+      verdict: input.riskGeometryPolicy.verdict,
+      primaryTuningTarget: true,
+      reasons: input.riskGeometryPolicy.reasons,
+      recommendedAction: input.riskGeometryPolicy.recommendedAction
+    };
+  }
+  if (reason === 'wait_breakout_retest_required') {
+    return {
+      lane: 'BREAKOUT_PROOF_CONFIRMED_GENERATION',
+      verdict: input.breakoutPromotion.verdict,
+      primaryTuningTarget: true,
+      reasons: input.breakoutPromotion.reasons,
+      recommendedAction: 'Generate fresh retest proof and set proofConfirmed=true before any executable promotion.'
+    };
+  }
+  if (reason === 'wait_structure_confirmation_required') {
+    return {
+      lane: 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION',
+      verdict: input.structurePolicy.verdict,
+      primaryTuningTarget: false,
+      reasons: input.structurePolicy.reasons,
+      recommendedAction: 'Do not relax structure gates. Keep WAIT unless Stage6 emits stronger structure proof.'
+    };
+  }
+  return {
+    lane: 'NO_ZERO_EXECUTABLE_TUNING_ACTION',
+    verdict: 'NO_ZERO_EXECUTABLE_TUNING_ACTION',
+    primaryTuningTarget: false,
+    reasons: ['not_zero_executable_policy_lane'],
+    recommendedAction: 'No zero-executable tuning action required.'
   };
 };
 
@@ -6042,6 +6119,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
               minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
           });
+          const zeroExecutableTuningPolicy = deriveZeroExecutableTuningPolicy({
+              decisionReason,
+              targetPolicy: targetRecalibrationPolicy,
+              riskGeometryPolicy,
+              breakoutPromotion: breakoutRetestPromotion,
+              structurePolicy: structurePolicyReview
+          });
           const qualityScore = computeAlphaQualityScore({
               conviction: convictionScore,
               expectedReturnPct,
@@ -6139,6 +6223,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopCandidate: riskGeometryPolicy.recalculatedStopCandidate,
               riskGeometryReasons: riskGeometryPolicy.reasons,
               riskGeometryRecommendedAction: riskGeometryPolicy.recommendedAction,
+              zeroExecutableTuningLane: zeroExecutableTuningPolicy.lane,
+              zeroExecutableTuningVerdict: zeroExecutableTuningPolicy.verdict,
+              zeroExecutablePrimaryTuningTarget: zeroExecutableTuningPolicy.primaryTuningTarget,
+              zeroExecutableTuningReasons: zeroExecutableTuningPolicy.reasons,
+              zeroExecutableTuningRecommendedAction: zeroExecutableTuningPolicy.recommendedAction,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,
               tradePlanReason:
                   useRecalculatedCurrentEntry
@@ -6990,6 +7079,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopCandidate: Boolean(item.riskGeometryRecalculatedStopCandidate),
               riskGeometryReasons: Array.isArray(item.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryRecommendedAction: normalizeOptionalText(item.riskGeometryRecommendedAction),
+              zeroExecutableTuningLane: normalizeOptionalText(item.zeroExecutableTuningLane),
+              zeroExecutableTuningVerdict: normalizeOptionalText(item.zeroExecutableTuningVerdict),
+              zeroExecutablePrimaryTuningTarget: Boolean(item.zeroExecutablePrimaryTuningTarget),
+              zeroExecutableTuningReasons: Array.isArray(item.zeroExecutableTuningReasons) ? item.zeroExecutableTuningReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              zeroExecutableTuningRecommendedAction: normalizeOptionalText(item.zeroExecutableTuningRecommendedAction),
               tradePlanDecision: normalizeOptionalText(item.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item.tradePlanReason),
               executionVerdict: normalizeOptionalText(item.executionVerdict),
@@ -7103,6 +7197,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopCandidate: Boolean(item?.riskGeometryRecalculatedStopCandidate),
               riskGeometryReasons: Array.isArray(item?.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryRecommendedAction: normalizeOptionalText(item?.riskGeometryRecommendedAction),
+              zeroExecutableTuningLane: normalizeOptionalText(item?.zeroExecutableTuningLane),
+              zeroExecutableTuningVerdict: normalizeOptionalText(item?.zeroExecutableTuningVerdict),
+              zeroExecutablePrimaryTuningTarget: Boolean(item?.zeroExecutablePrimaryTuningTarget),
+              zeroExecutableTuningReasons: Array.isArray(item?.zeroExecutableTuningReasons) ? item.zeroExecutableTuningReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              zeroExecutableTuningRecommendedAction: normalizeOptionalText(item?.zeroExecutableTuningRecommendedAction),
               tradePlanDecision: normalizeOptionalText(item?.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item?.tradePlanReason),
               executionBucket:
@@ -7288,6 +7387,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               adaptiveCurrentEntryRule: "WAIT_PULLBACK_TOO_DEEP cannot promote without recalculated-stop structure proof or confirmed breakout retest proof",
               targetGeometryRule: "target/current geometry requires Stage6 recalibration or NO_TRADE; sidecar reprice must not chase target-near-current cases",
               riskGeometryRule: "stop/RR/target geometry must be resolved by Stage6 recalibration proof or no-trade; sidecar must not relax risk gates",
+              zeroExecutableTuningPriority: [
+                  "TARGET_RECALIBRATION",
+                  "STOP_TARGET_RISK_GEOMETRY_RECALCULATION",
+                  "BREAKOUT_PROOF_CONFIRMED_GENERATION"
+              ],
+              zeroExecutableStructureRule: "structure waits require stronger producer proof; do not relax structure gates as the default zero-executable response",
               structurePolicyReview: CURRENT_ENTRY_STRUCTURE_POLICY,
               stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,
               stateConflictStates: Array.from(STAGE6_STATE_CONFLICT_STATES),

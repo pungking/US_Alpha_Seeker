@@ -402,6 +402,11 @@ function extractRowsFromNotionPipelinePayload(filePath, payload) {
         riskGeometryRecalculatedStopCandidate: Boolean(row?.riskGeometryRecalculatedStopCandidate ?? row?.riskGeometryPolicy?.recalculatedStopCandidate),
         riskGeometryReasons: normalizeReasonArray(row?.riskGeometryReasons ?? row?.riskGeometryPolicy?.reasons),
         riskGeometryRecommendedAction: normalizeText(row?.riskGeometryRecommendedAction ?? row?.riskGeometryPolicy?.recommendedAction),
+        zeroExecutableTuningLane: normalizeText(row?.zeroExecutableTuningLane ?? row?.zeroExecutableTuning?.lane),
+        zeroExecutableTuningVerdict: normalizeText(row?.zeroExecutableTuningVerdict ?? row?.zeroExecutableTuning?.verdict),
+        zeroExecutablePrimaryTuningTarget: Boolean(row?.zeroExecutablePrimaryTuningTarget ?? row?.zeroExecutableTuning?.primaryTuningTarget),
+        zeroExecutableTuningReasons: normalizeReasonArray(row?.zeroExecutableTuningReasons ?? row?.zeroExecutableTuning?.reasons),
+        zeroExecutableTuningRecommendedAction: normalizeText(row?.zeroExecutableTuningRecommendedAction ?? row?.zeroExecutableTuning?.recommendedAction),
         tradePlanDecision: normalizeText(row?.tradePlanDecision) || null,
         tradePlanReason: normalizeText(row?.tradePlanReason) || null,
         trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
@@ -556,6 +561,11 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
       riskGeometryRecalculatedStopCandidate: Boolean(row?.riskGeometryRecalculatedStopCandidate ?? notion?.riskGeometryRecalculatedStopCandidate ?? row?.riskGeometryPolicy?.recalculatedStopCandidate),
       riskGeometryReasons: normalizeReasonArray(row?.riskGeometryReasons ?? notion?.riskGeometryReasons ?? row?.riskGeometryPolicy?.reasons),
       riskGeometryRecommendedAction: normalizeText(row?.riskGeometryRecommendedAction ?? notion?.riskGeometryRecommendedAction ?? row?.riskGeometryPolicy?.recommendedAction),
+      zeroExecutableTuningLane: normalizeText(row?.zeroExecutableTuningLane ?? notion?.zeroExecutableTuningLane ?? row?.zeroExecutableTuning?.lane),
+      zeroExecutableTuningVerdict: normalizeText(row?.zeroExecutableTuningVerdict ?? notion?.zeroExecutableTuningVerdict ?? row?.zeroExecutableTuning?.verdict),
+      zeroExecutablePrimaryTuningTarget: Boolean(row?.zeroExecutablePrimaryTuningTarget ?? notion?.zeroExecutablePrimaryTuningTarget ?? row?.zeroExecutableTuning?.primaryTuningTarget),
+      zeroExecutableTuningReasons: normalizeReasonArray(row?.zeroExecutableTuningReasons ?? notion?.zeroExecutableTuningReasons ?? row?.zeroExecutableTuning?.reasons),
+      zeroExecutableTuningRecommendedAction: normalizeText(row?.zeroExecutableTuningRecommendedAction ?? notion?.zeroExecutableTuningRecommendedAction ?? row?.zeroExecutableTuning?.recommendedAction),
       tradePlanDecision: normalizeText(row?.tradePlanDecision || notion?.tradePlanDecision) || null,
       tradePlanReason: normalizeText(row?.tradePlanReason || notion?.tradePlanReason) || null,
       trendAlignment: normalizeText(row?.trendAlignment || row?.stage6TrendAlignment || row?.techMetrics?.trendAlignment) || null,
@@ -795,6 +805,40 @@ function classifyWatchlistOnlyAction(row, actionableVerdicts = getActionableVerd
   return 'MANUAL_STAGE6_POLICY_REVIEW';
 }
 
+function deriveZeroExecutableTuningLane(row) {
+  const explicit = normalizeText(row?.zeroExecutableTuningLane);
+  if (explicit) return explicit;
+  const reason = String(row?.decisionReason || '').toLowerCase();
+  if (reason === 'wait_target_near_current' || row?.targetRecalibrationRequired === true) {
+    return 'TARGET_RECALIBRATION';
+  }
+  if (row?.riskGeometryRecalculatedStopCandidate) return 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION';
+  if (
+    row?.riskGeometryRecalibrationRequired ||
+    reason === 'blocked_stop_too_tight' ||
+    reason === 'blocked_stop_too_wide' ||
+    reason === 'blocked_rr_below_min' ||
+    reason === 'wait_current_rr_below_min' ||
+    reason === 'wait_recalculated_stop_required'
+  ) {
+    return row?.riskGeometryNoTradeRequired
+      ? 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'
+      : 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION';
+  }
+  if (reason === 'wait_breakout_retest_required') return 'BREAKOUT_PROOF_CONFIRMED_GENERATION';
+  if (reason === 'wait_structure_confirmation_required') return 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION';
+  return 'NO_ZERO_EXECUTABLE_TUNING_ACTION';
+}
+
+function isPrimaryZeroExecutableTuningLane(lane) {
+  return [
+    'TARGET_RECALIBRATION',
+    'STOP_TARGET_RISK_GEOMETRY_RECALCULATION',
+    'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION',
+    'BREAKOUT_PROOF_CONFIRMED_GENERATION'
+  ].includes(String(lane || '').toUpperCase());
+}
+
 function incrementCount(bucket, key) {
   bucket[key] = (bucket[key] || 0) + 1;
 }
@@ -819,6 +863,8 @@ function buildRunSummaries(rows, actionableVerdicts = getActionableVerdicts()) {
       currentRrCounts: {},
       entryDistanceCounts: {},
       watchlistActionCounts: {},
+      zeroExecutableTuningLaneCounts: {},
+      zeroExecutablePrimaryTuningTargets: 0,
       rows: []
     };
     info.total += 1;
@@ -841,7 +887,16 @@ function buildRunSummaries(rows, actionableVerdicts = getActionableVerdicts()) {
     incrementCount(info.currentRrCounts, row.currentRrStatus);
     incrementCount(info.entryDistanceCounts, row.entryDistanceStatus);
     incrementCount(info.watchlistActionCounts, row.watchlistOnlyAction);
-    info.rows.push(row);
+    const zeroExecutableTuningLane = deriveZeroExecutableTuningLane(row);
+    const zeroExecutablePrimaryTuningTarget =
+      row.zeroExecutablePrimaryTuningTarget || isPrimaryZeroExecutableTuningLane(zeroExecutableTuningLane);
+    incrementCount(info.zeroExecutableTuningLaneCounts, zeroExecutableTuningLane);
+    if (zeroExecutablePrimaryTuningTarget) info.zeroExecutablePrimaryTuningTargets += 1;
+    info.rows.push({
+      ...row,
+      zeroExecutableTuningLane,
+      zeroExecutablePrimaryTuningTarget
+    });
     byRun.set(row.stage6File, info);
   }
   return [...byRun.values()].sort((a, b) => b.stage6File.localeCompare(a.stage6File)).map((run) => {
@@ -855,6 +910,7 @@ function buildRunSummaries(rows, actionableVerdicts = getActionableVerdicts()) {
       (run.classes.VERDICT_NORMALIZATION_BLOCK || 0);
     const normalSafetyCount = (run.classes.NORMAL_EVENT_BLACKOUT || 0) + (run.classes.NORMAL_RISK_BLOCK || 0) + (run.classes.NORMAL_RR_BLOCK || 0);
     const confirmationConcentration = run.total > 0 ? run.confirmationGateRows / run.total : 0;
+    const hasPrimaryZeroExecutableTuningTarget = run.zeroExecutablePrimaryTuningTargets > 0;
     const verdict = run.executableActionable > 0
       ? 'HAS_ACTIONABLE_EXECUTABLE'
       : run.executableNonActionable > 0
@@ -863,6 +919,8 @@ function buildRunSummaries(rows, actionableVerdicts = getActionableVerdicts()) {
           ? 'HAS_RAW_EXECUTABLE_ONLY'
       : run.buyStrongBuyWatchlist > 0 && confirmationConcentration >= 0.5
         ? 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW'
+        : zeroExecutable && hasPrimaryZeroExecutableTuningTarget
+          ? 'ZERO_EXECUTABLE_TUNING_TARGETS_IDENTIFIED'
         : overblockCount > 0
           ? 'MODEL_OR_DATA_POLICY_ERROR'
           : normalSafetyCount >= Math.max(1, Math.ceil(run.total * 0.6))
@@ -870,6 +928,8 @@ function buildRunSummaries(rows, actionableVerdicts = getActionableVerdicts()) {
             : 'MIXED_REVIEW_REQUIRED';
     const nextAction = verdict === 'EXECUTABLE_NON_ACTIONABLE_CONTRACT_REVIEW'
       ? 'Fix Stage6↔sidecar actionable verdict contract before any order-path tuning; do not force sidecar to accept non-actionable verdicts.'
+      : verdict === 'ZERO_EXECUTABLE_TUNING_TARGETS_IDENTIFIED'
+      ? 'Tune target recalibration, stop/target risk geometry recalculation, or breakout proofConfirmed generation; do not relax structure gates by default.'
       : verdict === 'WATCHLIST_ONLY_CONFIRMATION_POLICY_REVIEW'
       ? 'Audit breakout/structure confirmation lanes before touching sidecar order policy.'
       : verdict === 'MODEL_OR_DATA_POLICY_ERROR'
