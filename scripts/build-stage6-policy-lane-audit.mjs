@@ -93,6 +93,44 @@ function targetNearCurrentDecision(row) {
   };
 }
 
+function riskGeometryDecision(row) {
+  const reason = String(row?.decisionReason || '').toLowerCase();
+  const riskReasons = new Set([
+    'blocked_invalid_geometry',
+    'blocked_stop_too_tight',
+    'blocked_stop_too_wide',
+    'blocked_target_too_close',
+    'blocked_rr_below_min',
+    'wait_current_rr_below_min',
+    'wait_recalculated_stop_required'
+  ]);
+  if (!riskReasons.has(reason)) return null;
+  if (row.riskGeometryPolicyVerdict) {
+    return {
+      laneDecision: row.riskGeometryPolicyVerdict,
+      recommendedAction:
+        row.riskGeometryRecommendedAction ||
+        'Keep WAIT/BLOCKED until Stage6 emits valid recalibration proof; do not relax sidecar risk gates.'
+    };
+  }
+  if (reason === 'blocked_stop_too_tight' || reason === 'blocked_stop_too_wide') {
+    return {
+      laneDecision: 'STOP_GEOMETRY_RECALIBRATION_REQUIRED',
+      recommendedAction: 'Stop geometry must be fixed by Stage6 recalibration proof; do not lower sidecar stop-distance gates.'
+    };
+  }
+  if (reason === 'blocked_rr_below_min' || reason === 'wait_current_rr_below_min') {
+    return {
+      laneDecision: 'RR_GEOMETRY_WAIT_JUSTIFIED',
+      recommendedAction: 'Keep WAIT/BLOCKED unless recalculated stop and target buffer prove current-entry RR is valid.'
+    };
+  }
+  return {
+    laneDecision: 'RISK_GEOMETRY_NO_TRADE_REVIEW',
+    recommendedAction: 'Treat as no-trade or producer-side geometry recalibration. Sidecar reprice/replace is out of scope.'
+  };
+}
+
 function earningsMissingDecision(row) {
   const reason = String(row?.decisionReason || '').toLowerCase();
   if (reason !== 'wait_earnings_data_missing_quality_floor' && reason !== 'wait_earnings_data_missing') return null;
@@ -220,6 +258,7 @@ function classifyPolicyLane(row) {
     currentDistanceDecision(row) ||
     breakoutDecision(row) ||
     structureDecision(row) ||
+    riskGeometryDecision(row) ||
     targetNearCurrentDecision(row) ||
     earningsMissingDecision(row) ||
     {
@@ -234,6 +273,15 @@ function laneName(row) {
   if (isReason(row, 'wait_breakout_retest_required')) return 'breakoutRetest';
   if (isReason(row, 'wait_current_distance_above_adaptive')) return 'currentDistance';
   if (isReason(row, 'wait_structure_confirmation_required')) return 'structureConfirmation';
+  if (
+    isReason(row, 'blocked_invalid_geometry') ||
+    isReason(row, 'blocked_stop_too_tight') ||
+    isReason(row, 'blocked_stop_too_wide') ||
+    isReason(row, 'blocked_target_too_close') ||
+    isReason(row, 'blocked_rr_below_min') ||
+    isReason(row, 'wait_current_rr_below_min') ||
+    isReason(row, 'wait_recalculated_stop_required')
+  ) return 'riskGeometry';
   if (isReason(row, 'wait_target_near_current')) return 'targetNearCurrent';
   if (isReason(row, 'wait_earnings_data_missing_quality_floor') || isReason(row, 'wait_earnings_data_missing')) return 'earningsDataMissing';
   return 'other';
@@ -277,6 +325,7 @@ function buildReport(input) {
     breakoutRetest: watchlistRows.filter((row) => row.lane === 'breakoutRetest'),
     currentDistance: watchlistRows.filter((row) => row.lane === 'currentDistance'),
     structureConfirmation: watchlistRows.filter((row) => row.lane === 'structureConfirmation'),
+    riskGeometry: watchlistRows.filter((row) => row.lane === 'riskGeometry'),
     targetNearCurrent: watchlistRows.filter((row) => row.lane === 'targetNearCurrent'),
     earningsDataMissing: watchlistRows.filter((row) => row.lane === 'earningsDataMissing')
   };
@@ -284,6 +333,7 @@ function buildReport(input) {
     breakoutRetest: latestRows.filter((row) => row.lane === 'breakoutRetest'),
     currentDistance: latestRows.filter((row) => row.lane === 'currentDistance'),
     structureConfirmation: latestRows.filter((row) => row.lane === 'structureConfirmation'),
+    riskGeometry: latestRows.filter((row) => row.lane === 'riskGeometry'),
     targetNearCurrent: latestRows.filter((row) => row.lane === 'targetNearCurrent'),
     earningsDataMissing: latestRows.filter((row) => row.lane === 'earningsDataMissing')
   };
@@ -300,6 +350,9 @@ function buildReport(input) {
     'BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE',
     'BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_CONFIRMED',
     'CURRENT_ENTRY_DISTANCE_POLICY_REVIEW_READY',
+    'STOP_GEOMETRY_RECALCULATED_STOP_REVIEW_READY',
+    'RECALCULATED_STOP_POLICY_REVIEW_READY',
+    'RR_GEOMETRY_RECALCULATED_STOP_REVIEW_READY',
     'STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY',
     'STRUCTURE_CONFIRMATION_REJECT_REVIEW_READY',
     'EARNINGS_DATA_OVERBLOCK_REVIEW_READY'
@@ -411,6 +464,11 @@ function compactRow(row) {
     targetRecalibrationRequired: Boolean(row.targetRecalibrationRequired),
     targetNoChaseRequired: Boolean(row.targetNoChaseRequired),
     targetRecalibrationReasons: row.targetRecalibrationReasons || [],
+    riskGeometryPolicyVerdict: row.riskGeometryPolicyVerdict || null,
+    riskGeometryRecalibrationRequired: Boolean(row.riskGeometryRecalibrationRequired),
+    riskGeometryNoTradeRequired: Boolean(row.riskGeometryNoTradeRequired),
+    riskGeometryRecalculatedStopCandidate: Boolean(row.riskGeometryRecalculatedStopCandidate),
+    riskGeometryReasons: row.riskGeometryReasons || [],
     blockerClass: row.blockerClass,
     fixLane: row.fixLane
   };
@@ -482,6 +540,7 @@ function buildMarkdown(report) {
   lines.push('- `STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED` means Stage6 produced explicit structure rejection evidence, so it is not merely overbroad WAIT logic.');
   lines.push('- `STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY` means broad structure WAIT may be overblocking. Promotion still requires explicit structure evidence fields in Stage6.');
   lines.push('- `TARGET_REACHED_OR_NEAR_CURRENT_NO_CHASE` remains no-trade or target refresh. Do not convert this into a reprice/replace path.');
+  lines.push('- `STOP_GEOMETRY_*`, `RR_GEOMETRY_*`, and `RECALCULATED_STOP_*` are producer-side risk-geometry decisions. They require Stage6 recalibration proof or no-trade; sidecar must not relax risk gates.');
   lines.push('- `EARNINGS_DATA_COVERAGE_REQUIRED` is a data freshness/coverage track. Do not lower execution gates until the missing data source is repaired or explicitly annotated.');
   lines.push('');
   return `${lines.join('\n')}\n`;

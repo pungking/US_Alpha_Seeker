@@ -144,6 +144,12 @@ interface AlphaCandidate {
   targetNoChaseRequired?: boolean | null;
   targetRecalibrationReasons?: string[] | null;
   targetRecalibrationRecommendedAction?: string | null;
+  riskGeometryPolicyVerdict?: string | null;
+  riskGeometryRecalibrationRequired?: boolean | null;
+  riskGeometryNoTradeRequired?: boolean | null;
+  riskGeometryRecalculatedStopCandidate?: boolean | null;
+  riskGeometryReasons?: string[] | null;
+  riskGeometryRecommendedAction?: string | null;
   tradePlanDecision?: string | null;
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
@@ -602,6 +608,15 @@ type Stage6TargetPolicyPayload = {
   verdict: string;
   recalibrationRequired: boolean;
   noChaseRequired: boolean;
+  reasons: string[];
+  recommendedAction: string;
+};
+
+type Stage6RiskGeometryPolicyPayload = {
+  verdict: string;
+  recalibrationRequired: boolean;
+  noTradeRequired: boolean;
+  recalculatedStopCandidate: boolean;
   reasons: string[];
   recommendedAction: string;
 };
@@ -1083,6 +1098,152 @@ const deriveTargetRecalibrationPolicy = (input: {
     noChaseRequired: true,
     reasons: reasons.length ? reasons : ['target_buffer_near_current'],
     recommendedAction: 'Recompute target/stop thesis. Do not solve with sidecar chase or open-order replace.'
+  };
+};
+
+const deriveRiskGeometryPolicy = (input: {
+  decisionReason: string | null;
+  finalDecision: string | null;
+  price: number | null;
+  target: number | null;
+  stopDistancePct: number | null;
+  targetDistancePct: number | null;
+  riskRewardRatioValue: number | null;
+  rrAtCurrentPrice: number | null;
+  targetBufferFromCurrentPct: number | null;
+  currentEntryRecalcFeasible: boolean;
+  currentEntryStructureConfirmed: boolean;
+  currentEntryRequiredStopPrice: number | null;
+  currentEntryRequiredStopDistancePct: number | null;
+  minStopDistancePct: number;
+  maxStopDistancePct: number;
+  minRr: number;
+  minTargetBufferPct: number;
+}): Stage6RiskGeometryPolicyPayload => {
+  const reason = String(input.decisionReason || '');
+  const applicableReasons = new Set([
+    'blocked_invalid_geometry',
+    'blocked_stop_too_tight',
+    'blocked_stop_too_wide',
+    'blocked_target_too_close',
+    'blocked_rr_below_min',
+    'wait_current_rr_below_min',
+    'wait_recalculated_stop_required',
+    'wait_target_near_current'
+  ]);
+  if (!applicableReasons.has(reason)) {
+    return {
+      verdict: 'RISK_GEOMETRY_POLICY_NOT_APPLICABLE',
+      recalibrationRequired: false,
+      noTradeRequired: false,
+      recalculatedStopCandidate: false,
+      reasons: ['not_risk_geometry_blocker'],
+      recommendedAction: 'No risk-geometry policy action required.'
+    };
+  }
+
+  const targetAboveCurrent =
+    input.price != null &&
+    input.target != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.target) &&
+    input.target > input.price;
+  const requiredStopValid =
+    input.currentEntryRequiredStopPrice != null &&
+    input.price != null &&
+    Number.isFinite(input.currentEntryRequiredStopPrice) &&
+    Number.isFinite(input.price) &&
+    input.currentEntryRequiredStopPrice > 0 &&
+    input.currentEntryRequiredStopPrice < input.price;
+  const requiredStopDistanceValid =
+    input.currentEntryRequiredStopDistancePct != null &&
+    Number.isFinite(input.currentEntryRequiredStopDistancePct) &&
+    input.currentEntryRequiredStopDistancePct >= input.minStopDistancePct &&
+    input.currentEntryRequiredStopDistancePct <= input.maxStopDistancePct;
+  const currentRrOk =
+    input.rrAtCurrentPrice != null &&
+    Number.isFinite(input.rrAtCurrentPrice) &&
+    input.rrAtCurrentPrice >= input.minRr;
+  const targetBufferOk =
+    input.targetBufferFromCurrentPct != null &&
+    Number.isFinite(input.targetBufferFromCurrentPct) &&
+    input.targetBufferFromCurrentPct >= input.minTargetBufferPct;
+  const recalculatedStopCandidate =
+    input.currentEntryRecalcFeasible &&
+    input.currentEntryStructureConfirmed &&
+    requiredStopValid &&
+    requiredStopDistanceValid &&
+    targetAboveCurrent;
+  const reasons = [
+    ...(targetAboveCurrent ? [] : ['target_not_above_current']),
+    ...(currentRrOk ? [] : ['current_rr_below_min']),
+    ...(targetBufferOk ? [] : ['target_buffer_below_min']),
+    ...(recalculatedStopCandidate ? ['recalculated_stop_candidate'] : []),
+    ...(!input.currentEntryRecalcFeasible ? ['current_entry_recalc_not_feasible'] : []),
+    ...(input.currentEntryRecalcFeasible && !input.currentEntryStructureConfirmed ? ['structure_not_confirmed'] : []),
+    ...(input.currentEntryRecalcFeasible && !requiredStopValid ? ['required_stop_invalid'] : []),
+    ...(input.currentEntryRecalcFeasible && requiredStopValid && !requiredStopDistanceValid ? ['required_stop_distance_out_of_policy'] : [])
+  ];
+
+  if (reason === 'blocked_invalid_geometry' || !targetAboveCurrent) {
+    return {
+      verdict: 'RISK_GEOMETRY_INVALID_NO_TRADE',
+      recalibrationRequired: true,
+      noTradeRequired: true,
+      recalculatedStopCandidate,
+      reasons,
+      recommendedAction: 'Keep no-trade. Stage6 must refresh target/stop geometry before execution can be reconsidered.'
+    };
+  }
+  if (reason === 'wait_target_near_current' || reason === 'blocked_target_too_close') {
+    return {
+      verdict: 'TARGET_GEOMETRY_RECALIBRATION_REQUIRED',
+      recalibrationRequired: true,
+      noTradeRequired: true,
+      recalculatedStopCandidate,
+      reasons,
+      recommendedAction: 'Treat as target recalibration or no-trade. Sidecar chase/reprice must not solve target-near-current geometry.'
+    };
+  }
+  if (reason === 'blocked_stop_too_tight' || reason === 'blocked_stop_too_wide') {
+    return {
+      verdict: recalculatedStopCandidate
+        ? 'STOP_GEOMETRY_RECALCULATED_STOP_REVIEW_READY'
+        : 'STOP_GEOMETRY_RECALIBRATION_REQUIRED',
+      recalibrationRequired: true,
+      noTradeRequired: !recalculatedStopCandidate,
+      recalculatedStopCandidate,
+      reasons,
+      recommendedAction: recalculatedStopCandidate
+        ? 'Review producer-side recalculated-stop promotion. Do not relax stop gates in sidecar.'
+        : 'Keep blocked until Stage6 emits valid stop recalibration evidence.'
+    };
+  }
+  if (reason === 'wait_recalculated_stop_required') {
+    return {
+      verdict: recalculatedStopCandidate
+        ? 'RECALCULATED_STOP_POLICY_REVIEW_READY'
+        : 'RECALCULATED_STOP_WAIT_JUSTIFIED',
+      recalibrationRequired: true,
+      noTradeRequired: !recalculatedStopCandidate,
+      recalculatedStopCandidate,
+      reasons,
+      recommendedAction: recalculatedStopCandidate
+        ? 'Producer has recalculated-stop evidence; review why it did not promote before changing execution policy.'
+        : 'Keep WAIT_PRICE until recalculated stop and structure proof are complete.'
+    };
+  }
+  return {
+    verdict: recalculatedStopCandidate && currentRrOk && targetBufferOk
+      ? 'RR_GEOMETRY_RECALCULATED_STOP_REVIEW_READY'
+      : 'RR_GEOMETRY_WAIT_JUSTIFIED',
+    recalibrationRequired: recalculatedStopCandidate,
+    noTradeRequired: !(recalculatedStopCandidate && currentRrOk && targetBufferOk),
+    recalculatedStopCandidate,
+    reasons,
+    recommendedAction: recalculatedStopCandidate && currentRrOk && targetBufferOk
+      ? 'Review producer-side RR with recalculated stop; do not lower sidecar fillability floor.'
+      : 'Keep WAIT/BLOCKED. Current RR/target buffer does not justify execution.'
   };
 };
 
@@ -5723,7 +5884,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               decisionReason = 'executable_earnings_data_missing_haircut';
           }
           const isCurrentEntryExecutableReason =
-              decisionReason === 'executable_adaptive_current' ||
               decisionReason === 'executable_current_recalculated_stop' ||
               decisionReason === 'executable_breakout_retest_confirmed';
           if (
@@ -5748,8 +5908,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST';
           const useBreakoutRetestCurrentEntry =
               decisionReason === 'executable_breakout_retest_confirmed' && livePrice != null;
-          const useAdaptiveCurrentEntry =
-              (decisionReason === 'executable_adaptive_current' || useBreakoutRetestCurrentEntry) && livePrice != null;
+          const useAdaptiveCurrentEntry = useBreakoutRetestCurrentEntry && livePrice != null;
           const useRecalculatedCurrentEntry =
               decisionReason === 'executable_current_recalculated_stop' &&
               livePrice != null &&
@@ -5854,6 +6013,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
               minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
           });
+          const riskGeometryPolicy = deriveRiskGeometryPolicy({
+              decisionReason,
+              finalDecision,
+              price: livePrice,
+              target: mirroredTarget,
+              stopDistancePct: contractStopDistancePct,
+              targetDistancePct: contractTargetDistancePct,
+              riskRewardRatioValue: contractRiskRewardRatioValue,
+              rrAtCurrentPrice,
+              targetBufferFromCurrentPct,
+              currentEntryRecalcFeasible,
+              currentEntryStructureConfirmed,
+              currentEntryRequiredStopPrice,
+              currentEntryRequiredStopDistancePct,
+              minStopDistancePct: STAGE6_MIN_STOP_DISTANCE_PCT,
+              maxStopDistancePct: STAGE6_MAX_STOP_DISTANCE_PCT,
+              minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
+              minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
+          });
           const qualityScore = computeAlphaQualityScore({
               conviction: convictionScore,
               expectedReturnPct,
@@ -5945,6 +6123,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: targetRecalibrationPolicy.noChaseRequired,
               targetRecalibrationReasons: targetRecalibrationPolicy.reasons,
               targetRecalibrationRecommendedAction: targetRecalibrationPolicy.recommendedAction,
+              riskGeometryPolicyVerdict: riskGeometryPolicy.verdict,
+              riskGeometryRecalibrationRequired: riskGeometryPolicy.recalibrationRequired,
+              riskGeometryNoTradeRequired: riskGeometryPolicy.noTradeRequired,
+              riskGeometryRecalculatedStopCandidate: riskGeometryPolicy.recalculatedStopCandidate,
+              riskGeometryReasons: riskGeometryPolicy.reasons,
+              riskGeometryRecommendedAction: riskGeometryPolicy.recommendedAction,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,
               tradePlanReason:
                   useRecalculatedCurrentEntry
@@ -6078,6 +6262,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: executionContract.targetNoChaseRequired,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
+              riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
+              riskGeometryRecalibrationRequired: executionContract.riskGeometryRecalibrationRequired,
+              riskGeometryNoTradeRequired: executionContract.riskGeometryNoTradeRequired,
+              riskGeometryRecalculatedStopCandidate: executionContract.riskGeometryRecalculatedStopCandidate,
+              riskGeometryReasons: executionContract.riskGeometryReasons,
+              riskGeometryRecommendedAction: executionContract.riskGeometryRecommendedAction,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -6501,6 +6691,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: executionContract.targetNoChaseRequired,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
+              riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
+              riskGeometryRecalibrationRequired: executionContract.riskGeometryRecalibrationRequired,
+              riskGeometryNoTradeRequired: executionContract.riskGeometryNoTradeRequired,
+              riskGeometryRecalculatedStopCandidate: executionContract.riskGeometryRecalculatedStopCandidate,
+              riskGeometryReasons: executionContract.riskGeometryReasons,
+              riskGeometryRecommendedAction: executionContract.riskGeometryRecommendedAction,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -6778,6 +6974,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: Boolean(item.targetNoChaseRequired),
               targetRecalibrationReasons: Array.isArray(item.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item.targetRecalibrationRecommendedAction),
+              riskGeometryPolicyVerdict: normalizeOptionalText(item.riskGeometryPolicyVerdict),
+              riskGeometryRecalibrationRequired: Boolean(item.riskGeometryRecalibrationRequired),
+              riskGeometryNoTradeRequired: Boolean(item.riskGeometryNoTradeRequired),
+              riskGeometryRecalculatedStopCandidate: Boolean(item.riskGeometryRecalculatedStopCandidate),
+              riskGeometryReasons: Array.isArray(item.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              riskGeometryRecommendedAction: normalizeOptionalText(item.riskGeometryRecommendedAction),
               tradePlanDecision: normalizeOptionalText(item.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item.tradePlanReason),
               executionVerdict: normalizeOptionalText(item.executionVerdict),
@@ -6885,6 +7087,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: Boolean(item?.targetNoChaseRequired),
               targetRecalibrationReasons: Array.isArray(item?.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item?.targetRecalibrationRecommendedAction),
+              riskGeometryPolicyVerdict: normalizeOptionalText(item?.riskGeometryPolicyVerdict),
+              riskGeometryRecalibrationRequired: Boolean(item?.riskGeometryRecalibrationRequired),
+              riskGeometryNoTradeRequired: Boolean(item?.riskGeometryNoTradeRequired),
+              riskGeometryRecalculatedStopCandidate: Boolean(item?.riskGeometryRecalculatedStopCandidate),
+              riskGeometryReasons: Array.isArray(item?.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              riskGeometryRecommendedAction: normalizeOptionalText(item?.riskGeometryRecommendedAction),
               tradePlanDecision: normalizeOptionalText(item?.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item?.tradePlanReason),
               executionBucket:
@@ -7069,6 +7277,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofPromotionRule: "proofConfirmed_and_current_rr_target_buffer_required; reviewReady_never_promotes",
               adaptiveCurrentEntryRule: "WAIT_PULLBACK_TOO_DEEP cannot promote without recalculated-stop structure proof or confirmed breakout retest proof",
               targetGeometryRule: "target/current geometry requires Stage6 recalibration or NO_TRADE; sidecar reprice must not chase target-near-current cases",
+              riskGeometryRule: "stop/RR/target geometry must be resolved by Stage6 recalibration proof or no-trade; sidecar must not relax risk gates",
               structurePolicyReview: CURRENT_ENTRY_STRUCTURE_POLICY,
               stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,
               stateConflictStates: Array.from(STAGE6_STATE_CONFLICT_STATES),

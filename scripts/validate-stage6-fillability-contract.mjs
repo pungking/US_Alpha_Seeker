@@ -13,6 +13,16 @@ const errors = [];
 const verdictKey = (value) => String(value || '').replace(/[^a-zA-Z0-9_]/g, '').toUpperCase().trim();
 const breakoutPromotionEnabled = data?.decisionGate?.breakoutRetestProofPromotionEnabled === true;
 const isTrue = (value) => value === true || String(value).toLowerCase() === 'true';
+const riskGeometryReasons = new Set([
+  'blocked_invalid_geometry',
+  'blocked_stop_too_tight',
+  'blocked_stop_too_wide',
+  'blocked_target_too_close',
+  'blocked_rr_below_min',
+  'wait_current_rr_below_min',
+  'wait_recalculated_stop_required',
+  'wait_target_near_current'
+]);
 for (const [idx, row] of candidates.entries()) {
   const label = `${row.symbol || `row_${idx}`}`;
   if (!row.symbol) errors.push(`${label}: symbol missing`);
@@ -56,6 +66,12 @@ for (const [idx, row] of candidates.entries()) {
   if (row.decisionReason === 'wait_target_near_current') {
     if (!isTrue(row.targetNoChaseRequired)) errors.push(`${label}: target-near-current row must declare targetNoChaseRequired=true`);
     if (!isTrue(row.targetRecalibrationRequired)) errors.push(`${label}: target-near-current row must require target recalibration`);
+  }
+  if (riskGeometryReasons.has(row.decisionReason)) {
+    if (!row.riskGeometryPolicyVerdict) errors.push(`${label}: risk geometry row missing riskGeometryPolicyVerdict`);
+    if ((row.decisionReason === 'wait_target_near_current' || row.decisionReason === 'blocked_target_too_close') && !isTrue(row.riskGeometryNoTradeRequired)) {
+      errors.push(`${label}: target geometry row must declare riskGeometryNoTradeRequired=true`);
+    }
   }
 }
 if (!candidates.length) errors.push('fixture has no candidates');

@@ -193,6 +193,7 @@ function findEvidenceRows(evidence, symbol) {
 
 function classifyRiskGeometry(row, policy) {
   const p = prices(row);
+  const reason = String(row?.decisionReason || '').toLowerCase();
   const reasons = [];
   const structureConfirmed = bool(row?.currentEntryStructureConfirmed) || row?.currentEntryStructureVerdict === 'STRUCTURE_CONFIRMED_RECALC_CANDIDATE';
   const recalcFeasible = bool(row?.currentEntryRecalcFeasible);
@@ -211,16 +212,39 @@ function classifyRiskGeometry(row, policy) {
 
   let rootCause = 'CURRENT_RR_WEAK_WAIT_JUSTIFIED';
   let recommendedAction = 'Keep WAIT_PRICE. Current RR remains weak after recalculation checks.';
-  if (reasons.length === 0 && (!policy.adaptiveCurrentEntryEnabled || !policy.currentEntryStopRecalcEnabled)) {
+  const hasProducerRiskPolicy = Boolean(row?.riskGeometryPolicyVerdict);
+  let classifiedByReason = false;
+  if (hasProducerRiskPolicy) {
+    rootCause = String(row.riskGeometryPolicyVerdict);
+    recommendedAction = row?.riskGeometryRecommendedAction || 'Use producer risk-geometry policy fields; do not relax sidecar risk gates.';
+    classifiedByReason = true;
+  } else if (reason === 'blocked_invalid_geometry') {
+    rootCause = 'INVALID_GEOMETRY_NO_TRADE';
+    recommendedAction = 'Keep blocked. Require Stage6 target/stop geometry repair before any execution candidate.';
+    classifiedByReason = true;
+  } else if (reason === 'blocked_target_too_close' || reason === 'wait_target_near_current') {
+    rootCause = 'TARGET_GEOMETRY_RECALIBRATION_REQUIRED';
+    recommendedAction = 'Keep no-trade/recalibration. Sidecar reprice must not chase target-near-current cases.';
+    classifiedByReason = true;
+  } else if (reason === 'blocked_stop_too_tight' || reason === 'blocked_stop_too_wide') {
+    rootCause = recalcFeasible && structureConfirmed
+      ? 'STOP_GEOMETRY_RECALCULATED_STOP_REVIEW_READY'
+      : 'STOP_GEOMETRY_RECALIBRATION_REQUIRED';
+    recommendedAction = recalcFeasible && structureConfirmed
+      ? 'Review producer-side recalculated stop promotion; do not lower stop-distance gates.'
+      : 'Keep blocked until Stage6 emits valid stop recalibration evidence.';
+    classifiedByReason = true;
+  }
+  if (!classifiedByReason && reasons.length === 0 && (!policy.adaptiveCurrentEntryEnabled || !policy.currentEntryStopRecalcEnabled)) {
     rootCause = 'RECALC_CANDIDATE_BLOCKED_BY_PRODUCER_FLAGS';
     recommendedAction = 'Audit Stage6 producer flag propagation before changing sidecar behavior. This row has valid recalculated-stop geometry but producer flags are disabled in the Stage6 manifest.';
-  } else if (reasons.length === 0) {
+  } else if (!classifiedByReason && reasons.length === 0) {
     rootCause = 'RECALC_CANDIDATE_SHOULD_PROMOTE_REVIEW';
     recommendedAction = 'Producer policy appears eligible for executable_current_recalculated_stop; verify why Stage6 did not promote.';
-  } else if (recalcFeasible && structureConfirmed) {
+  } else if (!classifiedByReason && recalcFeasible && structureConfirmed) {
     rootCause = 'RECALC_CANDIDATE_FAILED_NUMERIC_POLICY';
     recommendedAction = 'Keep WAIT_PRICE and inspect failed numeric policy reasons before any promotion.';
-  } else if (recalcFeasible && !structureConfirmed) {
+  } else if (!classifiedByReason && recalcFeasible && !structureConfirmed) {
     rootCause = 'RECALC_CANDIDATE_STRUCTURE_NOT_CONFIRMED';
     recommendedAction = 'Keep WAIT_PRICE until structure confirmation evidence is present.';
   }
@@ -253,6 +277,11 @@ function classifyRiskGeometry(row, policy) {
       executionFeasibilityAtCurrent: row?.executionFeasibilityAtCurrent || null,
       executionFeasibilityAtCurrentVerdict: row?.executionFeasibilityAtCurrentVerdict || null,
       executionFeasibilityAtCurrentReason: row?.executionFeasibilityAtCurrentReason || null,
+      riskGeometryPolicyVerdict: row?.riskGeometryPolicyVerdict || null,
+      riskGeometryRecalibrationRequired: row?.riskGeometryRecalibrationRequired ?? null,
+      riskGeometryNoTradeRequired: row?.riskGeometryNoTradeRequired ?? null,
+      riskGeometryRecalculatedStopCandidate: row?.riskGeometryRecalculatedStopCandidate ?? null,
+      riskGeometryReasons: arr(row?.riskGeometryReasons),
       policyFailures: reasons,
       producerFlags: {
         adaptiveCurrentEntryEnabled: policy.adaptiveCurrentEntryEnabled,
@@ -261,6 +290,20 @@ function classifyRiskGeometry(row, policy) {
       }
     }
   };
+}
+
+function isRiskGeometryReason(row) {
+  const reason = String(row?.decisionReason || '').toLowerCase();
+  return [
+    'wait_recalculated_stop_required',
+    'wait_current_rr_below_min',
+    'wait_target_near_current',
+    'blocked_invalid_geometry',
+    'blocked_stop_too_tight',
+    'blocked_stop_too_wide',
+    'blocked_target_too_close',
+    'blocked_rr_below_min'
+  ].includes(reason);
 }
 
 function classifyQualityGate(row, policy) {
@@ -387,7 +430,7 @@ function main() {
   const stage6 = readJson(stage6Path);
   const policy = policyFromStage6(stage6);
   const rows = uniqueRows(stage6);
-  const riskGeometry = rows.filter((row) => row?.decisionReason === 'wait_recalculated_stop_required').map((row) => classifyRiskGeometry(row, policy));
+  const riskGeometry = rows.filter(isRiskGeometryReason).map((row) => classifyRiskGeometry(row, policy));
   const qualityGate = rows.filter((row) => row?.decisionReason === 'blocked_quality_verdict_unusable').map((row) => classifyQualityGate(row, policy));
   const evidence = sidecarEvidence(process.env.STAGE6_BLOCKER_AUDIT_SIDECAR_STATE_DIR);
   const report = {

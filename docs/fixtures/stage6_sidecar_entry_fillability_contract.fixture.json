@@ -55,7 +55,9 @@
       "executionFeasibilityAtCurrent": "BLOCKED",
       "executionFeasibilityAtCurrentVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND",
       "executionFeasibilityAtCurrentReason": "wait_current_distance_above_adaptive",
-      "executionFeasibilityAtCurrentReasons": ["current_distance_above_adaptive_band"],
+      "executionFeasibilityAtCurrentReasons": [
+        "current_distance_above_adaptive_band"
+      ],
       "executionFeasibilityAtCurrentRr": 2.1,
       "executionFeasibilityAtCurrentDistancePct": 8.2,
       "executionFeasibilityAtCurrentMinRr": 1.8,
@@ -109,10 +111,15 @@
       "executionFeasibilityAtCurrentMaxDistancePct": 6,
       "currentEntryStructureVerdict": "STRUCTURE_REJECT_STOP_TOO_FAR_BELOW_SUPPORT",
       "currentEntryStructureConfirmed": false,
-      "currentEntryStructureReasons": ["stop_too_far_below_support"],
+      "currentEntryStructureReasons": [
+        "stop_too_far_below_support"
+      ],
       "structurePolicyVerdict": "STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED",
       "structurePolicyReviewReady": false,
-      "structurePolicyReasons": ["stop_too_far_below_support", "current_rr_or_target_buffer_weak"],
+      "structurePolicyReasons": [
+        "stop_too_far_below_support",
+        "current_rr_or_target_buffer_weak"
+      ],
       "structurePolicyRecommendedAction": "Keep WAIT_PRICE."
     },
     {
@@ -137,11 +144,16 @@
       "breakoutRetestProofVerdict": "BREAKOUT_RETEST_PROOF_REVIEW_READY",
       "breakoutRetestProofConfirmed": false,
       "breakoutRetestProofReviewReady": true,
-      "breakoutRetestProofReasons": ["current_extension_from_retest_high"],
+      "breakoutRetestProofReasons": [
+        "current_extension_from_retest_high"
+      ],
       "breakoutRetestPromotionVerdict": "BREAKOUT_REVIEW_READY_NOT_PROMOTABLE",
       "breakoutRetestPromotionEligible": false,
       "breakoutRetestPromotionEnabled": false,
-      "breakoutRetestPromotionReasons": ["current_extension_from_retest_high", "proof_not_confirmed"],
+      "breakoutRetestPromotionReasons": [
+        "current_extension_from_retest_high",
+        "proof_not_confirmed"
+      ],
       "breakoutRetestPromotionRecommendedAction": "Review-ready is diagnostic only."
     },
     {
@@ -166,8 +178,48 @@
       "targetRecalibrationVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED",
       "targetRecalibrationRequired": true,
       "targetNoChaseRequired": true,
-      "targetRecalibrationReasons": ["target_buffer_below_review_floor", "current_rr_weak_or_unavailable"],
-      "targetRecalibrationRecommendedAction": "Recompute target/stop thesis."
+      "targetRecalibrationReasons": [
+        "target_buffer_below_review_floor",
+        "current_rr_weak_or_unavailable"
+      ],
+      "targetRecalibrationRecommendedAction": "Recompute target/stop thesis.",
+      "riskGeometryPolicyVerdict": "TARGET_GEOMETRY_RECALIBRATION_REQUIRED",
+      "riskGeometryRecalibrationRequired": true,
+      "riskGeometryNoTradeRequired": true,
+      "riskGeometryRecalculatedStopCandidate": false,
+      "riskGeometryReasons": [
+        "target_buffer_below_min",
+        "current_rr_below_min"
+      ],
+      "riskGeometryRecommendedAction": "Treat as target recalibration or no-trade. Sidecar chase/reprice must not solve target-near-current geometry."
+    },
+    {
+      "symbol": "STOP_TIGHT_BLOCK",
+      "aiVerdict": "BUY",
+      "finalDecision": "BLOCKED_RISK",
+      "decisionReason": "blocked_stop_too_tight",
+      "executionActionableVerdict": true,
+      "entryExecPrice": 50,
+      "targetPrice": 58,
+      "stopLoss": 49.7,
+      "rrAtCurrentPrice": 2.1,
+      "entryDistancePct": 0.5,
+      "targetBufferFromCurrentPct": 12,
+      "executionFeasibilityAtCurrent": "PASS",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "executionFeasibilityAtCurrentReason": null,
+      "executionFeasibilityAtCurrentRr": 2.1,
+      "executionFeasibilityAtCurrentDistancePct": 0.5,
+      "executionFeasibilityAtCurrentMinRr": 1.8,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "riskGeometryPolicyVerdict": "STOP_GEOMETRY_RECALIBRATION_REQUIRED",
+      "riskGeometryRecalibrationRequired": true,
+      "riskGeometryNoTradeRequired": true,
+      "riskGeometryRecalculatedStopCandidate": false,
+      "riskGeometryReasons": [
+        "required_stop_distance_out_of_policy"
+      ],
+      "riskGeometryRecommendedAction": "Keep blocked until Stage6 emits valid stop recalibration evidence."
     }
   ]
 }
