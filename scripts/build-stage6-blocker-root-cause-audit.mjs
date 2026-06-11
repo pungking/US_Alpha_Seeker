@@ -33,11 +33,15 @@ function latestStage6Path() {
   const explicit = process.env.STAGE6_BLOCKER_AUDIT_STAGE6_PATH;
   if (explicit) return explicit;
   const dir = path.resolve(REPO_ROOT, process.env.STAGE6_BLOCKER_AUDIT_STAGE6_DIR || DEFAULT_STAGE6_DIR);
+  const stage6Timestamp = (name) => {
+    const match = String(name).match(/^STAGE6_ALPHA_FINAL_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.json$/);
+    return match ? `${match[1]}_${match[2]}` : '';
+  };
   const files = fs.existsSync(dir)
     ? fs.readdirSync(dir)
       .filter((name) => /^STAGE6_ALPHA_FINAL_.*\.json$/.test(name))
       .map((name) => ({ name, full: path.join(dir, name), mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime || b.name.localeCompare(a.name))
+      .sort((a, b) => stage6Timestamp(b.name).localeCompare(stage6Timestamp(a.name)) || b.mtime - a.mtime || b.name.localeCompare(a.name))
     : [];
   if (!files.length) throw new Error(`no Stage6 files found in ${dir}; set STAGE6_BLOCKER_AUDIT_STAGE6_PATH`);
   return files[0].full;

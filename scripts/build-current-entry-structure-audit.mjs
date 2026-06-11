@@ -71,10 +71,14 @@ function getPolicy() {
 
 function candidateRows(stage6Audit) {
   const rows = Array.isArray(stage6Audit?.rows) ? stage6Audit.rows : [];
+  const recentRunLimit = Math.max(1, Math.round(parseNumberEnv('CURRENT_ENTRY_STRUCTURE_RECENT_RUNS', 10)));
   const latest = stage6Audit?.runSummaries?.[0]?.stage6File || rows[0]?.stage6File || null;
+  const recentFiles = Array.isArray(stage6Audit?.runSummaries)
+    ? new Set(stage6Audit.runSummaries.slice(0, recentRunLimit).map((run) => run.stage6File).filter(Boolean))
+    : new Set(latest ? [latest] : []);
   return rows
-    .filter((row) => row.stage6File === latest)
-    .map((row) => ({ ...row, sourceStage6File: latest }));
+    .filter((row) => recentFiles.has(row.stage6File))
+    .map((row) => ({ ...row, sourceStage6File: row.stage6File || latest }));
 }
 
 function barSearchPaths(symbol) {
@@ -369,6 +373,8 @@ async function buildReport(stage6Audit) {
     policy: getPolicy(),
     summary: {
       rows: rows.length,
+      recentRuns: Math.max(1, Math.round(parseNumberEnv('CURRENT_ENTRY_STRUCTURE_RECENT_RUNS', 10))),
+      stage6Files: countBy(rows, 'stage6File'),
       verdicts: countBy(rows, 'verdict'),
       barsStatus: countBy(rows, 'barsStatus')
     },
@@ -396,6 +402,7 @@ function buildMarkdown(report) {
   lines.push(`- Source: ${report.sourceAudit}`);
   lines.push(`- Latest Stage6: ${report.latestStage6File || 'N/A'}`);
   lines.push(`- Rows: ${report.summary.rows}`);
+  lines.push(`- Recent Runs: ${report.summary.recentRuns}`);
   lines.push(`- Price Source: ${report.dataPolicy.priceSource}`);
   lines.push(`- Adjustment: ${report.dataPolicy.adjustment}`);
   lines.push(`- Timezone: ${report.dataPolicy.timezone}`);
@@ -406,6 +413,12 @@ function buildMarkdown(report) {
   lines.push('| Verdict | Count |');
   lines.push('| --- | ---: |');
   for (const [key, count] of Object.entries(report.summary.verdicts)) lines.push(`| ${escapeCell(key)} | ${count} |`);
+  lines.push('');
+  lines.push('## Stage6 File Counts');
+  lines.push('');
+  lines.push('| Stage6 File | Count |');
+  lines.push('| --- | ---: |');
+  for (const [key, count] of Object.entries(report.summary.stage6Files)) lines.push(`| ${escapeCell(key)} | ${count} |`);
   lines.push('');
   lines.push('## Latest Candidates');
   lines.push('');

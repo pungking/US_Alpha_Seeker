@@ -2161,7 +2161,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   if (!contractCheck.ok) {
                       addLog(
                           `TELEGRAM_CONTRACT_MISMATCH: ${contractCheck.mismatches[0] || 'unknown mismatch'}`,
-                          "err"
+                          "warn"
                       );
                       contractCheck.mismatches.slice(1, 4).forEach((m) => addLog(`[CONTRACT_DIFF] ${m}`, "warn"));
                       await archiveTelegramIntegrityFailure(
@@ -2171,31 +2171,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                           contractCheck,
                           `TELEGRAM_CONTRACT_MISMATCH (${contractCheck.mismatches.length})`
                       );
-                      throw new Error(`INTEGRITY_GATE_BLOCKED:${contractCheck.mismatches.length}`);
-                  }
-                  
-                  telegramPayload = brief;
-                  addLog("Brief Generated. Relaying...", "ok");
+                      (window as any).__AUTO_WARNINGS = [
+                          ...(((window as any).__AUTO_WARNINGS || []) as any[]),
+                          {
+                              code: 'TELEGRAM_CONTRACT_MISMATCH',
+                              mismatches: contractCheck.mismatches,
+                              generatedAt: new Date().toISOString(),
+                              action: 'telegram_transmission_suppressed_stage6_dispatch_allowed'
+                          }
+                      ];
+                      telegramPayload = '';
+                      addLog('Telegram Integrity Gate suppressed AUTO Telegram only; Stage6 dispatch remains allowed.', "warn");
+                  } else {
+                      telegramPayload = brief;
+                      addLog("Brief Generated. Relaying...", "ok");
 
-                  // [FIXED] Dump Telegram Brief to Google Drive (Report Folder)
-                  const token = sessionStorage.getItem('gdrive_access_token');
-                  if (token) {
-                    const timestamp = formatKstFilenameTimestamp();
-                    const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
-                    const archivedBrief = buildTelegramMessage(brief);
-                    // [FIXED] Fire-and-Forget Archive to prevent timeout
-                    archiveReport(token, fileName, archivedBrief)
-                        .then(() => addLog("Telegram Brief Archived to Drive.", "ok"))
-                        .catch(e => addLog(`Archive Failed: ${e.message}`, "warn"));
+                      // [FIXED] Dump Telegram Brief to Google Drive (Report Folder)
+                      const token = sessionStorage.getItem('gdrive_access_token');
+                      if (token) {
+                        const timestamp = formatKstFilenameTimestamp();
+                        const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
+                        const archivedBrief = buildTelegramMessage(brief);
+                        // [FIXED] Fire-and-Forget Archive to prevent timeout
+                        archiveReport(token, fileName, archivedBrief)
+                            .then(() => addLog("Telegram Brief Archived to Drive.", "ok"))
+                            .catch(e => addLog(`Archive Failed: ${e.message}`, "warn"));
+                      }
                   }
 
               } catch (e: any) {
-                  if (String(e?.message || '').startsWith('INTEGRITY_GATE_BLOCKED:')) {
-                      addLog("Telegram Integrity Gate blocked AUTO transmission.", "err");
-                      setAutoPhase('DONE');
-                      if (onComplete) onComplete(toAutoControlPayload("INTEGRITY_GATE_BLOCKED"));
-                      return;
-                  }
                   addLog(`Brief Gen Failed: ${e.message}. AUTO telegram aborted.`, "err");
                   setAutoPhase('DONE');
                   if (onComplete) onComplete(toAutoControlPayload("BRIEF_GENERATION_FAILED"));

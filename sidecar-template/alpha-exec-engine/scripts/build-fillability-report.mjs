@@ -120,11 +120,10 @@ const normalizeFill = (fill) => ({
 });
 
 const hasAlpacaCredentials = () => {
-  const key = firstNonEmpty(RUNTIME_ENV.ALPACA_KEY_ID, RUNTIME_ENV.ALPACA_KEY, RUNTIME_ENV.VITE_ALPACA_KEY);
+  const key = firstNonEmpty(RUNTIME_ENV.ALPACA_KEY_ID, RUNTIME_ENV.ALPACA_KEY);
   const secret = firstNonEmpty(
     RUNTIME_ENV.ALPACA_SECRET_KEY,
-    RUNTIME_ENV.ALPACA_SECRET,
-    RUNTIME_ENV.VITE_ALPACA_SECRET_KEY
+    RUNTIME_ENV.ALPACA_SECRET
   );
   const baseUrl = String(RUNTIME_ENV.ALPACA_BASE_URL || "https://paper-api.alpaca.markets").trim();
   return {

@@ -16,7 +16,33 @@ function actionableVerdicts() {
   return new Set(values.length > 0 ? values : DEFAULT_ACTIONABLE_VERDICTS);
 }
 
+function rowScore(row) {
+  const decision = decisionOf(row);
+  if (decision === 'EXECUTABLE_NOW') return 5;
+  if (row?.currentEntryStructureConfirmed === true) return 4;
+  if (row?.currentEntryRecalcFeasible === true) return 3;
+  if (String(row?.executionBucket || '').toUpperCase() === 'WATCHLIST') return 2;
+  return 1;
+}
+
+function uniqueBySymbol(rows) {
+  const bySymbol = new Map();
+  for (const row of rows) {
+    const symbol = String(row?.symbol || row?.ticker || '').trim().toUpperCase();
+    if (!symbol) continue;
+    const existing = bySymbol.get(symbol);
+    if (!existing || rowScore(row) > rowScore(existing)) bySymbol.set(symbol, row);
+  }
+  return [...bySymbol.values()];
+}
+
 function pickRows(payload) {
+  const contractRows = [
+    ...(Array.isArray(payload?.execution_contract?.modelTop6) ? payload.execution_contract.modelTop6 : []),
+    ...(Array.isArray(payload?.execution_contract?.executablePicks) ? payload.execution_contract.executablePicks : []),
+    ...(Array.isArray(payload?.execution_contract?.watchlistTop) ? payload.execution_contract.watchlistTop : [])
+  ];
+  if (contractRows.length > 0) return uniqueBySymbol(contractRows);
   if (Array.isArray(payload?.alpha_candidates)) return payload.alpha_candidates;
   if (Array.isArray(payload?.candidates)) return payload.candidates;
   if (Array.isArray(payload?.data)) return payload.data;
@@ -37,6 +63,17 @@ function reasonOf(row) {
   return String(row?.decisionReason || row?.executionReason || 'unknown').trim().toLowerCase();
 }
 
+function blockerClass(reason) {
+  if (reason.includes('structure')) return 'structure';
+  if (reason.includes('breakout') || reason.includes('retest')) return 'breakout';
+  if (reason.includes('target')) return 'target_recalibration';
+  if (reason.includes('earnings')) return 'earnings_coverage';
+  if (reason.includes('quality') || reason.includes('verdict')) return 'quality_gate';
+  if (reason.includes('rr') || reason.includes('stop') || reason.includes('geometry')) return 'risk_geometry';
+  if (reason.includes('pullback') || reason.includes('distance')) return 'entry_distance';
+  return 'other';
+}
+
 function increment(bucket, key) {
   bucket[key] = (bucket[key] || 0) + 1;
 }
@@ -51,6 +88,7 @@ for (const file of files) {
   const payload = JSON.parse(fs.readFileSync(path.join(DIR, file), 'utf8'));
   const rows = pickRows(payload);
   const reasonCounts = {};
+  const blockerClassCounts = {};
   const nonActionableExecReasons = {};
   let exec = 0;
   let actionableExec = 0;
@@ -63,6 +101,7 @@ for (const file of files) {
     const reason = reasonOf(row);
     const verdict = verdictOf(row);
     increment(reasonCounts, reason);
+    increment(blockerClassCounts, blockerClass(reason));
     if (decision === 'EXECUTABLE_NOW') {
       exec += 1;
       if (actionable.has(verdict)) actionableExec += 1;
@@ -86,6 +125,7 @@ for (const file of files) {
     wait,
     blocked,
     reasonCounts,
+    blockerClassCounts,
     nonActionableExecReasons
   });
 }
@@ -93,9 +133,13 @@ for (const file of files) {
 const latest = runs.at(-1) || null;
 const recent = runs.slice(-10);
 const aggregate = {};
+const aggregateBlockerClasses = {};
 for (const run of recent) {
   for (const [key, value] of Object.entries(run.reasonCounts)) {
     aggregate[key] = (aggregate[key] || 0) + value;
+  }
+  for (const [key, value] of Object.entries(run.blockerClassCounts)) {
+    aggregateBlockerClasses[key] = (aggregateBlockerClasses[key] || 0) + value;
   }
 }
 const zeroExecutableRecent = recent.filter((run) => run.exec === 0).length;
@@ -110,6 +154,7 @@ const report = {
   zeroActionableExecutableRecent,
   nonActionableExecutableRecent,
   aggregateRecentReasons: aggregate,
+  aggregateRecentBlockerClasses: aggregateBlockerClasses,
   runs
 };
 
@@ -117,6 +162,7 @@ fs.mkdirSync('state', { recursive: true });
 fs.writeFileSync(OUT_JSON, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
 const top = Object.entries(aggregate).sort((a, b) => b[1] - a[1]).slice(0, 12);
+const topClasses = Object.entries(aggregateBlockerClasses).sort((a, b) => b[1] - a[1]).slice(0, 12);
 const md = [
   '# Stage6 Quality Trend Audit',
   '',
@@ -136,12 +182,23 @@ const md = [
   '| --- | ---: |',
   ...top.map(([key, value]) => `| ${key} | ${value} |`),
   '',
+  '## Recent Blocker Classes',
+  '',
+  '| Class | Count |',
+  '| --- | ---: |',
+  ...topClasses.map(([key, value]) => `| ${key} | ${value} |`),
+  '',
   '## Recent Runs',
   '',
-  '| File | Rows | Raw Exec | Actionable Exec | Non-Actionable Exec | Wait | Blocked | Top Reasons | Non-Actionable Exec Verdicts |',
-  '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |',
+  '| File | Rows | Raw Exec | Actionable Exec | Non-Actionable Exec | Wait | Blocked | Top Reasons | Top Classes | Non-Actionable Exec Verdicts |',
+  '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |',
   ...recent.map((run) => {
     const topReasons = Object.entries(run.reasonCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([key, value]) => `${key}:${value}`)
+      .join(', ');
+    const topRunClasses = Object.entries(run.blockerClassCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 4)
       .map(([key, value]) => `${key}:${value}`)
@@ -150,7 +207,7 @@ const md = [
       .sort((a, b) => b[1] - a[1])
       .map(([key, value]) => `${key}:${value}`)
       .join(', ');
-    return `| ${run.file} | ${run.rows} | ${run.exec} | ${run.actionableExec} | ${run.nonActionableExec} | ${run.wait} | ${run.blocked} | ${topReasons} | ${nonActionable || 'none'} |`;
+    return `| ${run.file} | ${run.rows} | ${run.exec} | ${run.actionableExec} | ${run.nonActionableExec} | ${run.wait} | ${run.blocked} | ${topReasons} | ${topRunClasses} | ${nonActionable || 'none'} |`;
   })
 ];
 fs.writeFileSync(OUT_MD, `${md.join('\n')}\n`, 'utf8');

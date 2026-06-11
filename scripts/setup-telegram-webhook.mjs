@@ -18,7 +18,7 @@
  */
 const PRODUCTION_URL = "https://us-alpha-seeker.vercel.app";
 async function main() {
-  const token = (process.env.TELEGRAM_TOKEN || process.env.VITE_TELEGRAM_TOKEN || "").trim();
+  const token = (process.env.TELEGRAM_TOKEN || "").trim();
   if (!token) {
     console.error("❌ TELEGRAM_TOKEN is required.");
     process.exit(1);
@@ -42,7 +42,7 @@ async function main() {
   }
   // ── Set Webhook ──
   const webhookUrl = (process.env.WEBHOOK_URL || `${PRODUCTION_URL}/api/telegram_webhook`).trim();
-  const webhookSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || process.env.VITE_TELEGRAM_WEBHOOK_SECRET || "").trim();
+  const webhookSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
   const body = {
     url: webhookUrl,
     allowed_updates: ["message", "callback_query"],
@@ -52,7 +52,7 @@ async function main() {
     body.secret_token = webhookSecret;
   }
   console.log(`🔗 Setting webhook: ${webhookUrl}`);
-  if (webhookSecret) console.log(`🔐 Secret token: ${webhookSecret.substring(0, 5)}...`);
+  if (webhookSecret) console.log("🔐 Secret token: configured");
   const res = await fetch(`${baseApi}/setWebhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -13,6 +13,18 @@ export interface ApiConfig {
 // [SECURITY POLICY] Env-only credentials (no hardcoded secret fallback).
 const getEnvVar = (key: string): string => {
   try {
+    const readRuntimeEnv = (targetKey: string): string => {
+      const runtimeEnv = (typeof globalThis !== 'undefined' && (globalThis as any).__ALPHA_RUNTIME_ENV__ && typeof (globalThis as any).__ALPHA_RUNTIME_ENV__ === 'object')
+        ? (globalThis as any).__ALPHA_RUNTIME_ENV__ as Record<string, string | undefined>
+        : null;
+      if (!runtimeEnv) return '';
+      const viteKey = targetKey.startsWith('VITE_') ? targetKey : `VITE_${targetKey}`;
+      return String(runtimeEnv[targetKey] || runtimeEnv[viteKey] || '').trim();
+    };
+
+    const runtimeValue = readRuntimeEnv(key);
+    if (runtimeValue) return runtimeValue;
+
     const readDefinedProcessEnv = (targetKey: string): string => {
       if (typeof process === 'undefined' || !process.env) return '';
       // Use static property access so Vite `define` can inline injected values.
@@ -77,15 +89,6 @@ const getEnvVar = (key: string): string => {
       const viteDirect = import.meta.env[viteKey] || import.meta.env[key] || '';
       if (viteDirect) return viteDirect;
 
-      // Static access for common keys to ensure Vite includes them
-      if (key === 'GEMINI_API_KEY') return import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || '';
-      if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || readDefinedProcessEnv('API_KEY');
-      if (key === 'PERPLEXITY_API_KEY') return import.meta.env.VITE_PERPLEXITY_API_KEY || import.meta.env.PERPLEXITY_API_KEY || '';
-      if (key === 'HUGGINGFACE_API_KEY') return import.meta.env.HUGGINGFACE_API_KEY || readDefinedProcessEnv('HUGGINGFACE_API_KEY');
-      if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
-      if (key === 'TELEGRAM_CHAT_ID') return import.meta.env.VITE_TELEGRAM_CHAT_ID || import.meta.env.TELEGRAM_CHAT_ID || '';
-      if (key === 'TELEGRAM_SIMULATION_CHAT_ID') return import.meta.env.VITE_TELEGRAM_SIMULATION_CHAT_ID || import.meta.env.TELEGRAM_SIMULATION_CHAT_ID || '';
-      if (key === 'TELEGRAM_ALERT_CHAT_ID') return import.meta.env.VITE_TELEGRAM_ALERT_CHAT_ID || import.meta.env.TELEGRAM_ALERT_CHAT_ID || '';
       const definedProcessValue = readDefinedProcessEnv(key);
       if (definedProcessValue) return definedProcessValue;
 

@@ -105,13 +105,9 @@ const MarketTicker: React.FC = () => {
 
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const alpacaKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
-  const alpacaSecret =
-    // @ts-ignore
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ALPACA_SECRET) ||
-    // Legacy support for non-prefixed local builds.
-    // @ts-ignore
-    (typeof import.meta !== 'undefined' && import.meta.env?.ALPACA_SECRET) ||
-    '';
+  const alpacaSecret = String(
+    (typeof globalThis !== 'undefined' && (globalThis as any).__ALPHA_RUNTIME_ENV__?.ALPACA_SECRET) || ''
+  ).trim();
 
   // [PRESERVED] Index Order: NASDAQ Comp First, then NASDAQ 100
   const indexConfig = [

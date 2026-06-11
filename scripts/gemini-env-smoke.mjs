@@ -7,8 +7,8 @@ const ENV_FILES = [
   ".env.local",
   ".env"
 ].filter(Boolean);
-const KEY_NAMES = ["GEMINI_API_KEY", "VITE_GEMINI_API_KEY", "API_KEY", "VITE_API_KEY"];
-const REQUIRED_ALIASES = ["GEMINI_API_KEY", "VITE_GEMINI_API_KEY", "API_KEY"];
+const KEY_NAMES = ["GEMINI_API_KEY", "API_KEY"];
+const REQUIRED_ALIASES = ["GEMINI_API_KEY", "API_KEY"];
 const MODEL = process.env.GEMINI_SMOKE_MODEL || "gemini-2.5-flash";
 const REPORT_PATH = process.env.GEMINI_SMOKE_REPORT_PATH || "state/gemini-env-smoke.json";
 
@@ -133,7 +133,7 @@ function loadEnv() {
 
 async function main() {
   const env = loadEnv();
-  const canonical = env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || env.API_KEY || env.VITE_API_KEY;
+  const canonical = env.GEMINI_API_KEY || env.API_KEY;
   const requireAliases = String(process.env.GEMINI_SMOKE_REQUIRE_ALIASES || "false").toLowerCase() === "true";
   const strictApi = String(process.env.GEMINI_SMOKE_STRICT_API || "false").toLowerCase() === "true";
   const aliases = KEY_NAMES.map((name) => ({

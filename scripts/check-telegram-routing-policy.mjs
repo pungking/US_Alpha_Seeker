@@ -41,8 +41,12 @@ add(
 const schedule = read('.github/workflows/schedule.yml');
 add(
   'schedule_primary_allowed_for_analysis_result',
-  schedule && /TELEGRAM_CHAT_ID/.test(schedule) && /VITE_TELEGRAM_CHAT_ID/.test(schedule) ? 'PASS' : 'WARN',
-  'Primary Telegram channel is allowed only for canonical web-app analysis result workflow.'
+  schedule
+    && /TELEGRAM_CHAT_ID/.test(schedule)
+    && !/VITE_TELEGRAM_(TOKEN|CHAT_ID|SIMULATION_CHAT_ID|ALERT_CHAT_ID|ADMIN_CHAT_ID|WEBHOOK_SECRET)/.test(schedule)
+    ? 'PASS'
+    : 'WARN',
+  'Primary Telegram channel is allowed only for canonical web-app analysis result workflow, and Telegram secrets/chat IDs must not be exposed through VITE_* env.'
 );
 
 const fail = checks.filter((check) => check.status === 'FAIL').length;

@@ -109,11 +109,7 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       API_KEY: ${{ secrets.API_KEY || secrets.GEMINI_API_KEY }}
       PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
-      VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY || secrets.GEMINI_API_KEY }}
-      VITE_API_KEY: ${{ secrets.VITE_API_KEY || secrets.API_KEY || secrets.GEMINI_API_KEY }}
-      VITE_PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
       HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
-      VITE_HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
       HUGGINGFACE_API_BASE_URL: ${{ vars.HUGGINGFACE_API_BASE_URL || 'https://router.huggingface.co/hf-inference/models' }}
       VITE_HUGGINGFACE_API_BASE_URL: ${{ vars.HUGGINGFACE_API_BASE_URL || 'https://router.huggingface.co/hf-inference/models' }}
       HUGGINGFACE_FINBERT_MODEL: ${{ vars.HUGGINGFACE_FINBERT_MODEL || 'ProsusAI/finbert' }}
@@ -183,28 +179,16 @@ jobs:
       GDRIVE_API_KEY: ${{ secrets.GDRIVE_API_KEY }}
       GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
       GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_ROOT_FOLDER_ID || vars.GDRIVE_ROOT_FOLDER_ID || secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
-      VITE_RAPID_API_KEY: ${{ secrets.RAPID_API_KEY }}
-      VITE_POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
-      VITE_ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
-      VITE_FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
-      VITE_FMP_KEY: ${{ secrets.FMP_KEY }}
-      VITE_TWELVE_DATA_KEY: ${{ secrets.TWELVE_DATA_KEY }}
-      VITE_ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
-      VITE_GDRIVE_API_KEY: ${{ secrets.GDRIVE_API_KEY }}
       VITE_GDRIVE_ROOT_FOLDER_ID: ${{ vars.VITE_GDRIVE_ROOT_FOLDER_ID || vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
       
       # Telegram
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID }}
-      VITE_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      VITE_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      VITE_TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID }}
 
       # Approval Gateway
       TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
       TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-      VITE_TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
       PAPER_MODE: ${{ vars.PAPER_MODE || 'true' }}
       VITE_PAPER_MODE: ${{ vars.PAPER_MODE || 'true' }}
       APPROVAL_REQUIRED: ${{ vars.APPROVAL_REQUIRED || 'true' }}
@@ -212,9 +196,7 @@ jobs:
 
       # GitHub Dispatch (Stage3 -> Harvester)
       GITHUB_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
-      VITE_GITHUB_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       GITHUB_PAT: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
-      VITE_GITHUB_PAT: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       
       # Google Drive OAuth
       GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}

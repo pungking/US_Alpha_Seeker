@@ -12459,7 +12459,7 @@ function buildShadowDataBusSummary(): ShadowDataBusSummary {
   };
   const enabledSourceCount = Object.values(sources).filter((value) => value).length;
   const alphaVantageReady = hasValue(process.env.ALPHA_VANTAGE_API_KEY) || hasValue(process.env.ALPHA_VANTAGE_KEY);
-  const perplexityReady = hasValue(process.env.PERPLEXITY_API_KEY) || hasValue(process.env.VITE_PERPLEXITY_API_KEY);
+  const perplexityReady = hasValue(process.env.PERPLEXITY_API_KEY);
   const keyReadiness: ShadowDataBusSummary["keyReadiness"] = {
     alphaVantage: alphaVantageReady,
     perplexity: perplexityReady,
