@@ -182,6 +182,13 @@
       "breakoutRetestProofReasons": [
         "current_extension_from_retest_high"
       ],
+      "breakoutRetestProofTolerancePct": 2,
+      "breakoutRetestProofMaxBarsSinceRetest": 12,
+      "breakoutRetestProofMaxExtensionPct": 8,
+      "breakoutRetestProofRetestTouchFound": true,
+      "breakoutRetestProofRetestFresh": true,
+      "breakoutRetestProofCurrentExtensionOk": false,
+      "breakoutRetestProofLatestCloseAboveRetest": true,
       "breakoutRetestPromotionVerdict": "BREAKOUT_REVIEW_READY_NOT_PROMOTABLE",
       "breakoutRetestPromotionEligible": false,
       "breakoutRetestPromotionEnabled": false,
@@ -221,6 +228,11 @@
       "targetRecalibrationVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED",
       "targetRecalibrationRequired": true,
       "targetNoChaseRequired": true,
+      "targetRecalibrationCurrentTargetPrice": 101,
+      "targetRecalibrationRequiredTargetPrice": 104.5,
+      "targetRecalibrationRequiredTargetBufferPct": 4.5,
+      "targetRecalibrationRequiredRr": 1.8,
+      "targetRecalibrationCurrentTargetGapPct": -3.35,
       "targetRecalibrationReasons": [
         "target_buffer_below_review_floor",
         "current_rr_weak_or_unavailable"
@@ -230,6 +242,13 @@
       "riskGeometryRecalibrationRequired": true,
       "riskGeometryNoTradeRequired": true,
       "riskGeometryRecalculatedStopCandidate": false,
+      "riskGeometryProofVerdict": "RECALCULATED_STOP_PROOF_INCOMPLETE",
+      "riskGeometryProofReasons": [
+        "current_entry_recalc_not_feasible",
+        "structure_not_confirmed",
+        "required_stop_invalid",
+        "recalculated_stop_rr_below_min"
+      ],
       "riskGeometryReasons": [
         "target_buffer_below_min",
         "current_rr_below_min"
@@ -267,6 +286,12 @@
       "riskGeometryRecalibrationRequired": true,
       "riskGeometryNoTradeRequired": true,
       "riskGeometryRecalculatedStopCandidate": false,
+      "riskGeometryProofVerdict": "RECALCULATED_STOP_PROOF_INCOMPLETE",
+      "riskGeometryProofReasons": [
+        "current_entry_recalc_not_feasible",
+        "structure_not_confirmed",
+        "required_stop_invalid"
+      ],
       "riskGeometryReasons": [
         "required_stop_distance_out_of_policy"
       ],

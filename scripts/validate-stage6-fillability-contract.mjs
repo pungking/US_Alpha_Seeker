@@ -13,6 +13,8 @@ const errors = [];
 const verdictKey = (value) => String(value || '').replace(/[^a-zA-Z0-9_]/g, '').toUpperCase().trim();
 const breakoutPromotionEnabled = data?.decisionGate?.breakoutRetestProofPromotionEnabled === true;
 const isTrue = (value) => value === true || String(value).toLowerCase() === 'true';
+const isBooleanLike = (value) => value === true || value === false || String(value).toLowerCase() === 'true' || String(value).toLowerCase() === 'false';
+const isFiniteNumber = (value) => value !== null && value !== '' && value !== undefined && !Number.isNaN(Number(value)) && Number.isFinite(Number(value));
 const tuningLane = (row) => String(row.zeroExecutableTuningLane || '').trim().toUpperCase();
 const riskGeometryReasons = new Set([
   'blocked_invalid_geometry',
@@ -60,6 +62,30 @@ for (const [idx, row] of candidates.entries()) {
     if (isTrue(row.breakoutRetestProofReviewReady) && !String(row.breakoutRetestPromotionVerdict || '').includes('NOT_PROMOTABLE')) {
       errors.push(`${label}: reviewReady breakout row must remain explicitly non-promotable unless proofConfirmed=true`);
     }
+    for (const field of [
+      'breakoutRetestProofTolerancePct',
+      'breakoutRetestProofMaxBarsSinceRetest',
+      'breakoutRetestProofMaxExtensionPct'
+    ]) {
+      if (!isFiniteNumber(row[field])) errors.push(`${label}: breakout retest proof missing numeric ${field}`);
+    }
+    for (const field of [
+      'breakoutRetestProofRetestTouchFound',
+      'breakoutRetestProofRetestFresh',
+      'breakoutRetestProofCurrentExtensionOk',
+      'breakoutRetestProofLatestCloseAboveRetest'
+    ]) {
+      if (!isBooleanLike(row[field])) errors.push(`${label}: breakout retest proof missing boolean ${field}`);
+    }
+    if (
+      isTrue(row.breakoutRetestProofConfirmed) &&
+      (!isTrue(row.breakoutRetestProofRetestTouchFound) ||
+        !isTrue(row.breakoutRetestProofRetestFresh) ||
+        !isTrue(row.breakoutRetestProofCurrentExtensionOk) ||
+        !isTrue(row.breakoutRetestProofLatestCloseAboveRetest))
+    ) {
+      errors.push(`${label}: proofConfirmed=true requires retest touch, freshness, extension, and close-above-entry proof`);
+    }
   }
   if (row.decisionReason === 'wait_structure_confirmation_required') {
     if (!row.structurePolicyVerdict) errors.push(`${label}: structure wait missing structurePolicyVerdict`);
@@ -78,11 +104,32 @@ for (const [idx, row] of candidates.entries()) {
     if (!isTrue(row.targetRecalibrationRequired)) errors.push(`${label}: target-near-current row must require target recalibration`);
     if (tuningLane(row) !== 'TARGET_RECALIBRATION') errors.push(`${label}: target-near-current row must route to TARGET_RECALIBRATION`);
     if (!isTrue(row.zeroExecutablePrimaryTuningTarget)) errors.push(`${label}: target recalibration must be a primary zero-executable tuning target`);
+    for (const field of [
+      'targetRecalibrationCurrentTargetPrice',
+      'targetRecalibrationRequiredTargetPrice',
+      'targetRecalibrationRequiredTargetBufferPct',
+      'targetRecalibrationRequiredRr',
+      'targetRecalibrationCurrentTargetGapPct'
+    ]) {
+      if (!isFiniteNumber(row[field])) errors.push(`${label}: target recalibration missing numeric ${field}`);
+    }
   }
   if (riskGeometryReasons.has(row.decisionReason)) {
     if (!row.riskGeometryPolicyVerdict) errors.push(`${label}: risk geometry row missing riskGeometryPolicyVerdict`);
+    if (!row.riskGeometryProofVerdict) errors.push(`${label}: risk geometry row missing riskGeometryProofVerdict`);
+    if (!Array.isArray(row.riskGeometryProofReasons)) errors.push(`${label}: risk geometry row missing riskGeometryProofReasons array`);
     if ((row.decisionReason === 'wait_target_near_current' || row.decisionReason === 'blocked_target_too_close') && !isTrue(row.riskGeometryNoTradeRequired)) {
       errors.push(`${label}: target geometry row must declare riskGeometryNoTradeRequired=true`);
+    }
+    if (isTrue(row.riskGeometryRecalculatedStopCandidate)) {
+      for (const field of [
+        'riskGeometryRecalculatedStopPrice',
+        'riskGeometryRecalculatedStopDistancePct',
+        'riskGeometryRrAtRecalculatedStop',
+        'riskGeometryTargetBufferPct'
+      ]) {
+        if (!isFiniteNumber(row[field])) errors.push(`${label}: recalculated stop candidate missing numeric ${field}`);
+      }
     }
     if (
       row.decisionReason !== 'wait_target_near_current' &&

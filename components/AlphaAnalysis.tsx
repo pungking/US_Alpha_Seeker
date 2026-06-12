@@ -134,6 +134,13 @@ interface AlphaCandidate {
   breakoutRetestProofRetestLow?: number | null;
   breakoutRetestProofBarsSinceRetest?: number | null;
   breakoutRetestProofCurrentExtensionPct?: number | null;
+  breakoutRetestProofTolerancePct?: number | null;
+  breakoutRetestProofMaxBarsSinceRetest?: number | null;
+  breakoutRetestProofMaxExtensionPct?: number | null;
+  breakoutRetestProofRetestTouchFound?: boolean | null;
+  breakoutRetestProofRetestFresh?: boolean | null;
+  breakoutRetestProofCurrentExtensionOk?: boolean | null;
+  breakoutRetestProofLatestCloseAboveRetest?: boolean | null;
   breakoutRetestPromotionVerdict?: string | null;
   breakoutRetestPromotionEligible?: boolean | null;
   breakoutRetestPromotionEnabled?: boolean | null;
@@ -142,12 +149,23 @@ interface AlphaCandidate {
   targetRecalibrationVerdict?: string | null;
   targetRecalibrationRequired?: boolean | null;
   targetNoChaseRequired?: boolean | null;
+  targetRecalibrationCurrentTargetPrice?: number | null;
+  targetRecalibrationRequiredTargetPrice?: number | null;
+  targetRecalibrationRequiredTargetBufferPct?: number | null;
+  targetRecalibrationRequiredRr?: number | null;
+  targetRecalibrationCurrentTargetGapPct?: number | null;
   targetRecalibrationReasons?: string[] | null;
   targetRecalibrationRecommendedAction?: string | null;
   riskGeometryPolicyVerdict?: string | null;
   riskGeometryRecalibrationRequired?: boolean | null;
   riskGeometryNoTradeRequired?: boolean | null;
   riskGeometryRecalculatedStopCandidate?: boolean | null;
+  riskGeometryProofVerdict?: string | null;
+  riskGeometryRecalculatedStopPrice?: number | null;
+  riskGeometryRecalculatedStopDistancePct?: number | null;
+  riskGeometryRrAtRecalculatedStop?: number | null;
+  riskGeometryTargetBufferPct?: number | null;
+  riskGeometryProofReasons?: string[] | null;
   riskGeometryReasons?: string[] | null;
   riskGeometryRecommendedAction?: string | null;
   zeroExecutableTuningLane?: string | null;
@@ -590,6 +608,13 @@ type BreakoutRetestProofPayload = {
   retestLow: number | null;
   barsSinceRetest: number | null;
   currentExtensionFromRetestPct: number | null;
+  tolerancePct: number | null;
+  maxBarsSinceRetest: number | null;
+  maxCurrentExtensionFromRetestPct: number | null;
+  retestTouchFound: boolean;
+  retestFresh: boolean;
+  currentExtensionOk: boolean;
+  latestCloseAboveRetest: boolean;
   rrAtCurrentPrice: number | null;
   targetBufferFromCurrentPct: number | null;
 };
@@ -613,6 +638,11 @@ type Stage6TargetPolicyPayload = {
   verdict: string;
   recalibrationRequired: boolean;
   noChaseRequired: boolean;
+  currentTargetPrice: number | null;
+  requiredTargetPrice: number | null;
+  requiredTargetBufferPct: number | null;
+  requiredRr: number | null;
+  currentTargetGapPct: number | null;
   reasons: string[];
   recommendedAction: string;
 };
@@ -622,6 +652,12 @@ type Stage6RiskGeometryPolicyPayload = {
   recalibrationRequired: boolean;
   noTradeRequired: boolean;
   recalculatedStopCandidate: boolean;
+  proofVerdict: string;
+  recalculatedStopPrice: number | null;
+  recalculatedStopDistancePct: number | null;
+  rrAtRecalculatedStop: number | null;
+  targetBufferPct: number | null;
+  proofReasons: string[];
   reasons: string[];
   recommendedAction: string;
 };
@@ -845,6 +881,13 @@ const deriveBreakoutRetestProof = (input: {
       price != null && entry != null && entry > 0
         ? roundOrNull(((price - entry) / entry) * 100, 2)
         : null,
+    tolerancePct: roundOrNull(policy.retestTolerancePct, 2),
+    maxBarsSinceRetest: policy.maxBarsSinceRetest,
+    maxCurrentExtensionFromRetestPct: roundOrNull(policy.maxCurrentExtensionFromRetestPct, 2),
+    retestTouchFound: false,
+    retestFresh: false,
+    currentExtensionOk: false,
+    latestCloseAboveRetest: false,
     rrAtCurrentPrice: roundOrNull(input.rrAtCurrentPrice, 2),
     targetBufferFromCurrentPct: roundOrNull(input.targetBufferFromCurrentPct, 2)
   };
@@ -875,11 +918,15 @@ const deriveBreakoutRetestProof = (input: {
   const latestRetest = retestCandidates[retestCandidates.length - 1] || null;
   const barsSinceRetest = latestRetest ? recent.length - 1 - latestRetest.idx : null;
   const currentExtensionFromRetestPct = ((price - entry) / entry) * 100;
+  const retestTouchFound = Boolean(latestRetest);
+  const retestFresh = barsSinceRetest != null && barsSinceRetest <= policy.maxBarsSinceRetest;
+  const currentExtensionOk = currentExtensionFromRetestPct <= policy.maxCurrentExtensionFromRetestPct;
+  const latestCloseAboveRetest = Boolean(latest && latest.close >= entry);
   const reasons: string[] = [];
-  if (!latestRetest) reasons.push('retest_touch_missing');
-  if (barsSinceRetest != null && barsSinceRetest > policy.maxBarsSinceRetest) reasons.push('retest_stale');
-  if (currentExtensionFromRetestPct > policy.maxCurrentExtensionFromRetestPct) reasons.push('current_extension_from_retest_high');
-  if (latest && latest.close < entry) reasons.push('latest_close_below_retest_level');
+  if (!retestTouchFound) reasons.push('retest_touch_missing');
+  if (!retestFresh) reasons.push(barsSinceRetest == null ? 'retest_freshness_unavailable' : 'retest_stale');
+  if (!currentExtensionOk) reasons.push('current_extension_from_retest_high');
+  if (!latestCloseAboveRetest) reasons.push('latest_close_below_retest_level');
 
   const confirmed = reasons.length === 0;
   const reviewReady = !confirmed && input.rrAtCurrentPrice >= minRr && input.targetBufferFromCurrentPct >= minTargetBufferPct;
@@ -897,7 +944,11 @@ const deriveBreakoutRetestProof = (input: {
     retestDate: latestRetest?.bar?.date ?? null,
     retestLow: roundOrNull(latestRetest?.bar?.low ?? null, 4),
     barsSinceRetest,
-    currentExtensionFromRetestPct: roundOrNull(currentExtensionFromRetestPct, 2)
+    currentExtensionFromRetestPct: roundOrNull(currentExtensionFromRetestPct, 2),
+    retestTouchFound,
+    retestFresh,
+    currentExtensionOk,
+    latestCloseAboveRetest
   };
 };
 
@@ -1081,12 +1132,59 @@ const deriveTargetRecalibrationPolicy = (input: {
     input.rrAtCurrentPrice == null ||
     !Number.isFinite(input.rrAtCurrentPrice) ||
     input.rrAtCurrentPrice < minRr;
+  const stopDistanceAtCurrent =
+    input.rrAtCurrentPrice != null &&
+    Number.isFinite(input.rrAtCurrentPrice) &&
+    input.rrAtCurrentPrice > 0 &&
+    input.target != null &&
+    input.price != null &&
+    Number.isFinite(input.target) &&
+    Number.isFinite(input.price) &&
+    input.target > input.price
+      ? (input.target - input.price) / input.rrAtCurrentPrice
+      : null;
+  const requiredTargetByBuffer =
+    input.price != null && Number.isFinite(input.price) && input.price > 0
+      ? input.price * (1 + minTargetBufferPct / 100)
+      : null;
+  const requiredTargetByRr =
+    input.price != null &&
+    Number.isFinite(input.price) &&
+    input.price > 0 &&
+    stopDistanceAtCurrent != null &&
+    Number.isFinite(stopDistanceAtCurrent) &&
+    stopDistanceAtCurrent > 0
+      ? input.price + stopDistanceAtCurrent * minRr
+      : null;
+  const requiredTargetPrice =
+    requiredTargetByBuffer != null && requiredTargetByRr != null
+      ? Math.max(requiredTargetByBuffer, requiredTargetByRr)
+      : requiredTargetByBuffer ?? requiredTargetByRr ?? null;
+  const requiredTargetBufferPct =
+    requiredTargetPrice != null && input.price != null && Number.isFinite(input.price) && input.price > 0
+      ? ((requiredTargetPrice - input.price) / input.price) * 100
+      : null;
+  const currentTargetGapPct =
+    requiredTargetPrice != null &&
+    input.target != null &&
+    Number.isFinite(input.target) &&
+    requiredTargetPrice > 0
+      ? ((input.target - requiredTargetPrice) / requiredTargetPrice) * 100
+      : null;
+  const targetEvidence = {
+    currentTargetPrice: roundOrNull(input.target, 4),
+    requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
+    requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
+    requiredRr: roundOrNull(minRr, 2),
+    currentTargetGapPct: roundOrNull(currentTargetGapPct, 2)
+  };
   const targetGeometryRequiresAction = targetAlreadyReached || targetBufferWeak;
   if (input.decisionReason !== 'wait_target_near_current' && !targetGeometryRequiresAction) {
     return {
       verdict: 'TARGET_POLICY_NOT_APPLICABLE',
       recalibrationRequired: false,
       noChaseRequired: false,
+      ...targetEvidence,
       reasons: ['not_target_near_current_wait'],
       recommendedAction: 'No target recalibration action required.'
     };
@@ -1094,13 +1192,17 @@ const deriveTargetRecalibrationPolicy = (input: {
   const reasons = [
     ...(targetAlreadyReached ? ['target_not_above_current'] : []),
     ...(targetBufferWeak ? ['target_buffer_below_review_floor'] : []),
-    ...(currentRrWeak ? ['current_rr_weak_or_unavailable'] : [])
+    ...(currentRrWeak ? ['current_rr_weak_or_unavailable'] : []),
+    ...(requiredTargetPrice != null && input.target != null && input.target < requiredTargetPrice
+      ? ['current_target_below_required_target']
+      : [])
   ];
   if (targetAlreadyReached) {
     return {
       verdict: 'TARGET_ALREADY_REACHED_NO_TRADE',
       recalibrationRequired: true,
       noChaseRequired: true,
+      ...targetEvidence,
       reasons,
       recommendedAction: 'Keep no-trade. Require fresh target/thesis recalibration before this can become executable.'
     };
@@ -1109,6 +1211,7 @@ const deriveTargetRecalibrationPolicy = (input: {
     verdict: 'TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED',
     recalibrationRequired: true,
     noChaseRequired: true,
+    ...targetEvidence,
     reasons: reasons.length ? reasons : ['target_buffer_near_current'],
     recommendedAction: 'Recompute target/stop thesis. Do not solve with sidecar chase or open-order replace.'
   };
@@ -1150,6 +1253,12 @@ const deriveRiskGeometryPolicy = (input: {
       recalibrationRequired: false,
       noTradeRequired: false,
       recalculatedStopCandidate: false,
+      proofVerdict: 'RISK_GEOMETRY_PROOF_NOT_APPLICABLE',
+      recalculatedStopPrice: null,
+      recalculatedStopDistancePct: null,
+      rrAtRecalculatedStop: null,
+      targetBufferPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
+      proofReasons: ['not_risk_geometry_blocker'],
       reasons: ['not_risk_geometry_blocker'],
       recommendedAction: 'No risk-geometry policy action required.'
     };
@@ -1181,17 +1290,56 @@ const deriveRiskGeometryPolicy = (input: {
     input.targetBufferFromCurrentPct != null &&
     Number.isFinite(input.targetBufferFromCurrentPct) &&
     input.targetBufferFromCurrentPct >= input.minTargetBufferPct;
+  const rrAtRecalculatedStop =
+    input.price != null &&
+    input.target != null &&
+    input.currentEntryRequiredStopPrice != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.target) &&
+    Number.isFinite(input.currentEntryRequiredStopPrice) &&
+    input.price > input.currentEntryRequiredStopPrice &&
+    input.target > input.price
+      ? (input.target - input.price) / (input.price - input.currentEntryRequiredStopPrice)
+      : null;
+  const recalculatedStopRrOk =
+    rrAtRecalculatedStop != null &&
+    Number.isFinite(rrAtRecalculatedStop) &&
+    rrAtRecalculatedStop >= input.minRr;
   const recalculatedStopCandidate =
     input.currentEntryRecalcFeasible &&
     input.currentEntryStructureConfirmed &&
     requiredStopValid &&
     requiredStopDistanceValid &&
     targetAboveCurrent;
+  const recalculatedStopProofConfirmed = recalculatedStopCandidate && recalculatedStopRrOk && targetBufferOk;
+  const proofReasons = [
+    ...(input.currentEntryRecalcFeasible ? [] : ['current_entry_recalc_not_feasible']),
+    ...(input.currentEntryStructureConfirmed ? [] : ['structure_not_confirmed']),
+    ...(requiredStopValid ? [] : ['required_stop_invalid']),
+    ...(requiredStopDistanceValid ? [] : ['required_stop_distance_out_of_policy']),
+    ...(targetAboveCurrent ? [] : ['target_not_above_current']),
+    ...(recalculatedStopRrOk ? [] : ['recalculated_stop_rr_below_min']),
+    ...(targetBufferOk ? [] : ['target_buffer_below_min'])
+  ];
+  const proofVerdict = recalculatedStopProofConfirmed
+    ? 'RECALCULATED_STOP_PROOF_CONFIRMED'
+    : recalculatedStopCandidate
+      ? 'RECALCULATED_STOP_PROOF_RR_OR_TARGET_BUFFER_WEAK'
+      : 'RECALCULATED_STOP_PROOF_INCOMPLETE';
+  const proofEvidence = {
+    proofVerdict,
+    recalculatedStopPrice: roundOrNull(input.currentEntryRequiredStopPrice, 4),
+    recalculatedStopDistancePct: roundOrNull(input.currentEntryRequiredStopDistancePct, 2),
+    rrAtRecalculatedStop: roundOrNull(rrAtRecalculatedStop, 2),
+    targetBufferPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
+    proofReasons
+  };
   const reasons = [
     ...(targetAboveCurrent ? [] : ['target_not_above_current']),
     ...(currentRrOk ? [] : ['current_rr_below_min']),
     ...(targetBufferOk ? [] : ['target_buffer_below_min']),
     ...(recalculatedStopCandidate ? ['recalculated_stop_candidate'] : []),
+    ...(recalculatedStopProofConfirmed ? ['recalculated_stop_proof_confirmed'] : []),
     ...(!input.currentEntryRecalcFeasible ? ['current_entry_recalc_not_feasible'] : []),
     ...(input.currentEntryRecalcFeasible && !input.currentEntryStructureConfirmed ? ['structure_not_confirmed'] : []),
     ...(input.currentEntryRecalcFeasible && !requiredStopValid ? ['required_stop_invalid'] : []),
@@ -1204,6 +1352,7 @@ const deriveRiskGeometryPolicy = (input: {
       recalibrationRequired: true,
       noTradeRequired: true,
       recalculatedStopCandidate,
+      ...proofEvidence,
       reasons,
       recommendedAction: 'Keep no-trade. Stage6 must refresh target/stop geometry before execution can be reconsidered.'
     };
@@ -1214,6 +1363,7 @@ const deriveRiskGeometryPolicy = (input: {
       recalibrationRequired: true,
       noTradeRequired: true,
       recalculatedStopCandidate,
+      ...proofEvidence,
       reasons,
       recommendedAction: 'Treat as target recalibration or no-trade. Sidecar chase/reprice must not solve target-near-current geometry.'
     };
@@ -1226,6 +1376,7 @@ const deriveRiskGeometryPolicy = (input: {
       recalibrationRequired: true,
       noTradeRequired: !recalculatedStopCandidate,
       recalculatedStopCandidate,
+      ...proofEvidence,
       reasons,
       recommendedAction: recalculatedStopCandidate
         ? 'Review producer-side recalculated-stop promotion. Do not relax stop gates in sidecar.'
@@ -1240,6 +1391,7 @@ const deriveRiskGeometryPolicy = (input: {
       recalibrationRequired: true,
       noTradeRequired: !recalculatedStopCandidate,
       recalculatedStopCandidate,
+      ...proofEvidence,
       reasons,
       recommendedAction: recalculatedStopCandidate
         ? 'Producer has recalculated-stop evidence; review why it did not promote before changing execution policy.'
@@ -1251,10 +1403,11 @@ const deriveRiskGeometryPolicy = (input: {
       ? 'RR_GEOMETRY_RECALCULATED_STOP_REVIEW_READY'
       : 'RR_GEOMETRY_WAIT_JUSTIFIED',
     recalibrationRequired: recalculatedStopCandidate,
-    noTradeRequired: !(recalculatedStopCandidate && currentRrOk && targetBufferOk),
+    noTradeRequired: !recalculatedStopProofConfirmed,
     recalculatedStopCandidate,
+    ...proofEvidence,
     reasons,
-    recommendedAction: recalculatedStopCandidate && currentRrOk && targetBufferOk
+    recommendedAction: recalculatedStopProofConfirmed
       ? 'Review producer-side RR with recalculated stop; do not lower sidecar fillability floor.'
       : 'Keep WAIT/BLOCKED. Current RR/target buffer does not justify execution.'
   };
@@ -6207,6 +6360,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLow: breakoutRetestProof.retestLow,
               breakoutRetestProofBarsSinceRetest: breakoutRetestProof.barsSinceRetest,
               breakoutRetestProofCurrentExtensionPct: breakoutRetestProof.currentExtensionFromRetestPct,
+              breakoutRetestProofTolerancePct: breakoutRetestProof.tolerancePct,
+              breakoutRetestProofMaxBarsSinceRetest: breakoutRetestProof.maxBarsSinceRetest,
+              breakoutRetestProofMaxExtensionPct: breakoutRetestProof.maxCurrentExtensionFromRetestPct,
+              breakoutRetestProofRetestTouchFound: breakoutRetestProof.retestTouchFound,
+              breakoutRetestProofRetestFresh: breakoutRetestProof.retestFresh,
+              breakoutRetestProofCurrentExtensionOk: breakoutRetestProof.currentExtensionOk,
+              breakoutRetestProofLatestCloseAboveRetest: breakoutRetestProof.latestCloseAboveRetest,
               breakoutRetestPromotionVerdict: breakoutRetestPromotion.verdict,
               breakoutRetestPromotionEligible: breakoutRetestPromotion.eligible,
               breakoutRetestPromotionEnabled: breakoutRetestPromotion.enabled,
@@ -6215,12 +6375,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationVerdict: targetRecalibrationPolicy.verdict,
               targetRecalibrationRequired: targetRecalibrationPolicy.recalibrationRequired,
               targetNoChaseRequired: targetRecalibrationPolicy.noChaseRequired,
+              targetRecalibrationCurrentTargetPrice: targetRecalibrationPolicy.currentTargetPrice,
+              targetRecalibrationRequiredTargetPrice: targetRecalibrationPolicy.requiredTargetPrice,
+              targetRecalibrationRequiredTargetBufferPct: targetRecalibrationPolicy.requiredTargetBufferPct,
+              targetRecalibrationRequiredRr: targetRecalibrationPolicy.requiredRr,
+              targetRecalibrationCurrentTargetGapPct: targetRecalibrationPolicy.currentTargetGapPct,
               targetRecalibrationReasons: targetRecalibrationPolicy.reasons,
               targetRecalibrationRecommendedAction: targetRecalibrationPolicy.recommendedAction,
               riskGeometryPolicyVerdict: riskGeometryPolicy.verdict,
               riskGeometryRecalibrationRequired: riskGeometryPolicy.recalibrationRequired,
               riskGeometryNoTradeRequired: riskGeometryPolicy.noTradeRequired,
               riskGeometryRecalculatedStopCandidate: riskGeometryPolicy.recalculatedStopCandidate,
+              riskGeometryProofVerdict: riskGeometryPolicy.proofVerdict,
+              riskGeometryRecalculatedStopPrice: riskGeometryPolicy.recalculatedStopPrice,
+              riskGeometryRecalculatedStopDistancePct: riskGeometryPolicy.recalculatedStopDistancePct,
+              riskGeometryRrAtRecalculatedStop: riskGeometryPolicy.rrAtRecalculatedStop,
+              riskGeometryTargetBufferPct: riskGeometryPolicy.targetBufferPct,
+              riskGeometryProofReasons: riskGeometryPolicy.proofReasons,
               riskGeometryReasons: riskGeometryPolicy.reasons,
               riskGeometryRecommendedAction: riskGeometryPolicy.recommendedAction,
               zeroExecutableTuningLane: zeroExecutableTuningPolicy.lane,
@@ -6351,6 +6522,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLow: executionContract.breakoutRetestProofRetestLow,
               breakoutRetestProofBarsSinceRetest: executionContract.breakoutRetestProofBarsSinceRetest,
               breakoutRetestProofCurrentExtensionPct: executionContract.breakoutRetestProofCurrentExtensionPct,
+              breakoutRetestProofTolerancePct: executionContract.breakoutRetestProofTolerancePct,
+              breakoutRetestProofMaxBarsSinceRetest: executionContract.breakoutRetestProofMaxBarsSinceRetest,
+              breakoutRetestProofMaxExtensionPct: executionContract.breakoutRetestProofMaxExtensionPct,
+              breakoutRetestProofRetestTouchFound: executionContract.breakoutRetestProofRetestTouchFound,
+              breakoutRetestProofRetestFresh: executionContract.breakoutRetestProofRetestFresh,
+              breakoutRetestProofCurrentExtensionOk: executionContract.breakoutRetestProofCurrentExtensionOk,
+              breakoutRetestProofLatestCloseAboveRetest: executionContract.breakoutRetestProofLatestCloseAboveRetest,
               breakoutRetestPromotionVerdict: executionContract.breakoutRetestPromotionVerdict,
               breakoutRetestPromotionEligible: executionContract.breakoutRetestPromotionEligible,
               breakoutRetestPromotionEnabled: executionContract.breakoutRetestPromotionEnabled,
@@ -6359,12 +6537,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationVerdict: executionContract.targetRecalibrationVerdict,
               targetRecalibrationRequired: executionContract.targetRecalibrationRequired,
               targetNoChaseRequired: executionContract.targetNoChaseRequired,
+              targetRecalibrationCurrentTargetPrice: executionContract.targetRecalibrationCurrentTargetPrice,
+              targetRecalibrationRequiredTargetPrice: executionContract.targetRecalibrationRequiredTargetPrice,
+              targetRecalibrationRequiredTargetBufferPct: executionContract.targetRecalibrationRequiredTargetBufferPct,
+              targetRecalibrationRequiredRr: executionContract.targetRecalibrationRequiredRr,
+              targetRecalibrationCurrentTargetGapPct: executionContract.targetRecalibrationCurrentTargetGapPct,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
               riskGeometryRecalibrationRequired: executionContract.riskGeometryRecalibrationRequired,
               riskGeometryNoTradeRequired: executionContract.riskGeometryNoTradeRequired,
               riskGeometryRecalculatedStopCandidate: executionContract.riskGeometryRecalculatedStopCandidate,
+              riskGeometryProofVerdict: executionContract.riskGeometryProofVerdict,
+              riskGeometryRecalculatedStopPrice: executionContract.riskGeometryRecalculatedStopPrice,
+              riskGeometryRecalculatedStopDistancePct: executionContract.riskGeometryRecalculatedStopDistancePct,
+              riskGeometryRrAtRecalculatedStop: executionContract.riskGeometryRrAtRecalculatedStop,
+              riskGeometryTargetBufferPct: executionContract.riskGeometryTargetBufferPct,
+              riskGeometryProofReasons: executionContract.riskGeometryProofReasons,
               riskGeometryReasons: executionContract.riskGeometryReasons,
               riskGeometryRecommendedAction: executionContract.riskGeometryRecommendedAction,
               zeroExecutableTuningLane: executionContract.zeroExecutableTuningLane,
@@ -6785,6 +6974,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLow: executionContract.breakoutRetestProofRetestLow,
               breakoutRetestProofBarsSinceRetest: executionContract.breakoutRetestProofBarsSinceRetest,
               breakoutRetestProofCurrentExtensionPct: executionContract.breakoutRetestProofCurrentExtensionPct,
+              breakoutRetestProofTolerancePct: executionContract.breakoutRetestProofTolerancePct,
+              breakoutRetestProofMaxBarsSinceRetest: executionContract.breakoutRetestProofMaxBarsSinceRetest,
+              breakoutRetestProofMaxExtensionPct: executionContract.breakoutRetestProofMaxExtensionPct,
+              breakoutRetestProofRetestTouchFound: executionContract.breakoutRetestProofRetestTouchFound,
+              breakoutRetestProofRetestFresh: executionContract.breakoutRetestProofRetestFresh,
+              breakoutRetestProofCurrentExtensionOk: executionContract.breakoutRetestProofCurrentExtensionOk,
+              breakoutRetestProofLatestCloseAboveRetest: executionContract.breakoutRetestProofLatestCloseAboveRetest,
               breakoutRetestPromotionVerdict: executionContract.breakoutRetestPromotionVerdict,
               breakoutRetestPromotionEligible: executionContract.breakoutRetestPromotionEligible,
               breakoutRetestPromotionEnabled: executionContract.breakoutRetestPromotionEnabled,
@@ -6793,12 +6989,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationVerdict: executionContract.targetRecalibrationVerdict,
               targetRecalibrationRequired: executionContract.targetRecalibrationRequired,
               targetNoChaseRequired: executionContract.targetNoChaseRequired,
+              targetRecalibrationCurrentTargetPrice: executionContract.targetRecalibrationCurrentTargetPrice,
+              targetRecalibrationRequiredTargetPrice: executionContract.targetRecalibrationRequiredTargetPrice,
+              targetRecalibrationRequiredTargetBufferPct: executionContract.targetRecalibrationRequiredTargetBufferPct,
+              targetRecalibrationRequiredRr: executionContract.targetRecalibrationRequiredRr,
+              targetRecalibrationCurrentTargetGapPct: executionContract.targetRecalibrationCurrentTargetGapPct,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
               riskGeometryRecalibrationRequired: executionContract.riskGeometryRecalibrationRequired,
               riskGeometryNoTradeRequired: executionContract.riskGeometryNoTradeRequired,
               riskGeometryRecalculatedStopCandidate: executionContract.riskGeometryRecalculatedStopCandidate,
+              riskGeometryProofVerdict: executionContract.riskGeometryProofVerdict,
+              riskGeometryRecalculatedStopPrice: executionContract.riskGeometryRecalculatedStopPrice,
+              riskGeometryRecalculatedStopDistancePct: executionContract.riskGeometryRecalculatedStopDistancePct,
+              riskGeometryRrAtRecalculatedStop: executionContract.riskGeometryRrAtRecalculatedStop,
+              riskGeometryTargetBufferPct: executionContract.riskGeometryTargetBufferPct,
+              riskGeometryProofReasons: executionContract.riskGeometryProofReasons,
               riskGeometryReasons: executionContract.riskGeometryReasons,
               riskGeometryRecommendedAction: executionContract.riskGeometryRecommendedAction,
               tradePlanDecision: executionContract.tradePlanDecision,
@@ -7068,6 +7275,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLow: toOptionalFiniteNumber(item.breakoutRetestProofRetestLow),
               breakoutRetestProofBarsSinceRetest: toOptionalFiniteNumber(item.breakoutRetestProofBarsSinceRetest),
               breakoutRetestProofCurrentExtensionPct: toOptionalFiniteNumber(item.breakoutRetestProofCurrentExtensionPct),
+              breakoutRetestProofTolerancePct: toOptionalFiniteNumber(item.breakoutRetestProofTolerancePct),
+              breakoutRetestProofMaxBarsSinceRetest: toOptionalFiniteNumber(item.breakoutRetestProofMaxBarsSinceRetest),
+              breakoutRetestProofMaxExtensionPct: toOptionalFiniteNumber(item.breakoutRetestProofMaxExtensionPct),
+              breakoutRetestProofRetestTouchFound: item.breakoutRetestProofRetestTouchFound == null ? null : Boolean(item.breakoutRetestProofRetestTouchFound),
+              breakoutRetestProofRetestFresh: item.breakoutRetestProofRetestFresh == null ? null : Boolean(item.breakoutRetestProofRetestFresh),
+              breakoutRetestProofCurrentExtensionOk: item.breakoutRetestProofCurrentExtensionOk == null ? null : Boolean(item.breakoutRetestProofCurrentExtensionOk),
+              breakoutRetestProofLatestCloseAboveRetest: item.breakoutRetestProofLatestCloseAboveRetest == null ? null : Boolean(item.breakoutRetestProofLatestCloseAboveRetest),
               breakoutRetestPromotionVerdict: normalizeOptionalText(item.breakoutRetestPromotionVerdict),
               breakoutRetestPromotionEligible: Boolean(item.breakoutRetestPromotionEligible),
               breakoutRetestPromotionEnabled: Boolean(item.breakoutRetestPromotionEnabled),
@@ -7076,12 +7290,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationVerdict: normalizeOptionalText(item.targetRecalibrationVerdict),
               targetRecalibrationRequired: Boolean(item.targetRecalibrationRequired),
               targetNoChaseRequired: Boolean(item.targetNoChaseRequired),
+              targetRecalibrationCurrentTargetPrice: toOptionalFiniteNumber(item.targetRecalibrationCurrentTargetPrice),
+              targetRecalibrationRequiredTargetPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetPrice),
+              targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetBufferPct),
+              targetRecalibrationRequiredRr: toOptionalFiniteNumber(item.targetRecalibrationRequiredRr),
+              targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item.targetRecalibrationCurrentTargetGapPct),
               targetRecalibrationReasons: Array.isArray(item.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item.riskGeometryPolicyVerdict),
               riskGeometryRecalibrationRequired: Boolean(item.riskGeometryRecalibrationRequired),
               riskGeometryNoTradeRequired: Boolean(item.riskGeometryNoTradeRequired),
               riskGeometryRecalculatedStopCandidate: Boolean(item.riskGeometryRecalculatedStopCandidate),
+              riskGeometryProofVerdict: normalizeOptionalText(item.riskGeometryProofVerdict),
+              riskGeometryRecalculatedStopPrice: toOptionalFiniteNumber(item.riskGeometryRecalculatedStopPrice),
+              riskGeometryRecalculatedStopDistancePct: toOptionalFiniteNumber(item.riskGeometryRecalculatedStopDistancePct),
+              riskGeometryRrAtRecalculatedStop: toOptionalFiniteNumber(item.riskGeometryRrAtRecalculatedStop),
+              riskGeometryTargetBufferPct: toOptionalFiniteNumber(item.riskGeometryTargetBufferPct),
+              riskGeometryProofReasons: Array.isArray(item.riskGeometryProofReasons) ? item.riskGeometryProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryReasons: Array.isArray(item.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryRecommendedAction: normalizeOptionalText(item.riskGeometryRecommendedAction),
               zeroExecutableTuningLane: normalizeOptionalText(item.zeroExecutableTuningLane),
@@ -7186,6 +7411,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLow: toOptionalFiniteNumber(item?.breakoutRetestProofRetestLow),
               breakoutRetestProofBarsSinceRetest: toOptionalFiniteNumber(item?.breakoutRetestProofBarsSinceRetest),
               breakoutRetestProofCurrentExtensionPct: toOptionalFiniteNumber(item?.breakoutRetestProofCurrentExtensionPct),
+              breakoutRetestProofTolerancePct: toOptionalFiniteNumber(item?.breakoutRetestProofTolerancePct),
+              breakoutRetestProofMaxBarsSinceRetest: toOptionalFiniteNumber(item?.breakoutRetestProofMaxBarsSinceRetest),
+              breakoutRetestProofMaxExtensionPct: toOptionalFiniteNumber(item?.breakoutRetestProofMaxExtensionPct),
+              breakoutRetestProofRetestTouchFound: item?.breakoutRetestProofRetestTouchFound == null ? null : Boolean(item.breakoutRetestProofRetestTouchFound),
+              breakoutRetestProofRetestFresh: item?.breakoutRetestProofRetestFresh == null ? null : Boolean(item.breakoutRetestProofRetestFresh),
+              breakoutRetestProofCurrentExtensionOk: item?.breakoutRetestProofCurrentExtensionOk == null ? null : Boolean(item.breakoutRetestProofCurrentExtensionOk),
+              breakoutRetestProofLatestCloseAboveRetest: item?.breakoutRetestProofLatestCloseAboveRetest == null ? null : Boolean(item.breakoutRetestProofLatestCloseAboveRetest),
               breakoutRetestPromotionVerdict: normalizeOptionalText(item?.breakoutRetestPromotionVerdict),
               breakoutRetestPromotionEligible: Boolean(item?.breakoutRetestPromotionEligible),
               breakoutRetestPromotionEnabled: Boolean(item?.breakoutRetestPromotionEnabled),
@@ -7194,12 +7426,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationVerdict: normalizeOptionalText(item?.targetRecalibrationVerdict),
               targetRecalibrationRequired: Boolean(item?.targetRecalibrationRequired),
               targetNoChaseRequired: Boolean(item?.targetNoChaseRequired),
+              targetRecalibrationCurrentTargetPrice: toOptionalFiniteNumber(item?.targetRecalibrationCurrentTargetPrice),
+              targetRecalibrationRequiredTargetPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetPrice),
+              targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetBufferPct),
+              targetRecalibrationRequiredRr: toOptionalFiniteNumber(item?.targetRecalibrationRequiredRr),
+              targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item?.targetRecalibrationCurrentTargetGapPct),
               targetRecalibrationReasons: Array.isArray(item?.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item?.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item?.riskGeometryPolicyVerdict),
               riskGeometryRecalibrationRequired: Boolean(item?.riskGeometryRecalibrationRequired),
               riskGeometryNoTradeRequired: Boolean(item?.riskGeometryNoTradeRequired),
               riskGeometryRecalculatedStopCandidate: Boolean(item?.riskGeometryRecalculatedStopCandidate),
+              riskGeometryProofVerdict: normalizeOptionalText(item?.riskGeometryProofVerdict),
+              riskGeometryRecalculatedStopPrice: toOptionalFiniteNumber(item?.riskGeometryRecalculatedStopPrice),
+              riskGeometryRecalculatedStopDistancePct: toOptionalFiniteNumber(item?.riskGeometryRecalculatedStopDistancePct),
+              riskGeometryRrAtRecalculatedStop: toOptionalFiniteNumber(item?.riskGeometryRrAtRecalculatedStop),
+              riskGeometryTargetBufferPct: toOptionalFiniteNumber(item?.riskGeometryTargetBufferPct),
+              riskGeometryProofReasons: Array.isArray(item?.riskGeometryProofReasons) ? item.riskGeometryProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryReasons: Array.isArray(item?.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryRecommendedAction: normalizeOptionalText(item?.riskGeometryRecommendedAction),
               zeroExecutableTuningLane: normalizeOptionalText(item?.zeroExecutableTuningLane),

@@ -35,6 +35,18 @@
         { "type": "null" }
       ]
     },
+    "nullableBoolean": {
+      "anyOf": [
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    },
+    "nullableStringArray": {
+      "anyOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "null" }
+      ]
+    },
     "stage6Candidate": {
       "type": "object",
       "required": [
@@ -77,7 +89,25 @@
         "executionFeasibilityAtCurrentMinRr": { "$ref": "#/$defs/nullableNumber" },
         "executionFeasibilityAtCurrentMaxDistancePct": { "$ref": "#/$defs/nullableNumber" },
         "executionFeasibilityAtCurrentMinTargetBufferPct": { "$ref": "#/$defs/nullableNumber" },
-        "executionFeasibilityAtCurrentBasis": { "$ref": "#/$defs/nullableString" }
+        "executionFeasibilityAtCurrentBasis": { "$ref": "#/$defs/nullableString" },
+        "breakoutRetestProofTolerancePct": { "$ref": "#/$defs/nullableNumber" },
+        "breakoutRetestProofMaxBarsSinceRetest": { "$ref": "#/$defs/nullableNumber" },
+        "breakoutRetestProofMaxExtensionPct": { "$ref": "#/$defs/nullableNumber" },
+        "breakoutRetestProofRetestTouchFound": { "$ref": "#/$defs/nullableBoolean" },
+        "breakoutRetestProofRetestFresh": { "$ref": "#/$defs/nullableBoolean" },
+        "breakoutRetestProofCurrentExtensionOk": { "$ref": "#/$defs/nullableBoolean" },
+        "breakoutRetestProofLatestCloseAboveRetest": { "$ref": "#/$defs/nullableBoolean" },
+        "targetRecalibrationCurrentTargetPrice": { "$ref": "#/$defs/nullableNumber" },
+        "targetRecalibrationRequiredTargetPrice": { "$ref": "#/$defs/nullableNumber" },
+        "targetRecalibrationRequiredTargetBufferPct": { "$ref": "#/$defs/nullableNumber" },
+        "targetRecalibrationRequiredRr": { "$ref": "#/$defs/nullableNumber" },
+        "targetRecalibrationCurrentTargetGapPct": { "$ref": "#/$defs/nullableNumber" },
+        "riskGeometryProofVerdict": { "$ref": "#/$defs/nullableString" },
+        "riskGeometryRecalculatedStopPrice": { "$ref": "#/$defs/nullableNumber" },
+        "riskGeometryRecalculatedStopDistancePct": { "$ref": "#/$defs/nullableNumber" },
+        "riskGeometryRrAtRecalculatedStop": { "$ref": "#/$defs/nullableNumber" },
+        "riskGeometryTargetBufferPct": { "$ref": "#/$defs/nullableNumber" },
+        "riskGeometryProofReasons": { "$ref": "#/$defs/nullableStringArray" }
       },
       "additionalProperties": true
     }
