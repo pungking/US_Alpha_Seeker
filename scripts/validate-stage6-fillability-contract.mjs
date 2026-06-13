@@ -86,6 +86,14 @@ for (const [idx, row] of candidates.entries()) {
     ) {
       errors.push(`${label}: proofConfirmed=true requires retest touch, freshness, extension, and close-above-entry proof`);
     }
+    if (isTrue(row.breakoutRetestProofConfirmed) && !isTrue(row.breakoutRetestPromotionEnabled)) {
+      if (!String(row.breakoutRetestPromotionVerdict || '').includes('PROMOTION_DISABLED')) {
+        errors.push(`${label}: proofConfirmed breakout with promotion disabled must declare PROMOTION_DISABLED`);
+      }
+      if (row.finalDecision === 'EXECUTABLE_NOW') {
+        errors.push(`${label}: proofConfirmed breakout cannot be executable while promotion flag is disabled`);
+      }
+    }
   }
   if (row.decisionReason === 'wait_structure_confirmation_required') {
     if (!row.structurePolicyVerdict) errors.push(`${label}: structure wait missing structurePolicyVerdict`);
@@ -109,9 +117,24 @@ for (const [idx, row] of candidates.entries()) {
       'targetRecalibrationRequiredTargetPrice',
       'targetRecalibrationRequiredTargetBufferPct',
       'targetRecalibrationRequiredRr',
-      'targetRecalibrationCurrentTargetGapPct'
+      'targetRecalibrationCurrentTargetGapPct',
+      'targetRecalibrationGapPolicyPct'
     ]) {
       if (!isFiniteNumber(row[field])) errors.push(`${label}: target recalibration missing numeric ${field}`);
+    }
+    for (const field of ['targetRecalibrationCandidate', 'targetNoTradeConfirmed']) {
+      if (!isBooleanLike(row[field])) errors.push(`${label}: target recalibration missing boolean ${field}`);
+    }
+    if (!row.targetRecalibrationViabilityVerdict) errors.push(`${label}: target recalibration missing viability verdict`);
+    if (!Array.isArray(row.targetRecalibrationViabilityReasons)) errors.push(`${label}: target recalibration missing viability reasons array`);
+    if (isTrue(row.targetRecalibrationCandidate) && isTrue(row.targetNoTradeConfirmed)) {
+      errors.push(`${label}: target recalibration candidate cannot also be no-trade confirmed`);
+    }
+    if (isTrue(row.targetRecalibrationCandidate) && !String(row.targetRecalibrationVerdict || '').includes('REVIEW_READY')) {
+      errors.push(`${label}: target recalibration candidate must use a REVIEW_READY verdict`);
+    }
+    if (isTrue(row.targetNoTradeConfirmed) && !String(row.targetRecalibrationViabilityVerdict || '').includes('NO_TRADE')) {
+      errors.push(`${label}: target no-trade row must use a NO_TRADE viability verdict`);
     }
   }
   if (riskGeometryReasons.has(row.decisionReason)) {

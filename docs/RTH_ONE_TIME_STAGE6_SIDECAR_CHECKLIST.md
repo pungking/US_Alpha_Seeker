@@ -1,0 +1,63 @@
+# RTH One-Time Stage6 Sidecar Checklist
+
+This checklist is the bounded RTH verification path after a fresh Stage6 hash is generated. It is intentionally one-shot: if there is no actionable event, stop observing and route the evidence back to Stage6 policy tuning.
+
+## Scope
+
+- Repo: `US_Alpha_Seeker` produces the canonical `STAGE6_ALPHA_FINAL_*.json` signal artifact.
+- Consumer: `alpha-exec-engine` sidecar consumes the fresh hash in safe/report-only mode.
+- Mutation policy: no broker mutation, no state mutation, no replace/submit without a separate approval gate.
+
+## Track A - Fresh Stage6 Evidence
+
+Confirm the latest Auto-Scheduler run is at or after the expected head, then inspect the Stage6 dispatch artifact and final row payload.
+
+Done when the Stage6 row evidence includes:
+
+- `targetRecalibrationRequiredTargetPrice`
+- `targetRecalibrationCurrentTargetGapPct`
+- `targetRecalibrationCandidate`
+- `targetNoTradeConfirmed`
+- `targetRecalibrationViabilityVerdict`
+- `targetRecalibrationGapPolicyPct`
+- `riskGeometryProofVerdict`
+- `riskGeometryProofReasons`
+- `breakoutRetestProofRetestTouchFound`
+- `breakoutRetestProofRetestFresh`
+- `breakoutRetestProofCurrentExtensionOk`
+
+Interpretation:
+
+- `targetRecalibrationCandidate=true` means producer-side target recalibration is review-ready, not executable.
+- `targetNoTradeConfirmed=true` means keep no-trade until fresh target/thesis evidence exists.
+- `breakoutRetestProofReviewReady=true` is diagnostic only.
+- `breakoutRetestProofConfirmed=true` may become executable only if the explicit promotion flag is enabled; review-ready never promotes.
+
+## Track B - First Fresh RTH Sidecar Run
+
+After RTH opens, inspect only the first sidecar run that consumes the fresh Stage6 hash.
+
+Required safe-mode checks:
+
+- `previewStale=false`
+- `decisionAuditRows>0`
+- `payloadExpectation.status` present
+- `topSkipReasonCategories` present and not opaque `none`/`other` when candidates exist
+- `brokerMutationAttempted=false` or `attempted=0`
+- `brokerMutationSubmitted=false` or `submitted=0`
+
+If there is no payload, classify the blocker and stop the watch loop. Do not wait indefinitely.
+
+Expected zero-executable routing:
+
+- target/current issues -> `TARGET_RECALIBRATION`
+- stop/target geometry issues -> `STOP_TARGET_RISK_GEOMETRY_RECALCULATION` or `RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION`
+- breakout waits -> `BREAKOUT_PROOF_CONFIRMED_GENERATION`
+- explicit structure rejects -> `STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION`
+- non-actionable verdicts -> `quality_gate`
+
+## Exit Rules
+
+- If an actionable payload appears in safe mode, verify it remains non-mutating and wait for an explicit execution approval gate before any broker path.
+- If zero-executable repeats, do not keep observing. Move to Stage6 producer tuning using the row-level proof fields.
+- If sidecar consumes a stale hash, fix artifact handoff/freshness before discussing entry/reprice/submit behavior.

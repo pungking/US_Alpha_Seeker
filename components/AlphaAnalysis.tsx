@@ -154,6 +154,11 @@ interface AlphaCandidate {
   targetRecalibrationRequiredTargetBufferPct?: number | null;
   targetRecalibrationRequiredRr?: number | null;
   targetRecalibrationCurrentTargetGapPct?: number | null;
+  targetRecalibrationCandidate?: boolean | null;
+  targetNoTradeConfirmed?: boolean | null;
+  targetRecalibrationViabilityVerdict?: string | null;
+  targetRecalibrationViabilityReasons?: string[] | null;
+  targetRecalibrationGapPolicyPct?: number | null;
   targetRecalibrationReasons?: string[] | null;
   targetRecalibrationRecommendedAction?: string | null;
   riskGeometryPolicyVerdict?: string | null;
@@ -643,6 +648,11 @@ type Stage6TargetPolicyPayload = {
   requiredTargetBufferPct: number | null;
   requiredRr: number | null;
   currentTargetGapPct: number | null;
+  recalibrationCandidate: boolean;
+  noTradeConfirmed: boolean;
+  viabilityVerdict: string;
+  viabilityReasons: string[];
+  gapPolicyPct: number;
   reasons: string[];
   recommendedAction: string;
 };
@@ -687,6 +697,10 @@ const BREAKOUT_RETEST_PROOF_POLICY = {
   maxBarsSinceRetest: 12,
   retestTolerancePct: 2.0,
   maxCurrentExtensionFromRetestPct: 8.0
+};
+
+const TARGET_RECALIBRATION_POLICY = {
+  maxRequiredTargetGapPct: 20.0
 };
 
 const roundOrNull = (value: number | null, digits: number): number | null => {
@@ -1171,14 +1185,63 @@ const deriveTargetRecalibrationPolicy = (input: {
     requiredTargetPrice > 0
       ? ((input.target - requiredTargetPrice) / requiredTargetPrice) * 100
       : null;
+  const targetRecalibrationGapPolicyPct = TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct;
+  const currentTargetShortfallPct =
+    currentTargetGapPct != null && Number.isFinite(currentTargetGapPct) && currentTargetGapPct < 0
+      ? Math.abs(currentTargetGapPct)
+      : 0;
+  const targetInputsValid =
+    input.price != null &&
+    input.target != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.target) &&
+    input.price > 0 &&
+    input.target > input.price &&
+    requiredTargetPrice != null &&
+    currentTargetGapPct != null &&
+    Number.isFinite(currentTargetGapPct);
+  const targetGeometryRequiresAction = targetAlreadyReached || targetBufferWeak;
+  const targetRecalibrationCandidate =
+    input.decisionReason === 'wait_target_near_current' &&
+    !targetAlreadyReached &&
+    targetGeometryRequiresAction &&
+    targetInputsValid &&
+    currentTargetGapPct < 0 &&
+    currentTargetShortfallPct <= targetRecalibrationGapPolicyPct;
+  const targetNoTradeConfirmed =
+    targetAlreadyReached ||
+    (targetGeometryRequiresAction &&
+      !targetRecalibrationCandidate &&
+      (!targetInputsValid || currentTargetShortfallPct > targetRecalibrationGapPolicyPct));
+  const viabilityReasons = [
+    ...(targetAlreadyReached ? ['target_not_above_current'] : []),
+    ...(!targetInputsValid && targetGeometryRequiresAction ? ['target_recalibration_inputs_incomplete'] : []),
+    ...(currentTargetGapPct != null && currentTargetGapPct < 0 ? ['current_target_below_required_target'] : []),
+    ...(currentTargetShortfallPct > targetRecalibrationGapPolicyPct ? ['target_recalibration_gap_above_policy'] : []),
+    ...(targetRecalibrationCandidate ? ['target_recalibration_gap_within_policy'] : []),
+    ...(targetNoTradeConfirmed && !targetAlreadyReached ? ['target_no_trade_until_fresh_thesis'] : [])
+  ];
+  const viabilityVerdict = targetRecalibrationCandidate
+    ? 'TARGET_RECALIBRATION_CANDIDATE_WITHIN_GAP_POLICY'
+    : targetNoTradeConfirmed
+      ? targetAlreadyReached
+        ? 'TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT'
+        : currentTargetShortfallPct > targetRecalibrationGapPolicyPct
+          ? 'TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_GAP_TOO_WIDE'
+          : 'TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_EVIDENCE_INCOMPLETE'
+      : 'TARGET_VIABILITY_NOT_APPLICABLE';
   const targetEvidence = {
     currentTargetPrice: roundOrNull(input.target, 4),
     requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
     requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
     requiredRr: roundOrNull(minRr, 2),
-    currentTargetGapPct: roundOrNull(currentTargetGapPct, 2)
+    currentTargetGapPct: roundOrNull(currentTargetGapPct, 2),
+    recalibrationCandidate: targetRecalibrationCandidate,
+    noTradeConfirmed: targetNoTradeConfirmed,
+    viabilityVerdict,
+    viabilityReasons: viabilityReasons.length ? viabilityReasons : ['target_viability_not_applicable'],
+    gapPolicyPct: roundOrNull(targetRecalibrationGapPolicyPct, 2) ?? targetRecalibrationGapPolicyPct
   };
-  const targetGeometryRequiresAction = targetAlreadyReached || targetBufferWeak;
   if (input.decisionReason !== 'wait_target_near_current' && !targetGeometryRequiresAction) {
     return {
       verdict: 'TARGET_POLICY_NOT_APPLICABLE',
@@ -1207,13 +1270,37 @@ const deriveTargetRecalibrationPolicy = (input: {
       recommendedAction: 'Keep no-trade. Require fresh target/thesis recalibration before this can become executable.'
     };
   }
+  if (targetNoTradeConfirmed) {
+    return {
+      verdict: 'TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE',
+      recalibrationRequired: true,
+      noChaseRequired: true,
+      ...targetEvidence,
+      reasons: [
+        ...new Set([
+          ...(reasons.length ? reasons : ['target_buffer_near_current']),
+          ...targetEvidence.viabilityReasons
+        ])
+      ],
+      recommendedAction: 'Keep no-trade. Target shortfall is outside the recalibration review band; require fresh Stage6 target source/thesis, not sidecar chase.'
+    };
+  }
   return {
-    verdict: 'TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED',
+    verdict: targetRecalibrationCandidate
+      ? 'TARGET_NEAR_CURRENT_RECALIBRATION_REVIEW_READY'
+      : 'TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED',
     recalibrationRequired: true,
     noChaseRequired: true,
     ...targetEvidence,
-    reasons: reasons.length ? reasons : ['target_buffer_near_current'],
-    recommendedAction: 'Recompute target/stop thesis. Do not solve with sidecar chase or open-order replace.'
+    reasons: [
+      ...new Set([
+        ...(reasons.length ? reasons : ['target_buffer_near_current']),
+        ...targetEvidence.viabilityReasons
+      ])
+    ],
+    recommendedAction: targetRecalibrationCandidate
+      ? 'Review producer-side target recalibration using fresh source evidence. Do not solve with sidecar chase or open-order replace.'
+      : 'Recompute target/stop thesis. Do not solve with sidecar chase or open-order replace.'
   };
 };
 
@@ -6380,6 +6467,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: targetRecalibrationPolicy.requiredTargetBufferPct,
               targetRecalibrationRequiredRr: targetRecalibrationPolicy.requiredRr,
               targetRecalibrationCurrentTargetGapPct: targetRecalibrationPolicy.currentTargetGapPct,
+              targetRecalibrationCandidate: targetRecalibrationPolicy.recalibrationCandidate,
+              targetNoTradeConfirmed: targetRecalibrationPolicy.noTradeConfirmed,
+              targetRecalibrationViabilityVerdict: targetRecalibrationPolicy.viabilityVerdict,
+              targetRecalibrationViabilityReasons: targetRecalibrationPolicy.viabilityReasons,
+              targetRecalibrationGapPolicyPct: targetRecalibrationPolicy.gapPolicyPct,
               targetRecalibrationReasons: targetRecalibrationPolicy.reasons,
               targetRecalibrationRecommendedAction: targetRecalibrationPolicy.recommendedAction,
               riskGeometryPolicyVerdict: riskGeometryPolicy.verdict,
@@ -6542,6 +6634,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: executionContract.targetRecalibrationRequiredTargetBufferPct,
               targetRecalibrationRequiredRr: executionContract.targetRecalibrationRequiredRr,
               targetRecalibrationCurrentTargetGapPct: executionContract.targetRecalibrationCurrentTargetGapPct,
+              targetRecalibrationCandidate: executionContract.targetRecalibrationCandidate,
+              targetNoTradeConfirmed: executionContract.targetNoTradeConfirmed,
+              targetRecalibrationViabilityVerdict: executionContract.targetRecalibrationViabilityVerdict,
+              targetRecalibrationViabilityReasons: executionContract.targetRecalibrationViabilityReasons,
+              targetRecalibrationGapPolicyPct: executionContract.targetRecalibrationGapPolicyPct,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
@@ -6994,6 +7091,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: executionContract.targetRecalibrationRequiredTargetBufferPct,
               targetRecalibrationRequiredRr: executionContract.targetRecalibrationRequiredRr,
               targetRecalibrationCurrentTargetGapPct: executionContract.targetRecalibrationCurrentTargetGapPct,
+              targetRecalibrationCandidate: executionContract.targetRecalibrationCandidate,
+              targetNoTradeConfirmed: executionContract.targetNoTradeConfirmed,
+              targetRecalibrationViabilityVerdict: executionContract.targetRecalibrationViabilityVerdict,
+              targetRecalibrationViabilityReasons: executionContract.targetRecalibrationViabilityReasons,
+              targetRecalibrationGapPolicyPct: executionContract.targetRecalibrationGapPolicyPct,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
@@ -7295,6 +7397,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetBufferPct),
               targetRecalibrationRequiredRr: toOptionalFiniteNumber(item.targetRecalibrationRequiredRr),
               targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item.targetRecalibrationCurrentTargetGapPct),
+              targetRecalibrationCandidate: item.targetRecalibrationCandidate == null ? null : Boolean(item.targetRecalibrationCandidate),
+              targetNoTradeConfirmed: item.targetNoTradeConfirmed == null ? null : Boolean(item.targetNoTradeConfirmed),
+              targetRecalibrationViabilityVerdict: normalizeOptionalText(item.targetRecalibrationViabilityVerdict),
+              targetRecalibrationViabilityReasons: Array.isArray(item.targetRecalibrationViabilityReasons) ? item.targetRecalibrationViabilityReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              targetRecalibrationGapPolicyPct: toOptionalFiniteNumber(item.targetRecalibrationGapPolicyPct),
               targetRecalibrationReasons: Array.isArray(item.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item.riskGeometryPolicyVerdict),
@@ -7431,6 +7538,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetBufferPct),
               targetRecalibrationRequiredRr: toOptionalFiniteNumber(item?.targetRecalibrationRequiredRr),
               targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item?.targetRecalibrationCurrentTargetGapPct),
+              targetRecalibrationCandidate: item?.targetRecalibrationCandidate == null ? null : Boolean(item.targetRecalibrationCandidate),
+              targetNoTradeConfirmed: item?.targetNoTradeConfirmed == null ? null : Boolean(item.targetNoTradeConfirmed),
+              targetRecalibrationViabilityVerdict: normalizeOptionalText(item?.targetRecalibrationViabilityVerdict),
+              targetRecalibrationViabilityReasons: Array.isArray(item?.targetRecalibrationViabilityReasons) ? item.targetRecalibrationViabilityReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              targetRecalibrationGapPolicyPct: toOptionalFiniteNumber(item?.targetRecalibrationGapPolicyPct),
               targetRecalibrationReasons: Array.isArray(item?.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item?.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item?.riskGeometryPolicyVerdict),
@@ -7632,6 +7744,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofPolicy: BREAKOUT_RETEST_PROOF_POLICY,
               breakoutRetestProofPromotionEnabled: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED,
               breakoutRetestProofPromotionRule: "proofConfirmed_and_current_rr_target_buffer_required; reviewReady_never_promotes",
+              targetRecalibrationPolicy: TARGET_RECALIBRATION_POLICY,
               adaptiveCurrentEntryRule: "WAIT_PULLBACK_TOO_DEEP cannot promote without recalculated-stop structure proof or confirmed breakout retest proof",
               targetGeometryRule: "target/current geometry requires Stage6 recalibration or NO_TRADE; sidecar reprice must not chase target-near-current cases",
               riskGeometryRule: "stop/RR/target geometry must be resolved by Stage6 recalibration proof or no-trade; sidecar must not relax risk gates",

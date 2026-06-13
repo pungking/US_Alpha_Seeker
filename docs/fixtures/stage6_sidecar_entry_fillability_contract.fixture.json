@@ -16,7 +16,10 @@
       "STOP_TARGET_RISK_GEOMETRY_RECALCULATION",
       "BREAKOUT_PROOF_CONFIRMED_GENERATION"
     ],
-    "zeroExecutableStructureRule": "structure waits require stronger producer proof; do not relax structure gates as the default zero-executable response"
+    "zeroExecutableStructureRule": "structure waits require stronger producer proof; do not relax structure gates as the default zero-executable response",
+    "targetRecalibrationPolicy": {
+      "maxRequiredTargetGapPct": 20
+    }
   },
   "candidates": [
     {
@@ -207,37 +210,84 @@
       "zeroExecutableTuningRecommendedAction": "Generate fresh retest proof and set proofConfirmed=true before any executable promotion."
     },
     {
+      "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
+      "aiVerdict": "BUY",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_breakout_retest_required",
+      "executionActionableVerdict": true,
+      "entryExecPrice": 100,
+      "targetPrice": 140,
+      "stopLoss": 92,
+      "rrAtCurrentPrice": 2.2,
+      "entryDistancePct": 10.5,
+      "targetBufferFromCurrentPct": 20,
+      "executionFeasibilityAtCurrent": "BLOCKED",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND",
+      "executionFeasibilityAtCurrentReason": "wait_breakout_retest_required",
+      "executionFeasibilityAtCurrentRr": 2.2,
+      "executionFeasibilityAtCurrentDistancePct": 10.5,
+      "executionFeasibilityAtCurrentMinRr": 1.8,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "breakoutRetestProofVerdict": "BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE",
+      "breakoutRetestProofConfirmed": true,
+      "breakoutRetestProofReviewReady": false,
+      "breakoutRetestProofReasons": [],
+      "breakoutRetestProofTolerancePct": 2,
+      "breakoutRetestProofMaxBarsSinceRetest": 12,
+      "breakoutRetestProofMaxExtensionPct": 8,
+      "breakoutRetestProofRetestTouchFound": true,
+      "breakoutRetestProofRetestFresh": true,
+      "breakoutRetestProofCurrentExtensionOk": true,
+      "breakoutRetestProofLatestCloseAboveRetest": true,
+      "breakoutRetestPromotionVerdict": "BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED",
+      "breakoutRetestPromotionEligible": true,
+      "breakoutRetestPromotionEnabled": false,
+      "breakoutRetestPromotionReasons": [
+        "proof_confirmed_promotion_flag_disabled"
+      ],
+      "breakoutRetestPromotionRecommendedAction": "Keep WAIT_PRICE until a separate Stage6 producer policy change explicitly enables proof-confirmed promotion.",
+      "zeroExecutableTuningLane": "BREAKOUT_PROOF_CONFIRMED_GENERATION",
+      "zeroExecutableTuningVerdict": "BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED",
+      "zeroExecutablePrimaryTuningTarget": true,
+      "zeroExecutableTuningReasons": [
+        "proof_confirmed_promotion_flag_disabled"
+      ],
+      "zeroExecutableTuningRecommendedAction": "Proof exists, but producer promotion remains disabled; do not emit executable without an explicit policy flag."
+    },
+    {
       "symbol": "TARGET_NEAR_WAIT",
       "aiVerdict": "STRONG_BUY",
       "finalDecision": "WAIT_PRICE",
       "decisionReason": "wait_target_near_current",
       "executionActionableVerdict": true,
       "entryExecPrice": 100,
-      "targetPrice": 101,
+      "targetPrice": 102.8,
       "stopLoss": 94,
-      "rrAtCurrentPrice": 0.4,
+      "rrAtCurrentPrice": 1.2,
       "entryDistancePct": 1,
-      "targetBufferFromCurrentPct": 0.8,
+      "targetBufferFromCurrentPct": 2.8,
       "executionFeasibilityAtCurrent": "BLOCKED",
       "executionFeasibilityAtCurrentVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN",
       "executionFeasibilityAtCurrentReason": "wait_target_near_current",
-      "executionFeasibilityAtCurrentRr": 0.4,
+      "executionFeasibilityAtCurrentRr": 1.2,
       "executionFeasibilityAtCurrentDistancePct": 1,
       "executionFeasibilityAtCurrentMinRr": 1.8,
       "executionFeasibilityAtCurrentMaxDistancePct": 6,
-      "targetRecalibrationVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED",
+      "targetRecalibrationVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REVIEW_READY",
       "targetRecalibrationRequired": true,
       "targetNoChaseRequired": true,
-      "targetRecalibrationCurrentTargetPrice": 101,
+      "targetRecalibrationCurrentTargetPrice": 102.8,
       "targetRecalibrationRequiredTargetPrice": 104.5,
       "targetRecalibrationRequiredTargetBufferPct": 4.5,
       "targetRecalibrationRequiredRr": 1.8,
-      "targetRecalibrationCurrentTargetGapPct": -3.35,
+      "targetRecalibrationCurrentTargetGapPct": -1.63,
       "targetRecalibrationReasons": [
         "target_buffer_below_review_floor",
-        "current_rr_weak_or_unavailable"
+        "current_rr_weak_or_unavailable",
+        "current_target_below_required_target",
+        "target_recalibration_gap_within_policy"
       ],
-      "targetRecalibrationRecommendedAction": "Recompute target/stop thesis.",
+      "targetRecalibrationRecommendedAction": "Review producer-side target recalibration using fresh source evidence. Do not solve with sidecar chase or open-order replace.",
       "riskGeometryPolicyVerdict": "TARGET_GEOMETRY_RECALIBRATION_REQUIRED",
       "riskGeometryRecalibrationRequired": true,
       "riskGeometryNoTradeRequired": true,
@@ -255,13 +305,95 @@
       ],
       "riskGeometryRecommendedAction": "Treat as target recalibration or no-trade. Sidecar chase/reprice must not solve target-near-current geometry.",
       "zeroExecutableTuningLane": "TARGET_RECALIBRATION",
-      "zeroExecutableTuningVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REQUIRED",
+      "zeroExecutableTuningVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REVIEW_READY",
       "zeroExecutablePrimaryTuningTarget": true,
       "zeroExecutableTuningReasons": [
         "target_buffer_below_review_floor",
-        "current_rr_weak_or_unavailable"
+        "current_rr_weak_or_unavailable",
+        "current_target_below_required_target",
+        "target_recalibration_gap_within_policy"
       ],
-      "zeroExecutableTuningRecommendedAction": "Recompute target/stop thesis."
+      "zeroExecutableTuningRecommendedAction": "Review producer-side target recalibration using fresh source evidence. Do not solve with sidecar chase or open-order replace.",
+      "targetRecalibrationCandidate": true,
+      "targetNoTradeConfirmed": false,
+      "targetRecalibrationViabilityVerdict": "TARGET_RECALIBRATION_CANDIDATE_WITHIN_GAP_POLICY",
+      "targetRecalibrationViabilityReasons": [
+        "current_target_below_required_target",
+        "target_recalibration_gap_within_policy"
+      ],
+      "targetRecalibrationGapPolicyPct": 20
+    },
+    {
+      "symbol": "TARGET_GAP_NO_TRADE",
+      "aiVerdict": "STRONG_BUY",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_target_near_current",
+      "executionActionableVerdict": true,
+      "entryExecPrice": 100,
+      "targetPrice": 101,
+      "stopLoss": 94,
+      "rrAtCurrentPrice": 0.05,
+      "entryDistancePct": 1,
+      "targetBufferFromCurrentPct": 0.8,
+      "executionFeasibilityAtCurrent": "BLOCKED",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN",
+      "executionFeasibilityAtCurrentReason": "wait_target_near_current",
+      "executionFeasibilityAtCurrentRr": 0.05,
+      "executionFeasibilityAtCurrentDistancePct": 1,
+      "executionFeasibilityAtCurrentMinRr": 1.8,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "targetRecalibrationVerdict": "TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE",
+      "targetRecalibrationRequired": true,
+      "targetNoChaseRequired": true,
+      "targetRecalibrationCurrentTargetPrice": 101,
+      "targetRecalibrationRequiredTargetPrice": 136,
+      "targetRecalibrationRequiredTargetBufferPct": 36,
+      "targetRecalibrationRequiredRr": 1.8,
+      "targetRecalibrationCurrentTargetGapPct": -25.74,
+      "targetRecalibrationReasons": [
+        "target_buffer_below_review_floor",
+        "current_rr_weak_or_unavailable",
+        "current_target_below_required_target",
+        "target_recalibration_gap_above_policy",
+        "target_no_trade_until_fresh_thesis"
+      ],
+      "targetRecalibrationRecommendedAction": "Keep no-trade. Target shortfall is outside the recalibration review band; require fresh Stage6 target source/thesis, not sidecar chase.",
+      "riskGeometryPolicyVerdict": "TARGET_GEOMETRY_RECALIBRATION_REQUIRED",
+      "riskGeometryRecalibrationRequired": true,
+      "riskGeometryNoTradeRequired": true,
+      "riskGeometryRecalculatedStopCandidate": false,
+      "riskGeometryProofVerdict": "RECALCULATED_STOP_PROOF_INCOMPLETE",
+      "riskGeometryProofReasons": [
+        "current_entry_recalc_not_feasible",
+        "structure_not_confirmed",
+        "required_stop_invalid",
+        "recalculated_stop_rr_below_min"
+      ],
+      "riskGeometryReasons": [
+        "target_buffer_below_min",
+        "current_rr_below_min"
+      ],
+      "riskGeometryRecommendedAction": "Treat as target recalibration or no-trade. Sidecar chase/reprice must not solve target-near-current geometry.",
+      "zeroExecutableTuningLane": "TARGET_RECALIBRATION",
+      "zeroExecutableTuningVerdict": "TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE",
+      "zeroExecutablePrimaryTuningTarget": true,
+      "zeroExecutableTuningReasons": [
+        "target_buffer_below_review_floor",
+        "current_rr_weak_or_unavailable",
+        "current_target_below_required_target",
+        "target_recalibration_gap_above_policy",
+        "target_no_trade_until_fresh_thesis"
+      ],
+      "zeroExecutableTuningRecommendedAction": "Keep no-trade. Target shortfall is outside the recalibration review band; require fresh Stage6 target source/thesis, not sidecar chase.",
+      "targetRecalibrationCandidate": false,
+      "targetNoTradeConfirmed": true,
+      "targetRecalibrationViabilityVerdict": "TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_GAP_TOO_WIDE",
+      "targetRecalibrationViabilityReasons": [
+        "current_target_below_required_target",
+        "target_recalibration_gap_above_policy",
+        "target_no_trade_until_fresh_thesis"
+      ],
+      "targetRecalibrationGapPolicyPct": 20
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
