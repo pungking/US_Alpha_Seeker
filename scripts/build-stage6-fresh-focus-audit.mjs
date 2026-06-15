@@ -146,13 +146,24 @@ function compactRow(row) {
     zeroExecutableTuningVerdict: row?.zeroExecutableTuningVerdict || null,
     breakoutRetestProofConfirmed: row?.breakoutRetestProofConfirmed ?? null,
     breakoutRetestProofReviewReady: row?.breakoutRetestProofReviewReady ?? null,
+    breakoutRetestProofContinuationConfirmed: row?.breakoutRetestProofContinuationConfirmed ?? null,
+    breakoutRetestProofMaxContinuationExtensionPct: numberOrNull(row?.breakoutRetestProofMaxContinuationExtensionPct),
+    breakoutRetestProofContinuationMinRr: numberOrNull(row?.breakoutRetestProofContinuationMinRr),
+    breakoutRetestProofContinuationMinTargetBufferPct: numberOrNull(row?.breakoutRetestProofContinuationMinTargetBufferPct),
     breakoutRetestPromotionVerdict: row?.breakoutRetestPromotionVerdict || null,
     targetRecalibrationVerdict: row?.targetRecalibrationVerdict || null,
     targetRecalibrationCandidate: row?.targetRecalibrationCandidate ?? null,
     targetNoTradeConfirmed: row?.targetNoTradeConfirmed ?? null,
     targetRecalibrationViabilityVerdict: row?.targetRecalibrationViabilityVerdict || null,
     targetRecalibrationCurrentTargetGapPct: numberOrNull(row?.targetRecalibrationCurrentTargetGapPct),
+    targetRecalibrationRequiredTargetSource: row?.targetRecalibrationRequiredTargetSource || null,
+    targetRecalibrationRiskBasisStopDistancePct: numberOrNull(row?.targetRecalibrationRiskBasisStopDistancePct),
+    targetRecalibrationShortfallPct: numberOrNull(row?.targetRecalibrationShortfallPct),
     riskGeometryPolicyVerdict: row?.riskGeometryPolicyVerdict || null,
+    riskGeometryRequiredTargetPrice: numberOrNull(row?.riskGeometryRequiredTargetPrice),
+    riskGeometryRequiredTargetBufferPct: numberOrNull(row?.riskGeometryRequiredTargetBufferPct),
+    riskGeometryTargetGapPct: numberOrNull(row?.riskGeometryTargetGapPct),
+    riskGeometryTargetRecalibrationCandidate: row?.riskGeometryTargetRecalibrationCandidate ?? null,
     rrAtCurrentPrice: numberOrNull(row?.rrAtCurrentPrice),
     entryDistancePct: numberOrNull(row?.entryDistancePctShadow ?? row?.entryDistancePct),
     targetBufferFromCurrentPct: numberOrNull(row?.targetBufferFromCurrentPct)
@@ -178,7 +189,10 @@ function buildMarkdown(report) {
   lines.push(`| latestQualityGateLaneCounts | ${esc(JSON.stringify(report.summary.latestQualityGateLaneCounts))} |`);
   lines.push(`| zeroExecutableTuningLaneCounts | ${esc(JSON.stringify(report.summary.zeroExecutableTuningLaneCounts))} |`);
   lines.push(`| breakoutRetestProofConfirmedCounts | ${esc(JSON.stringify(report.summary.breakoutRetestProofConfirmedCounts))} |`);
+  lines.push(`| breakoutContinuationConfirmedCounts | ${esc(JSON.stringify(report.summary.breakoutContinuationConfirmedCounts))} |`);
   lines.push(`| targetRecalibrationViabilityVerdictCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationViabilityVerdictCounts))} |`);
+  lines.push(`| targetRecalibrationRequiredTargetSourceCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationRequiredTargetSourceCounts))} |`);
+  lines.push(`| riskGeometryTargetRecalibrationCandidateCounts | ${esc(JSON.stringify(report.summary.riskGeometryTargetRecalibrationCandidateCounts))} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
   lines.push('');
   lines.push('## Field Coverage');
@@ -191,10 +205,10 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Row Focus');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Target Viability | RR@Cur | Dist% | TargetBuf% |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: |');
+  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Continuation | Target Source | Target Viability | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |');
   for (const row of report.rows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestProofContinuationConfirmed)} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
   lines.push('## Track Separation');
@@ -211,12 +225,23 @@ function main() {
   const rows = uniqueRows(stage6);
   const executableRows = rows.filter((row) => decisionOf(row) === 'EXECUTABLE_NOW');
   const qualityGateRows = rows.filter((row) => qualityGateLane(row));
+  const requiredFocusFields = [
+    'zeroExecutableTuningLane',
+    'breakoutRetestProofConfirmed',
+    'targetRecalibrationViabilityVerdict'
+  ];
   const fieldCoverage = {
     zeroExecutableTuningLane: requiredFieldCoverage(rows, 'zeroExecutableTuningLane'),
     breakoutRetestProofConfirmed: requiredFieldCoverage(rows, 'breakoutRetestProofConfirmed'),
-    targetRecalibrationViabilityVerdict: requiredFieldCoverage(rows, 'targetRecalibrationViabilityVerdict')
+    breakoutRetestProofContinuationConfirmed: requiredFieldCoverage(rows, 'breakoutRetestProofContinuationConfirmed'),
+    targetRecalibrationViabilityVerdict: requiredFieldCoverage(rows, 'targetRecalibrationViabilityVerdict'),
+    targetRecalibrationRequiredTargetSource: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetSource'),
+    riskGeometryTargetGapPct: requiredFieldCoverage(rows, 'riskGeometryTargetGapPct')
   };
-  const requiredCoveragePass = Object.values(fieldCoverage).every((coverage) => coverage.total > 0 && coverage.present === coverage.total);
+  const requiredCoveragePass = requiredFocusFields.every((field) => {
+    const coverage = fieldCoverage[field];
+    return coverage?.total > 0 && coverage.present === coverage.total;
+  });
   const hasOpaqueOtherOnly = rows.length > 0 && Object.keys(countBy(rows, blockerCategory)).length === 1 && countBy(rows, blockerCategory).other === rows.length;
   const overall = rows.length === 0
     ? 'fail_no_rows'
@@ -242,10 +267,14 @@ function main() {
       zeroExecutableTuningLaneCounts: countBy(rows, (row) => row?.zeroExecutableTuningLane || 'missing'),
       breakoutRetestProofConfirmedCounts: countBy(rows, (row) => String(row?.breakoutRetestProofConfirmed ?? 'missing')),
       breakoutRetestProofReviewReadyCounts: countBy(rows, (row) => String(row?.breakoutRetestProofReviewReady ?? 'missing')),
+      breakoutContinuationConfirmedCounts: countBy(rows, (row) => String(row?.breakoutRetestProofContinuationConfirmed ?? 'missing')),
       targetRecalibrationViabilityVerdictCounts: countBy(rows, (row) => row?.targetRecalibrationViabilityVerdict || 'missing'),
+      targetRecalibrationRequiredTargetSourceCounts: countBy(rows, (row) => row?.targetRecalibrationRequiredTargetSource || 'missing'),
+      riskGeometryTargetRecalibrationCandidateCounts: countBy(rows, (row) => String(row?.riskGeometryTargetRecalibrationCandidate ?? 'missing')),
       blockerCategoryCounts: countBy(rows, blockerCategory)
     },
     fieldCoverage,
+    requiredFocusFields,
     trackSeparation: {
       stage6ProducerTuning: ['breakout_proofConfirmed_criteria', 'target_recalibration_formula', 'risk_geometry_recalculation_evidence'],
       sidecarSubmitReprice: 'out_of_scope_until_executable_payload_and_explicit_approval',

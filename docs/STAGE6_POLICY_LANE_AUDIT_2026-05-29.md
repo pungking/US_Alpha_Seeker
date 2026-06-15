@@ -1,6 +1,6 @@
 # Stage6 Policy Lane Audit
 
-- GeneratedAt: 2026-06-15T14:31:54.232Z
+- GeneratedAt: 2026-06-15T15:09:03.297Z
 - Source Audit: state/stage6-execution-gate-audit.json
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-15_22-50-32.json
 - Latest Verdict: **WATCHLIST_WAIT_JUSTIFIED_OR_DATA_REPAIR_REQUIRED**
@@ -25,16 +25,16 @@
 
 ## Confirmation Proof Quality
 
-| Scope | Lane | Rows | Missing Proof | Explicit Rejects | Confirmed | Review Ready | Stale/Extended | Current RR OK |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| latest | structureConfirmation | 3 | 0 | 3 | 0 | 0 | 0 | 0 |
-| latest | breakoutRetest | 1 | 0 | 0 | 0 | 1 | 1 | 1 |
-| all | structureConfirmation | 78 | 0 | 78 | 0 | 0 | 0 | 0 |
-| all | breakoutRetest | 33 | 0 | 0 | 0 | 19 | 19 | 33 |
+| Scope | Lane | Rows | Missing Proof | Explicit Rejects | Confirmed | Continuation Confirmed | Review Ready | Stale/Extended | Current RR OK |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| latest | structureConfirmation | 3 | 0 | 3 | 0 | 0 | 0 | 0 | 0 |
+| latest | breakoutRetest | 1 | 0 | 0 | 0 | 0 | 1 | 1 | 1 |
+| all | structureConfirmation | 78 | 0 | 78 | 0 | 0 | 0 | 0 | 0 |
+| all | breakoutRetest | 33 | 0 | 0 | 0 | 0 | 19 | 19 | 33 |
 
 ### Proof Criteria
 
-- Breakout proofConfirmed requires: current_rr_and_target_buffer_pass, retest_touch_found, retest_fresh_within_maxBarsSinceRetest, current_extension_within_maxCurrentExtensionFromRetestPct, latest_close_above_retest_level.
+- Breakout proofConfirmed requires: path_a_retest_touch_found, path_a_retest_fresh_within_maxBarsSinceRetest, path_a_current_extension_within_maxCurrentExtensionFromRetestPct, path_a_latest_close_above_retest_level, path_b_no_retest_touch_but_latest_close_above_retest, path_b_current_extension_within_maxContinuationExtensionPct, path_b_rr_at_current_above_continuationMinRr, path_b_target_buffer_above_continuationMinTargetBufferPct.
 - Structure overblock review rule: structure wait is overblock-review only when explicit reject or missing proof coexists with acceptable current RR, target buffer, and distance inside the structure review band.
 
 ## Latest Quality Gate Separation

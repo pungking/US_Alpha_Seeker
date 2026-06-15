@@ -156,10 +156,14 @@ function breakoutDecision(row) {
         'Review-ready is diagnostic only. Promotion requires proofConfirmed=true and an explicit producer policy flag.'
     };
   }
-  if (row.breakoutRetestProofConfirmed === true || row.breakoutRetestProofVerdict === 'BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE') {
+  if (
+    row.breakoutRetestProofConfirmed === true ||
+    row.breakoutRetestProofVerdict === 'BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE' ||
+    row.breakoutRetestProofVerdict === 'BREAKOUT_CONTINUATION_CONFIRMED_CURRENT_ENTRY_CANDIDATE'
+  ) {
     return {
       laneDecision: 'BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY',
-      recommendedAction: 'Producer has explicit retest proof; next step is a separate Stage6 policy decision, not sidecar auto-promotion.'
+      recommendedAction: 'Producer has explicit retest or continuation proof; next step is a separate Stage6 policy decision, not sidecar auto-promotion.'
     };
   }
   if (row.breakoutRetestProofReviewReady === true || row.breakoutRetestProofVerdict === 'BREAKOUT_RETEST_PROOF_REVIEW_READY') {
@@ -302,6 +306,7 @@ function proofStats(rows) {
     breakout: {
       rows: breakoutRows.length,
       proofConfirmed: breakoutRows.filter((row) => row.breakoutRetestProofConfirmed === true).length,
+      continuationConfirmed: breakoutRows.filter((row) => row.breakoutRetestProofContinuationConfirmed === true).length,
       proofReviewReady: breakoutRows.filter((row) => row.breakoutRetestProofReviewReady === true).length,
       staleOrExtended: breakoutRows.filter((row) => {
         const reasons = rowReasonText(row, 'breakoutRetestProofReasons');
@@ -444,11 +449,14 @@ function buildReport(input) {
       latest: proofStats(latestRows),
       promotionRule: 'reviewReady is diagnostic only; only proofConfirmed plus a separate producer policy change can create EXECUTABLE_NOW',
       breakoutProofConfirmedCriteria: [
-        'current_rr_and_target_buffer_pass',
-        'retest_touch_found',
-        'retest_fresh_within_maxBarsSinceRetest',
-        'current_extension_within_maxCurrentExtensionFromRetestPct',
-        'latest_close_above_retest_level'
+        'path_a_retest_touch_found',
+        'path_a_retest_fresh_within_maxBarsSinceRetest',
+        'path_a_current_extension_within_maxCurrentExtensionFromRetestPct',
+        'path_a_latest_close_above_retest_level',
+        'path_b_no_retest_touch_but_latest_close_above_retest',
+        'path_b_current_extension_within_maxContinuationExtensionPct',
+        'path_b_rr_at_current_above_continuationMinRr',
+        'path_b_target_buffer_above_continuationMinTargetBufferPct'
       ],
       structureOverblockRule: 'structure wait is overblock-review only when explicit reject or missing proof coexists with acceptable current RR, target buffer, and distance inside the structure review band'
     },
@@ -531,6 +539,11 @@ function compactRow(row) {
     breakoutRetestProofRetestFresh: row.breakoutRetestProofRetestFresh ?? null,
     breakoutRetestProofCurrentExtensionOk: row.breakoutRetestProofCurrentExtensionOk ?? null,
     breakoutRetestProofLatestCloseAboveRetest: row.breakoutRetestProofLatestCloseAboveRetest ?? null,
+    breakoutRetestProofContinuationConfirmed: row.breakoutRetestProofContinuationConfirmed ?? null,
+    breakoutRetestProofContinuationExtensionOk: row.breakoutRetestProofContinuationExtensionOk ?? null,
+    breakoutRetestProofMaxContinuationExtensionPct: row.breakoutRetestProofMaxContinuationExtensionPct ?? null,
+    breakoutRetestProofContinuationMinRr: row.breakoutRetestProofContinuationMinRr ?? null,
+    breakoutRetestProofContinuationMinTargetBufferPct: row.breakoutRetestProofContinuationMinTargetBufferPct ?? null,
     breakoutRetestPromotionVerdict: row.breakoutRetestPromotionVerdict || null,
     breakoutRetestPromotionEligible: Boolean(row.breakoutRetestPromotionEligible),
     breakoutRetestPromotionEnabled: Boolean(row.breakoutRetestPromotionEnabled),
@@ -543,6 +556,9 @@ function compactRow(row) {
     targetRecalibrationRequiredTargetBufferPct: row.targetRecalibrationRequiredTargetBufferPct ?? null,
     targetRecalibrationRequiredRr: row.targetRecalibrationRequiredRr ?? null,
     targetRecalibrationCurrentTargetGapPct: row.targetRecalibrationCurrentTargetGapPct ?? null,
+    targetRecalibrationRequiredTargetSource: row.targetRecalibrationRequiredTargetSource || null,
+    targetRecalibrationRiskBasisStopDistancePct: row.targetRecalibrationRiskBasisStopDistancePct ?? null,
+    targetRecalibrationShortfallPct: row.targetRecalibrationShortfallPct ?? null,
     targetRecalibrationCandidate: row.targetRecalibrationCandidate ?? null,
     targetNoTradeConfirmed: row.targetNoTradeConfirmed ?? null,
     targetRecalibrationViabilityVerdict: row.targetRecalibrationViabilityVerdict || null,
@@ -557,6 +573,10 @@ function compactRow(row) {
     riskGeometryRecalculatedStopPrice: row.riskGeometryRecalculatedStopPrice ?? null,
     riskGeometryRecalculatedStopDistancePct: row.riskGeometryRecalculatedStopDistancePct ?? null,
     riskGeometryRrAtRecalculatedStop: row.riskGeometryRrAtRecalculatedStop ?? null,
+    riskGeometryRequiredTargetPrice: row.riskGeometryRequiredTargetPrice ?? null,
+    riskGeometryRequiredTargetBufferPct: row.riskGeometryRequiredTargetBufferPct ?? null,
+    riskGeometryTargetGapPct: row.riskGeometryTargetGapPct ?? null,
+    riskGeometryTargetRecalibrationCandidate: row.riskGeometryTargetRecalibrationCandidate ?? null,
     riskGeometryTargetBufferPct: row.riskGeometryTargetBufferPct ?? null,
     riskGeometryProofReasons: row.riskGeometryProofReasons || [],
     riskGeometryReasons: row.riskGeometryReasons || [],
@@ -600,8 +620,8 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Confirmation Proof Quality');
   lines.push('');
-  lines.push('| Scope | Lane | Rows | Missing Proof | Explicit Rejects | Confirmed | Review Ready | Stale/Extended | Current RR OK |');
-  lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| Scope | Lane | Rows | Missing Proof | Explicit Rejects | Confirmed | Continuation Confirmed | Review Ready | Stale/Extended | Current RR OK |');
+  lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   const proofScopes = [
     ['latest', report.summary.confirmationProofQuality?.latest],
     ['all', report.summary.confirmationProofQuality?.all]
@@ -609,8 +629,8 @@ function buildMarkdown(report) {
   for (const [scope, stats] of proofScopes) {
     const structure = stats?.structure || {};
     const breakout = stats?.breakout || {};
-    lines.push(`| ${scope} | structureConfirmation | ${structure.rows || 0} | ${structure.missingProofMetadata || 0} | ${structure.explicitRejects || 0} | ${structure.confirmed || 0} | ${structure.reviewReady || 0} | 0 | ${structure.currentRrAcceptable || 0} |`);
-    lines.push(`| ${scope} | breakoutRetest | ${breakout.rows || 0} | 0 | 0 | ${breakout.proofConfirmed || 0} | ${breakout.proofReviewReady || 0} | ${breakout.staleOrExtended || 0} | ${breakout.currentRrAcceptable || 0} |`);
+    lines.push(`| ${scope} | structureConfirmation | ${structure.rows || 0} | ${structure.missingProofMetadata || 0} | ${structure.explicitRejects || 0} | ${structure.confirmed || 0} | 0 | ${structure.reviewReady || 0} | 0 | ${structure.currentRrAcceptable || 0} |`);
+    lines.push(`| ${scope} | breakoutRetest | ${breakout.rows || 0} | 0 | 0 | ${breakout.proofConfirmed || 0} | ${breakout.continuationConfirmed || 0} | ${breakout.proofReviewReady || 0} | ${breakout.staleOrExtended || 0} | ${breakout.currentRrAcceptable || 0} |`);
   }
   lines.push('');
   lines.push('### Proof Criteria');

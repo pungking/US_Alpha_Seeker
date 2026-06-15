@@ -141,6 +141,11 @@ interface AlphaCandidate {
   breakoutRetestProofRetestFresh?: boolean | null;
   breakoutRetestProofCurrentExtensionOk?: boolean | null;
   breakoutRetestProofLatestCloseAboveRetest?: boolean | null;
+  breakoutRetestProofContinuationConfirmed?: boolean | null;
+  breakoutRetestProofContinuationExtensionOk?: boolean | null;
+  breakoutRetestProofMaxContinuationExtensionPct?: number | null;
+  breakoutRetestProofContinuationMinRr?: number | null;
+  breakoutRetestProofContinuationMinTargetBufferPct?: number | null;
   breakoutRetestPromotionVerdict?: string | null;
   breakoutRetestPromotionEligible?: boolean | null;
   breakoutRetestPromotionEnabled?: boolean | null;
@@ -154,6 +159,9 @@ interface AlphaCandidate {
   targetRecalibrationRequiredTargetBufferPct?: number | null;
   targetRecalibrationRequiredRr?: number | null;
   targetRecalibrationCurrentTargetGapPct?: number | null;
+  targetRecalibrationRequiredTargetSource?: string | null;
+  targetRecalibrationRiskBasisStopDistancePct?: number | null;
+  targetRecalibrationShortfallPct?: number | null;
   targetRecalibrationCandidate?: boolean | null;
   targetNoTradeConfirmed?: boolean | null;
   targetRecalibrationViabilityVerdict?: string | null;
@@ -169,6 +177,10 @@ interface AlphaCandidate {
   riskGeometryRecalculatedStopPrice?: number | null;
   riskGeometryRecalculatedStopDistancePct?: number | null;
   riskGeometryRrAtRecalculatedStop?: number | null;
+  riskGeometryRequiredTargetPrice?: number | null;
+  riskGeometryRequiredTargetBufferPct?: number | null;
+  riskGeometryTargetGapPct?: number | null;
+  riskGeometryTargetRecalibrationCandidate?: boolean | null;
   riskGeometryTargetBufferPct?: number | null;
   riskGeometryProofReasons?: string[] | null;
   riskGeometryReasons?: string[] | null;
@@ -620,6 +632,11 @@ type BreakoutRetestProofPayload = {
   retestFresh: boolean;
   currentExtensionOk: boolean;
   latestCloseAboveRetest: boolean;
+  continuationConfirmed: boolean;
+  continuationExtensionOk: boolean;
+  maxContinuationExtensionPct: number | null;
+  continuationMinRr: number | null;
+  continuationMinTargetBufferPct: number | null;
   rrAtCurrentPrice: number | null;
   targetBufferFromCurrentPct: number | null;
 };
@@ -648,6 +665,9 @@ type Stage6TargetPolicyPayload = {
   requiredTargetBufferPct: number | null;
   requiredRr: number | null;
   currentTargetGapPct: number | null;
+  requiredTargetSource: string | null;
+  riskBasisStopDistancePct: number | null;
+  shortfallPct: number | null;
   recalibrationCandidate: boolean;
   noTradeConfirmed: boolean;
   viabilityVerdict: string;
@@ -666,6 +686,10 @@ type Stage6RiskGeometryPolicyPayload = {
   recalculatedStopPrice: number | null;
   recalculatedStopDistancePct: number | null;
   rrAtRecalculatedStop: number | null;
+  requiredTargetPrice: number | null;
+  requiredTargetBufferPct: number | null;
+  targetGapPct: number | null;
+  targetRecalibrationCandidate: boolean;
   targetBufferPct: number | null;
   proofReasons: string[];
   reasons: string[];
@@ -696,7 +720,10 @@ const BREAKOUT_RETEST_PROOF_POLICY = {
   retestLookbackBars: 30,
   maxBarsSinceRetest: 12,
   retestTolerancePct: 2.0,
-  maxCurrentExtensionFromRetestPct: 8.0
+  maxCurrentExtensionFromRetestPct: 8.0,
+  maxContinuationExtensionPct: 25.0,
+  continuationMinRrMultiplier: 1.5,
+  continuationMinTargetBufferMultiplier: 3.0
 };
 
 const TARGET_RECALIBRATION_POLICY = {
@@ -877,6 +904,8 @@ const deriveBreakoutRetestProof = (input: {
     input.minTargetBufferPct != null && Number.isFinite(input.minTargetBufferPct) && input.minTargetBufferPct > 0
       ? input.minTargetBufferPct
       : 2;
+  const continuationMinRr = minRr * BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier;
+  const continuationMinTargetBufferPct = minTargetBufferPct * BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier;
   const bars = normalizeStage6StructureBars(input.priceHistory);
   const latest = bars[bars.length - 1] || null;
   const price = input.price;
@@ -902,6 +931,11 @@ const deriveBreakoutRetestProof = (input: {
     retestFresh: false,
     currentExtensionOk: false,
     latestCloseAboveRetest: false,
+    continuationConfirmed: false,
+    continuationExtensionOk: false,
+    maxContinuationExtensionPct: roundOrNull(policy.maxContinuationExtensionPct, 2),
+    continuationMinRr: roundOrNull(continuationMinRr, 2),
+    continuationMinTargetBufferPct: roundOrNull(continuationMinTargetBufferPct, 2),
     rrAtCurrentPrice: roundOrNull(input.rrAtCurrentPrice, 2),
     targetBufferFromCurrentPct: roundOrNull(input.targetBufferFromCurrentPct, 2)
   };
@@ -936,16 +970,38 @@ const deriveBreakoutRetestProof = (input: {
   const retestFresh = barsSinceRetest != null && barsSinceRetest <= policy.maxBarsSinceRetest;
   const currentExtensionOk = currentExtensionFromRetestPct <= policy.maxCurrentExtensionFromRetestPct;
   const latestCloseAboveRetest = Boolean(latest && latest.close >= entry);
+  const continuationExtensionOk = currentExtensionFromRetestPct <= policy.maxContinuationExtensionPct;
+  const continuationCurrentRrOk =
+    input.rrAtCurrentPrice != null &&
+    Number.isFinite(input.rrAtCurrentPrice) &&
+    input.rrAtCurrentPrice >= continuationMinRr;
+  const continuationTargetBufferOk =
+    input.targetBufferFromCurrentPct != null &&
+    Number.isFinite(input.targetBufferFromCurrentPct) &&
+    input.targetBufferFromCurrentPct >= continuationMinTargetBufferPct;
+  const continuationConfirmed = Boolean(
+    !retestTouchFound &&
+    latestCloseAboveRetest &&
+    continuationExtensionOk &&
+    continuationCurrentRrOk &&
+    continuationTargetBufferOk
+  );
   const reasons: string[] = [];
   if (!retestTouchFound) reasons.push('retest_touch_missing');
   if (!retestFresh) reasons.push(barsSinceRetest == null ? 'retest_freshness_unavailable' : 'retest_stale');
   if (!currentExtensionOk) reasons.push('current_extension_from_retest_high');
   if (!latestCloseAboveRetest) reasons.push('latest_close_below_retest_level');
+  if (!continuationExtensionOk) reasons.push('continuation_extension_high');
+  if (!continuationCurrentRrOk) reasons.push('continuation_rr_below_strong_floor');
+  if (!continuationTargetBufferOk) reasons.push('continuation_target_buffer_below_strong_floor');
 
-  const confirmed = reasons.length === 0;
+  const retestConfirmed = retestTouchFound && retestFresh && currentExtensionOk && latestCloseAboveRetest;
+  const confirmed = retestConfirmed || continuationConfirmed;
   const reviewReady = !confirmed && input.rrAtCurrentPrice >= minRr && input.targetBufferFromCurrentPct >= minTargetBufferPct;
   const verdict = confirmed
-    ? 'BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE'
+    ? retestConfirmed
+      ? 'BREAKOUT_RETEST_CONFIRMED_CURRENT_ENTRY_CANDIDATE'
+      : 'BREAKOUT_CONTINUATION_CONFIRMED_CURRENT_ENTRY_CANDIDATE'
     : reviewReady
       ? 'BREAKOUT_RETEST_PROOF_REVIEW_READY'
       : `BREAKOUT_RETEST_REJECT_${(reasons[0] || 'UNKNOWN').toUpperCase()}`;
@@ -953,7 +1009,11 @@ const deriveBreakoutRetestProof = (input: {
     verdict,
     confirmed,
     reviewReady,
-    reasons,
+    reasons: confirmed
+      ? retestConfirmed
+        ? ['retest_proof_confirmed']
+        : ['continuation_breakout_confirmed_without_retest_touch']
+      : reasons,
     ...basePayload,
     retestDate: latestRetest?.bar?.date ?? null,
     retestLow: roundOrNull(latestRetest?.bar?.low ?? null, 4),
@@ -962,7 +1022,12 @@ const deriveBreakoutRetestProof = (input: {
     retestTouchFound,
     retestFresh,
     currentExtensionOk,
-    latestCloseAboveRetest
+    latestCloseAboveRetest,
+    continuationConfirmed,
+    continuationExtensionOk,
+    maxContinuationExtensionPct: roundOrNull(policy.maxContinuationExtensionPct, 2),
+    continuationMinRr: roundOrNull(continuationMinRr, 2),
+    continuationMinTargetBufferPct: roundOrNull(continuationMinTargetBufferPct, 2)
   };
 };
 
@@ -1117,6 +1182,7 @@ const deriveTargetRecalibrationPolicy = (input: {
   rrAtCurrentPrice: number | null;
   target: number | null;
   price: number | null;
+  stop: number | null;
   minTargetBufferPct?: number | null;
   minRr?: number | null;
 }): Stage6TargetPolicyPayload => {
@@ -1146,7 +1212,17 @@ const deriveTargetRecalibrationPolicy = (input: {
     input.rrAtCurrentPrice == null ||
     !Number.isFinite(input.rrAtCurrentPrice) ||
     input.rrAtCurrentPrice < minRr;
-  const stopDistanceAtCurrent =
+  const actualStopDistanceAtCurrent =
+    input.price != null &&
+    input.stop != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.stop) &&
+    input.price > 0 &&
+    input.stop > 0 &&
+    input.stop < input.price
+      ? input.price - input.stop
+      : null;
+  const inferredStopDistanceAtCurrent =
     input.rrAtCurrentPrice != null &&
     Number.isFinite(input.rrAtCurrentPrice) &&
     input.rrAtCurrentPrice > 0 &&
@@ -1156,6 +1232,16 @@ const deriveTargetRecalibrationPolicy = (input: {
     Number.isFinite(input.price) &&
     input.target > input.price
       ? (input.target - input.price) / input.rrAtCurrentPrice
+      : null;
+  const stopDistanceAtCurrent = actualStopDistanceAtCurrent ?? inferredStopDistanceAtCurrent;
+  const requiredTargetSource = actualStopDistanceAtCurrent != null
+    ? 'actual_stop_risk'
+    : inferredStopDistanceAtCurrent != null
+      ? 'inferred_rr_risk'
+      : 'target_buffer_only';
+  const riskBasisStopDistancePct =
+    input.price != null && input.price > 0 && stopDistanceAtCurrent != null
+      ? (stopDistanceAtCurrent / input.price) * 100
       : null;
   const requiredTargetByBuffer =
     input.price != null && Number.isFinite(input.price) && input.price > 0
@@ -1236,6 +1322,9 @@ const deriveTargetRecalibrationPolicy = (input: {
     requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
     requiredRr: roundOrNull(minRr, 2),
     currentTargetGapPct: roundOrNull(currentTargetGapPct, 2),
+    requiredTargetSource,
+    riskBasisStopDistancePct: roundOrNull(riskBasisStopDistancePct, 2),
+    shortfallPct: roundOrNull(currentTargetShortfallPct, 2),
     recalibrationCandidate: targetRecalibrationCandidate,
     noTradeConfirmed: targetNoTradeConfirmed,
     viabilityVerdict,
@@ -1388,6 +1477,34 @@ const deriveRiskGeometryPolicy = (input: {
     input.target > input.price
       ? (input.target - input.price) / (input.price - input.currentEntryRequiredStopPrice)
       : null;
+  const requiredTargetByRecalculatedStop =
+    input.price != null &&
+    input.currentEntryRequiredStopPrice != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.currentEntryRequiredStopPrice) &&
+    input.price > input.currentEntryRequiredStopPrice &&
+    input.currentEntryRequiredStopPrice > 0
+      ? input.price + (input.price - input.currentEntryRequiredStopPrice) * input.minRr
+      : null;
+  const requiredTargetByBuffer =
+    input.price != null && Number.isFinite(input.price) && input.price > 0
+      ? input.price * (1 + input.minTargetBufferPct / 100)
+      : null;
+  const requiredTargetPrice =
+    requiredTargetByRecalculatedStop != null && requiredTargetByBuffer != null
+      ? Math.max(requiredTargetByRecalculatedStop, requiredTargetByBuffer)
+      : requiredTargetByRecalculatedStop ?? requiredTargetByBuffer ?? null;
+  const requiredTargetBufferPct =
+    requiredTargetPrice != null && input.price != null && Number.isFinite(input.price) && input.price > 0
+      ? ((requiredTargetPrice - input.price) / input.price) * 100
+      : null;
+  const targetGapPct =
+    requiredTargetPrice != null &&
+    input.target != null &&
+    Number.isFinite(input.target) &&
+    requiredTargetPrice > 0
+      ? ((input.target - requiredTargetPrice) / requiredTargetPrice) * 100
+      : null;
   const recalculatedStopRrOk =
     rrAtRecalculatedStop != null &&
     Number.isFinite(rrAtRecalculatedStop) &&
@@ -1399,6 +1516,14 @@ const deriveRiskGeometryPolicy = (input: {
     requiredStopDistanceValid &&
     targetAboveCurrent;
   const recalculatedStopProofConfirmed = recalculatedStopCandidate && recalculatedStopRrOk && targetBufferOk;
+  const targetRecalibrationCandidate = Boolean(
+    recalculatedStopCandidate &&
+    requiredTargetPrice != null &&
+    input.target != null &&
+    Number.isFinite(input.target) &&
+    targetGapPct != null &&
+    targetGapPct < 0
+  );
   const proofReasons = [
     ...(input.currentEntryRecalcFeasible ? [] : ['current_entry_recalc_not_feasible']),
     ...(input.currentEntryStructureConfirmed ? [] : ['structure_not_confirmed']),
@@ -1406,7 +1531,8 @@ const deriveRiskGeometryPolicy = (input: {
     ...(requiredStopDistanceValid ? [] : ['required_stop_distance_out_of_policy']),
     ...(targetAboveCurrent ? [] : ['target_not_above_current']),
     ...(recalculatedStopRrOk ? [] : ['recalculated_stop_rr_below_min']),
-    ...(targetBufferOk ? [] : ['target_buffer_below_min'])
+    ...(targetBufferOk ? [] : ['target_buffer_below_min']),
+    ...(targetRecalibrationCandidate ? ['target_below_required_after_recalculated_stop'] : [])
   ];
   const proofVerdict = recalculatedStopProofConfirmed
     ? 'RECALCULATED_STOP_PROOF_CONFIRMED'
@@ -1418,6 +1544,10 @@ const deriveRiskGeometryPolicy = (input: {
     recalculatedStopPrice: roundOrNull(input.currentEntryRequiredStopPrice, 4),
     recalculatedStopDistancePct: roundOrNull(input.currentEntryRequiredStopDistancePct, 2),
     rrAtRecalculatedStop: roundOrNull(rrAtRecalculatedStop, 2),
+    requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
+    requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
+    targetGapPct: roundOrNull(targetGapPct, 2),
+    targetRecalibrationCandidate,
     targetBufferPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
     proofReasons
   };
@@ -6337,6 +6467,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               rrAtCurrentPrice,
               target: mirroredTarget,
               price: livePrice,
+              stop: mirroredStop,
               minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
               minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
           });
@@ -6454,6 +6585,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestFresh: breakoutRetestProof.retestFresh,
               breakoutRetestProofCurrentExtensionOk: breakoutRetestProof.currentExtensionOk,
               breakoutRetestProofLatestCloseAboveRetest: breakoutRetestProof.latestCloseAboveRetest,
+              breakoutRetestProofContinuationConfirmed: breakoutRetestProof.continuationConfirmed,
+              breakoutRetestProofContinuationExtensionOk: breakoutRetestProof.continuationExtensionOk,
+              breakoutRetestProofMaxContinuationExtensionPct: breakoutRetestProof.maxContinuationExtensionPct,
+              breakoutRetestProofContinuationMinRr: breakoutRetestProof.continuationMinRr,
+              breakoutRetestProofContinuationMinTargetBufferPct: breakoutRetestProof.continuationMinTargetBufferPct,
               breakoutRetestPromotionVerdict: breakoutRetestPromotion.verdict,
               breakoutRetestPromotionEligible: breakoutRetestPromotion.eligible,
               breakoutRetestPromotionEnabled: breakoutRetestPromotion.enabled,
@@ -6467,6 +6603,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: targetRecalibrationPolicy.requiredTargetBufferPct,
               targetRecalibrationRequiredRr: targetRecalibrationPolicy.requiredRr,
               targetRecalibrationCurrentTargetGapPct: targetRecalibrationPolicy.currentTargetGapPct,
+              targetRecalibrationRequiredTargetSource: targetRecalibrationPolicy.requiredTargetSource,
+              targetRecalibrationRiskBasisStopDistancePct: targetRecalibrationPolicy.riskBasisStopDistancePct,
+              targetRecalibrationShortfallPct: targetRecalibrationPolicy.shortfallPct,
               targetRecalibrationCandidate: targetRecalibrationPolicy.recalibrationCandidate,
               targetNoTradeConfirmed: targetRecalibrationPolicy.noTradeConfirmed,
               targetRecalibrationViabilityVerdict: targetRecalibrationPolicy.viabilityVerdict,
@@ -6482,6 +6621,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopPrice: riskGeometryPolicy.recalculatedStopPrice,
               riskGeometryRecalculatedStopDistancePct: riskGeometryPolicy.recalculatedStopDistancePct,
               riskGeometryRrAtRecalculatedStop: riskGeometryPolicy.rrAtRecalculatedStop,
+              riskGeometryRequiredTargetPrice: riskGeometryPolicy.requiredTargetPrice,
+              riskGeometryRequiredTargetBufferPct: riskGeometryPolicy.requiredTargetBufferPct,
+              riskGeometryTargetGapPct: riskGeometryPolicy.targetGapPct,
+              riskGeometryTargetRecalibrationCandidate: riskGeometryPolicy.targetRecalibrationCandidate,
               riskGeometryTargetBufferPct: riskGeometryPolicy.targetBufferPct,
               riskGeometryProofReasons: riskGeometryPolicy.proofReasons,
               riskGeometryReasons: riskGeometryPolicy.reasons,
@@ -6621,6 +6764,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestFresh: executionContract.breakoutRetestProofRetestFresh,
               breakoutRetestProofCurrentExtensionOk: executionContract.breakoutRetestProofCurrentExtensionOk,
               breakoutRetestProofLatestCloseAboveRetest: executionContract.breakoutRetestProofLatestCloseAboveRetest,
+              breakoutRetestProofContinuationConfirmed: executionContract.breakoutRetestProofContinuationConfirmed,
+              breakoutRetestProofContinuationExtensionOk: executionContract.breakoutRetestProofContinuationExtensionOk,
+              breakoutRetestProofMaxContinuationExtensionPct: executionContract.breakoutRetestProofMaxContinuationExtensionPct,
+              breakoutRetestProofContinuationMinRr: executionContract.breakoutRetestProofContinuationMinRr,
+              breakoutRetestProofContinuationMinTargetBufferPct: executionContract.breakoutRetestProofContinuationMinTargetBufferPct,
               breakoutRetestPromotionVerdict: executionContract.breakoutRetestPromotionVerdict,
               breakoutRetestPromotionEligible: executionContract.breakoutRetestPromotionEligible,
               breakoutRetestPromotionEnabled: executionContract.breakoutRetestPromotionEnabled,
@@ -6634,6 +6782,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: executionContract.targetRecalibrationRequiredTargetBufferPct,
               targetRecalibrationRequiredRr: executionContract.targetRecalibrationRequiredRr,
               targetRecalibrationCurrentTargetGapPct: executionContract.targetRecalibrationCurrentTargetGapPct,
+              targetRecalibrationRequiredTargetSource: executionContract.targetRecalibrationRequiredTargetSource,
+              targetRecalibrationRiskBasisStopDistancePct: executionContract.targetRecalibrationRiskBasisStopDistancePct,
+              targetRecalibrationShortfallPct: executionContract.targetRecalibrationShortfallPct,
               targetRecalibrationCandidate: executionContract.targetRecalibrationCandidate,
               targetNoTradeConfirmed: executionContract.targetNoTradeConfirmed,
               targetRecalibrationViabilityVerdict: executionContract.targetRecalibrationViabilityVerdict,
@@ -6649,6 +6800,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopPrice: executionContract.riskGeometryRecalculatedStopPrice,
               riskGeometryRecalculatedStopDistancePct: executionContract.riskGeometryRecalculatedStopDistancePct,
               riskGeometryRrAtRecalculatedStop: executionContract.riskGeometryRrAtRecalculatedStop,
+              riskGeometryRequiredTargetPrice: executionContract.riskGeometryRequiredTargetPrice,
+              riskGeometryRequiredTargetBufferPct: executionContract.riskGeometryRequiredTargetBufferPct,
+              riskGeometryTargetGapPct: executionContract.riskGeometryTargetGapPct,
+              riskGeometryTargetRecalibrationCandidate: executionContract.riskGeometryTargetRecalibrationCandidate,
               riskGeometryTargetBufferPct: executionContract.riskGeometryTargetBufferPct,
               riskGeometryProofReasons: executionContract.riskGeometryProofReasons,
               riskGeometryReasons: executionContract.riskGeometryReasons,
@@ -7078,6 +7233,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestFresh: executionContract.breakoutRetestProofRetestFresh,
               breakoutRetestProofCurrentExtensionOk: executionContract.breakoutRetestProofCurrentExtensionOk,
               breakoutRetestProofLatestCloseAboveRetest: executionContract.breakoutRetestProofLatestCloseAboveRetest,
+              breakoutRetestProofContinuationConfirmed: executionContract.breakoutRetestProofContinuationConfirmed,
+              breakoutRetestProofContinuationExtensionOk: executionContract.breakoutRetestProofContinuationExtensionOk,
+              breakoutRetestProofMaxContinuationExtensionPct: executionContract.breakoutRetestProofMaxContinuationExtensionPct,
+              breakoutRetestProofContinuationMinRr: executionContract.breakoutRetestProofContinuationMinRr,
+              breakoutRetestProofContinuationMinTargetBufferPct: executionContract.breakoutRetestProofContinuationMinTargetBufferPct,
               breakoutRetestPromotionVerdict: executionContract.breakoutRetestPromotionVerdict,
               breakoutRetestPromotionEligible: executionContract.breakoutRetestPromotionEligible,
               breakoutRetestPromotionEnabled: executionContract.breakoutRetestPromotionEnabled,
@@ -7091,6 +7251,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: executionContract.targetRecalibrationRequiredTargetBufferPct,
               targetRecalibrationRequiredRr: executionContract.targetRecalibrationRequiredRr,
               targetRecalibrationCurrentTargetGapPct: executionContract.targetRecalibrationCurrentTargetGapPct,
+              targetRecalibrationRequiredTargetSource: executionContract.targetRecalibrationRequiredTargetSource,
+              targetRecalibrationRiskBasisStopDistancePct: executionContract.targetRecalibrationRiskBasisStopDistancePct,
+              targetRecalibrationShortfallPct: executionContract.targetRecalibrationShortfallPct,
               targetRecalibrationCandidate: executionContract.targetRecalibrationCandidate,
               targetNoTradeConfirmed: executionContract.targetNoTradeConfirmed,
               targetRecalibrationViabilityVerdict: executionContract.targetRecalibrationViabilityVerdict,
@@ -7106,6 +7269,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopPrice: executionContract.riskGeometryRecalculatedStopPrice,
               riskGeometryRecalculatedStopDistancePct: executionContract.riskGeometryRecalculatedStopDistancePct,
               riskGeometryRrAtRecalculatedStop: executionContract.riskGeometryRrAtRecalculatedStop,
+              riskGeometryRequiredTargetPrice: executionContract.riskGeometryRequiredTargetPrice,
+              riskGeometryRequiredTargetBufferPct: executionContract.riskGeometryRequiredTargetBufferPct,
+              riskGeometryTargetGapPct: executionContract.riskGeometryTargetGapPct,
+              riskGeometryTargetRecalibrationCandidate: executionContract.riskGeometryTargetRecalibrationCandidate,
               riskGeometryTargetBufferPct: executionContract.riskGeometryTargetBufferPct,
               riskGeometryProofReasons: executionContract.riskGeometryProofReasons,
               riskGeometryReasons: executionContract.riskGeometryReasons,
@@ -7384,6 +7551,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestFresh: item.breakoutRetestProofRetestFresh == null ? null : Boolean(item.breakoutRetestProofRetestFresh),
               breakoutRetestProofCurrentExtensionOk: item.breakoutRetestProofCurrentExtensionOk == null ? null : Boolean(item.breakoutRetestProofCurrentExtensionOk),
               breakoutRetestProofLatestCloseAboveRetest: item.breakoutRetestProofLatestCloseAboveRetest == null ? null : Boolean(item.breakoutRetestProofLatestCloseAboveRetest),
+              breakoutRetestProofContinuationConfirmed: item.breakoutRetestProofContinuationConfirmed == null ? null : Boolean(item.breakoutRetestProofContinuationConfirmed),
+              breakoutRetestProofContinuationExtensionOk: item.breakoutRetestProofContinuationExtensionOk == null ? null : Boolean(item.breakoutRetestProofContinuationExtensionOk),
+              breakoutRetestProofMaxContinuationExtensionPct: toOptionalFiniteNumber(item.breakoutRetestProofMaxContinuationExtensionPct),
+              breakoutRetestProofContinuationMinRr: toOptionalFiniteNumber(item.breakoutRetestProofContinuationMinRr),
+              breakoutRetestProofContinuationMinTargetBufferPct: toOptionalFiniteNumber(item.breakoutRetestProofContinuationMinTargetBufferPct),
               breakoutRetestPromotionVerdict: normalizeOptionalText(item.breakoutRetestPromotionVerdict),
               breakoutRetestPromotionEligible: Boolean(item.breakoutRetestPromotionEligible),
               breakoutRetestPromotionEnabled: Boolean(item.breakoutRetestPromotionEnabled),
@@ -7397,6 +7569,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetBufferPct),
               targetRecalibrationRequiredRr: toOptionalFiniteNumber(item.targetRecalibrationRequiredRr),
               targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item.targetRecalibrationCurrentTargetGapPct),
+              targetRecalibrationRequiredTargetSource: normalizeOptionalText(item.targetRecalibrationRequiredTargetSource),
+              targetRecalibrationRiskBasisStopDistancePct: toOptionalFiniteNumber(item.targetRecalibrationRiskBasisStopDistancePct),
+              targetRecalibrationShortfallPct: toOptionalFiniteNumber(item.targetRecalibrationShortfallPct),
               targetRecalibrationCandidate: item.targetRecalibrationCandidate == null ? null : Boolean(item.targetRecalibrationCandidate),
               targetNoTradeConfirmed: item.targetNoTradeConfirmed == null ? null : Boolean(item.targetNoTradeConfirmed),
               targetRecalibrationViabilityVerdict: normalizeOptionalText(item.targetRecalibrationViabilityVerdict),
@@ -7412,6 +7587,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopPrice: toOptionalFiniteNumber(item.riskGeometryRecalculatedStopPrice),
               riskGeometryRecalculatedStopDistancePct: toOptionalFiniteNumber(item.riskGeometryRecalculatedStopDistancePct),
               riskGeometryRrAtRecalculatedStop: toOptionalFiniteNumber(item.riskGeometryRrAtRecalculatedStop),
+              riskGeometryRequiredTargetPrice: toOptionalFiniteNumber(item.riskGeometryRequiredTargetPrice),
+              riskGeometryRequiredTargetBufferPct: toOptionalFiniteNumber(item.riskGeometryRequiredTargetBufferPct),
+              riskGeometryTargetGapPct: toOptionalFiniteNumber(item.riskGeometryTargetGapPct),
+              riskGeometryTargetRecalibrationCandidate: item.riskGeometryTargetRecalibrationCandidate == null ? null : Boolean(item.riskGeometryTargetRecalibrationCandidate),
               riskGeometryTargetBufferPct: toOptionalFiniteNumber(item.riskGeometryTargetBufferPct),
               riskGeometryProofReasons: Array.isArray(item.riskGeometryProofReasons) ? item.riskGeometryProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryReasons: Array.isArray(item.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
@@ -7525,6 +7704,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestFresh: item?.breakoutRetestProofRetestFresh == null ? null : Boolean(item.breakoutRetestProofRetestFresh),
               breakoutRetestProofCurrentExtensionOk: item?.breakoutRetestProofCurrentExtensionOk == null ? null : Boolean(item.breakoutRetestProofCurrentExtensionOk),
               breakoutRetestProofLatestCloseAboveRetest: item?.breakoutRetestProofLatestCloseAboveRetest == null ? null : Boolean(item.breakoutRetestProofLatestCloseAboveRetest),
+              breakoutRetestProofContinuationConfirmed: item?.breakoutRetestProofContinuationConfirmed == null ? null : Boolean(item.breakoutRetestProofContinuationConfirmed),
+              breakoutRetestProofContinuationExtensionOk: item?.breakoutRetestProofContinuationExtensionOk == null ? null : Boolean(item.breakoutRetestProofContinuationExtensionOk),
+              breakoutRetestProofMaxContinuationExtensionPct: toOptionalFiniteNumber(item?.breakoutRetestProofMaxContinuationExtensionPct),
+              breakoutRetestProofContinuationMinRr: toOptionalFiniteNumber(item?.breakoutRetestProofContinuationMinRr),
+              breakoutRetestProofContinuationMinTargetBufferPct: toOptionalFiniteNumber(item?.breakoutRetestProofContinuationMinTargetBufferPct),
               breakoutRetestPromotionVerdict: normalizeOptionalText(item?.breakoutRetestPromotionVerdict),
               breakoutRetestPromotionEligible: Boolean(item?.breakoutRetestPromotionEligible),
               breakoutRetestPromotionEnabled: Boolean(item?.breakoutRetestPromotionEnabled),
@@ -7538,6 +7722,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetBufferPct),
               targetRecalibrationRequiredRr: toOptionalFiniteNumber(item?.targetRecalibrationRequiredRr),
               targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item?.targetRecalibrationCurrentTargetGapPct),
+              targetRecalibrationRequiredTargetSource: normalizeOptionalText(item?.targetRecalibrationRequiredTargetSource),
+              targetRecalibrationRiskBasisStopDistancePct: toOptionalFiniteNumber(item?.targetRecalibrationRiskBasisStopDistancePct),
+              targetRecalibrationShortfallPct: toOptionalFiniteNumber(item?.targetRecalibrationShortfallPct),
               targetRecalibrationCandidate: item?.targetRecalibrationCandidate == null ? null : Boolean(item.targetRecalibrationCandidate),
               targetNoTradeConfirmed: item?.targetNoTradeConfirmed == null ? null : Boolean(item.targetNoTradeConfirmed),
               targetRecalibrationViabilityVerdict: normalizeOptionalText(item?.targetRecalibrationViabilityVerdict),
@@ -7553,6 +7740,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopPrice: toOptionalFiniteNumber(item?.riskGeometryRecalculatedStopPrice),
               riskGeometryRecalculatedStopDistancePct: toOptionalFiniteNumber(item?.riskGeometryRecalculatedStopDistancePct),
               riskGeometryRrAtRecalculatedStop: toOptionalFiniteNumber(item?.riskGeometryRrAtRecalculatedStop),
+              riskGeometryRequiredTargetPrice: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetPrice),
+              riskGeometryRequiredTargetBufferPct: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetBufferPct),
+              riskGeometryTargetGapPct: toOptionalFiniteNumber(item?.riskGeometryTargetGapPct),
+              riskGeometryTargetRecalibrationCandidate: item?.riskGeometryTargetRecalibrationCandidate == null ? null : Boolean(item.riskGeometryTargetRecalibrationCandidate),
               riskGeometryTargetBufferPct: toOptionalFiniteNumber(item?.riskGeometryTargetBufferPct),
               riskGeometryProofReasons: Array.isArray(item?.riskGeometryProofReasons) ? item.riskGeometryProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryReasons: Array.isArray(item?.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
