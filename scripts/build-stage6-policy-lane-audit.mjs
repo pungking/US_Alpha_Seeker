@@ -313,9 +313,65 @@ function proofStats(rows) {
   };
 }
 
+function isQualityGateReason(row) {
+  const reason = String(row?.decisionReason || '').toLowerCase();
+  return (
+    reason === 'wait_earnings_data_missing_quality_floor' ||
+    reason === 'wait_earnings_data_missing' ||
+    reason === 'wait_verdict_not_sidecar_actionable' ||
+    reason.startsWith('blocked_quality_')
+  );
+}
+
+function qualityGateLane(row) {
+  const reason = String(row?.decisionReason || '').toLowerCase();
+  if (reason === 'wait_earnings_data_missing_quality_floor' || reason === 'wait_earnings_data_missing') {
+    return 'earnings_data_coverage';
+  }
+  if (reason === 'wait_verdict_not_sidecar_actionable') return 'non_actionable_verdict';
+  if (reason === 'blocked_quality_verdict_unusable') return 'verdict_unusable';
+  if (reason === 'blocked_quality_conviction_floor') return 'conviction_floor';
+  if (reason === 'blocked_quality_missing_expected_return') return 'expected_return_missing';
+  return 'quality_gate_other';
+}
+
+function qualityGateDecision(row) {
+  const lane = qualityGateLane(row);
+  if (lane === 'earnings_data_coverage') {
+    return {
+      qualityGateLane: lane,
+      laneDecision: 'QUALITY_GATE_EARNINGS_COVERAGE_REQUIRED',
+      recommendedAction: 'Keep WAIT_PRICE. Repair earnings coverage/freshness first; do not lower execution gates or solve this in sidecar.'
+    };
+  }
+  if (lane === 'non_actionable_verdict') {
+    return {
+      qualityGateLane: lane,
+      laneDecision: 'QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT',
+      recommendedAction: 'Keep WAIT_PRICE. SPECULATIVE_BUY/HOLD-style rows are analysis watchlist only unless Stage6 emits an explicit waiver.'
+    };
+  }
+  if (lane === 'verdict_unusable') {
+    return {
+      qualityGateLane: lane,
+      laneDecision: 'QUALITY_GATE_VERDICT_UNUSABLE_REVIEW',
+      recommendedAction: 'Inspect AI verdict normalization and source response before changing execution policy.'
+    };
+  }
+  return {
+    qualityGateLane: lane,
+    laneDecision: 'QUALITY_GATE_WAIT_JUSTIFIED',
+    recommendedAction: 'Keep blocked/wait until Stage6 quality evidence is complete and actionable.'
+  };
+}
+
 function buildReport(input) {
   const latestStage6File = input.latestRun?.stage6File || input.runSummaries?.[0]?.stage6File || null;
   const rows = Array.isArray(input.rows) ? input.rows : [];
+  const latestAllRows = rows.filter((row) => isLatestRow(row, latestStage6File));
+  const latestQualityGateRows = latestAllRows
+    .filter(isQualityGateReason)
+    .map((row) => ({ ...row, lane: 'qualityGate', ...qualityGateDecision(row) }));
   const watchlistRows = rows
     .filter((row) => String(row.finalDecision || '').toUpperCase() !== 'EXECUTABLE_NOW')
     .filter(isBuyOrStrongBuy)
@@ -380,10 +436,21 @@ function buildReport(input) {
     latestLaneCounts: countBy(latestRows, (row) => row.lane),
     decisionCounts: countBy(watchlistRows, (row) => row.laneDecision),
     latestDecisionCounts: countBy(latestRows, (row) => row.laneDecision),
+    latestQualityGateRows: latestQualityGateRows.length,
+    latestQualityGateLaneCounts: countBy(latestQualityGateRows, (row) => row.qualityGateLane),
+    latestQualityGateDecisionCounts: countBy(latestQualityGateRows, (row) => row.laneDecision),
     confirmationProofQuality: {
       all: proofStats(watchlistRows),
       latest: proofStats(latestRows),
-      promotionRule: 'reviewReady is diagnostic only; only proofConfirmed plus a separate producer policy change can create EXECUTABLE_NOW'
+      promotionRule: 'reviewReady is diagnostic only; only proofConfirmed plus a separate producer policy change can create EXECUTABLE_NOW',
+      breakoutProofConfirmedCriteria: [
+        'current_rr_and_target_buffer_pass',
+        'retest_touch_found',
+        'retest_fresh_within_maxBarsSinceRetest',
+        'current_extension_within_maxCurrentExtensionFromRetestPct',
+        'latest_close_above_retest_level'
+      ],
+      structureOverblockRule: 'structure wait is overblock-review only when explicit reject or missing proof coexists with acceptable current RR, target buffer, and distance inside the structure review band'
     },
     brokerMutationAuthorized: false,
     executionPolicyChanged: false
@@ -404,6 +471,7 @@ function buildReport(input) {
     },
     summary: { ...summary, latestVerdict },
     latestReviewReadyRows: latestReviewReadyRows.map(compactRow),
+    latestQualityGateRows: latestQualityGateRows.map(compactRow),
     latestRows: latestRows.map(compactRow),
     laneSummary: Object.fromEntries(
       Object.entries(lanes).map(([key, laneRows]) => [
@@ -493,7 +561,13 @@ function compactRow(row) {
     riskGeometryProofReasons: row.riskGeometryProofReasons || [],
     riskGeometryReasons: row.riskGeometryReasons || [],
     blockerClass: row.blockerClass,
-    fixLane: row.fixLane
+    fixLane: row.fixLane,
+    zeroExecutableTuningLane: row.zeroExecutableTuningLane || null,
+    zeroExecutableTuningVerdict: row.zeroExecutableTuningVerdict || null,
+    zeroExecutablePrimaryTuningTarget: row.zeroExecutablePrimaryTuningTarget ?? null,
+    zeroExecutableTuningReasons: row.zeroExecutableTuningReasons || [],
+    zeroExecutableTuningRecommendedAction: row.zeroExecutableTuningRecommendedAction || null,
+    qualityGateLane: row.qualityGateLane || null
   };
 }
 
@@ -507,6 +581,7 @@ function buildMarkdown(report) {
   lines.push(`- Latest Verdict: **${report.summary.latestVerdict}**`);
   lines.push(`- Latest Review-Ready Rows: ${report.summary.latestReviewReadyRows}`);
   lines.push(`- Latest Promotion-Review Rows: ${report.summary.latestPromotionReviewReadyRows}`);
+  lines.push(`- Latest Quality-Gate Rows: ${report.summary.latestQualityGateRows}`);
   lines.push(`- Broker Mutation Authorized: ${report.safety.brokerMutationAuthorized}`);
   lines.push(`- Execution Policy Changed: ${report.safety.executionPolicyChanged}`);
   lines.push(`- Safety Reason: ${report.safety.reason}`);
@@ -538,6 +613,20 @@ function buildMarkdown(report) {
     lines.push(`| ${scope} | breakoutRetest | ${breakout.rows || 0} | 0 | 0 | ${breakout.proofConfirmed || 0} | ${breakout.proofReviewReady || 0} | ${breakout.staleOrExtended || 0} | ${breakout.currentRrAcceptable || 0} |`);
   }
   lines.push('');
+  lines.push('### Proof Criteria');
+  lines.push('');
+  lines.push(`- Breakout proofConfirmed requires: ${(report.summary.confirmationProofQuality?.breakoutProofConfirmedCriteria || []).join(', ') || 'N/A'}.`);
+  lines.push(`- Structure overblock review rule: ${report.summary.confirmationProofQuality?.structureOverblockRule || 'N/A'}.`);
+  lines.push('');
+  lines.push('## Latest Quality Gate Separation');
+  lines.push('');
+  lines.push('| Symbol | Verdict | Quality Lane | Stage6 Reason | Lane Decision | Target Verdict | Target Viability | Zero-Exec Lane | Action |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+  for (const row of report.latestQualityGateRows) {
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.qualityGateLane)} | ${esc(row.decisionReason)} | ${esc(row.laneDecision)} | ${esc(row.targetRecalibrationVerdict)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.recommendedAction)} |`);
+  }
+  if (report.latestQualityGateRows.length === 0) lines.push('| none | none | none | none | none | none | none | none | none |');
+  lines.push('');
   lines.push('## Latest Review-Ready Rows');
   lines.push('');
   lines.push('| Symbol | Lane | Decision | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Action |');
@@ -562,6 +651,7 @@ function buildMarkdown(report) {
   lines.push('- `BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY` means optional producer proof metadata is present and confirmed. It still requires a separate Stage6 policy change before any executable promotion.');
   lines.push('- `STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED` means Stage6 produced explicit structure rejection evidence, so it is not merely overbroad WAIT logic.');
   lines.push('- `STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY` means broad structure WAIT may be overblocking. Promotion still requires explicit structure evidence fields in Stage6.');
+  lines.push('- `QUALITY_GATE_EARNINGS_COVERAGE_REQUIRED` and `QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT` are intentionally separated from structure/breakout/risk geometry tuning.');
   lines.push('- `TARGET_REACHED_OR_NEAR_CURRENT_NO_CHASE` remains no-trade or target refresh. Do not convert this into a reprice/replace path.');
   lines.push('- `STOP_GEOMETRY_*`, `RR_GEOMETRY_*`, and `RECALCULATED_STOP_*` are producer-side risk-geometry decisions. They require Stage6 recalibration proof or no-trade; sidecar must not relax risk gates.');
   lines.push('- `EARNINGS_DATA_COVERAGE_REQUIRED` is a data freshness/coverage track. Do not lower execution gates until the missing data source is repaired or explicitly annotated.');
