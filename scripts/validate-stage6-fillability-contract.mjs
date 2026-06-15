@@ -48,6 +48,12 @@ for (const [idx, row] of candidates.entries()) {
   if (row.decisionReason === 'executable_breakout_retest_confirmed' && !breakoutPromotionEnabled) {
     errors.push(`${label}: breakout proof promotion executable used while decisionGate breakoutRetestProofPromotionEnabled=false`);
   }
+  if (row.decisionReason === 'executable_breakout_retest_confirmed') {
+    if (!isTrue(row.breakoutRetestPromotionReady)) errors.push(`${label}: executable breakout promotion must declare breakoutRetestPromotionReady=true`);
+    if (row.breakoutRetestPromotionEntryBasis !== 'BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT') {
+      errors.push(`${label}: executable breakout promotion must declare BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT entry basis`);
+    }
+  }
   if (row.decisionReason === 'executable_adaptive_current') {
     errors.push(`${label}: proof-less executable_adaptive_current is not allowed; use executable_current_recalculated_stop or executable_breakout_retest_confirmed`);
   }
@@ -77,21 +83,36 @@ for (const [idx, row] of candidates.entries()) {
     ]) {
       if (!isBooleanLike(row[field])) errors.push(`${label}: breakout retest proof missing boolean ${field}`);
     }
-    if (
-      isTrue(row.breakoutRetestProofConfirmed) &&
-      (!isTrue(row.breakoutRetestProofRetestTouchFound) ||
-        !isTrue(row.breakoutRetestProofRetestFresh) ||
-        !isTrue(row.breakoutRetestProofCurrentExtensionOk) ||
-        !isTrue(row.breakoutRetestProofLatestCloseAboveRetest))
-    ) {
-      errors.push(`${label}: proofConfirmed=true requires retest touch, freshness, extension, and close-above-entry proof`);
+    const retestConfirmed =
+      isTrue(row.breakoutRetestProofRetestTouchFound) &&
+      isTrue(row.breakoutRetestProofRetestFresh) &&
+      isTrue(row.breakoutRetestProofCurrentExtensionOk) &&
+      isTrue(row.breakoutRetestProofLatestCloseAboveRetest);
+    const continuationConfirmed =
+      isTrue(row.breakoutRetestProofContinuationConfirmed) &&
+      isTrue(row.breakoutRetestProofContinuationExtensionOk) &&
+      isTrue(row.breakoutRetestProofLatestCloseAboveRetest);
+    if (isTrue(row.breakoutRetestProofConfirmed) && !retestConfirmed && !continuationConfirmed) {
+      errors.push(`${label}: proofConfirmed=true requires either retest proof or continuation proof`);
     }
     if (isTrue(row.breakoutRetestProofConfirmed) && !isTrue(row.breakoutRetestPromotionEnabled)) {
-      if (!String(row.breakoutRetestPromotionVerdict || '').includes('PROMOTION_DISABLED')) {
-        errors.push(`${label}: proofConfirmed breakout with promotion disabled must declare PROMOTION_DISABLED`);
+      if (
+        !String(row.breakoutRetestPromotionVerdict || '').includes('PROMOTION_DISABLED') &&
+        !String(row.breakoutRetestPromotionVerdict || '').includes('INPUTS_BLOCKED')
+      ) {
+        errors.push(`${label}: proofConfirmed breakout with promotion disabled must declare PROMOTION_DISABLED or INPUTS_BLOCKED`);
       }
       if (row.finalDecision === 'EXECUTABLE_NOW') {
         errors.push(`${label}: proofConfirmed breakout cannot be executable while promotion flag is disabled`);
+      }
+      if (!row.breakoutRetestPromotionPolicyDecision) {
+        errors.push(`${label}: proofConfirmed breakout must declare promotion policy decision`);
+      }
+      if (!row.breakoutRetestPromotionEntryBasis) {
+        errors.push(`${label}: proofConfirmed breakout must declare promotion entry basis`);
+      }
+      if (!Array.isArray(row.breakoutRetestPromotionBlockedBy)) {
+        errors.push(`${label}: proofConfirmed breakout must declare promotion blockers array`);
       }
     }
   }

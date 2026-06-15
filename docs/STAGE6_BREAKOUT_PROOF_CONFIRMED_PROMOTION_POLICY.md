@@ -9,6 +9,7 @@ Default behavior remains conservative:
 - `VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED=false`
 - proof-confirmed breakout/continuation rows stay `WAIT_PRICE`
 - sidecar must not promote or chase these rows
+- Stage6 producer must expose `breakoutRetestPromotionPolicyDecision`, `breakoutRetestPromotionEntryBasis`, and `breakoutRetestPromotionBlockedBy` so a proof-confirmed row cannot be mistaken for an executable row.
 
 ## Why
 
@@ -31,7 +32,17 @@ If promotion is explicitly enabled in a future producer policy, the row must sat
    - `targetNoTradeConfirmed` must not be true
    - `targetRecalibrationViabilityVerdict` must not be a no-trade verdict
 8. Risk geometry must not require unresolved recalibration/no-trade.
-9. The Stage6 row must explicitly state the intended entry basis; sidecar must not infer or rewrite the entry basis.
+9. Current-entry stop distance must remain inside the Stage6 stop-distance policy band.
+10. The Stage6 row must explicitly state the intended entry basis as `BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT`; sidecar must not infer or rewrite the entry basis.
+
+## Producer Policy Decision Fields
+
+Stage6 producer rows must keep these fields explicit:
+
+- `breakoutRetestPromotionReady`: true only when proof, current-entry feasibility, and current stop-distance policy all pass.
+- `breakoutRetestPromotionPolicyDecision`: one of the producer decision states such as `WAIT_CONSERVATIVE_DEFAULT`, `WAIT_INPUTS_BLOCKED`, or `PROMOTE_CURRENT_ENTRY`.
+- `breakoutRetestPromotionEntryBasis`: the entry contract the producer is authorizing; for this lane it must be `BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT`.
+- `breakoutRetestPromotionBlockedBy`: cumulative blockers including `proof_confirmed_promotion_flag_disabled`, `current_entry_feasibility_not_pass`, or `current_stop_distance_outside_policy`.
 
 ## Current Runtime Interpretation
 
@@ -41,5 +52,6 @@ For the fresh Stage6 hash `72375137d616a85901310237aef79eeba3435cc2c401eaaa20eab
 
 - Stage6 rows expose proof-confirmed evidence fields.
 - Sidecar summary counts proof-confirmed rows correctly.
+- Stage6 rows expose promotion policy decision fields and blockers.
 - No broker mutation occurs.
 - Promotion remains disabled until a separate producer policy change is explicitly requested.

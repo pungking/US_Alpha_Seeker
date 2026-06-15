@@ -547,6 +547,10 @@ function compactRow(row) {
     breakoutRetestPromotionVerdict: row.breakoutRetestPromotionVerdict || null,
     breakoutRetestPromotionEligible: Boolean(row.breakoutRetestPromotionEligible),
     breakoutRetestPromotionEnabled: Boolean(row.breakoutRetestPromotionEnabled),
+    breakoutRetestPromotionReady: Boolean(row.breakoutRetestPromotionReady),
+    breakoutRetestPromotionPolicyDecision: row.breakoutRetestPromotionPolicyDecision || null,
+    breakoutRetestPromotionEntryBasis: row.breakoutRetestPromotionEntryBasis || null,
+    breakoutRetestPromotionBlockedBy: row.breakoutRetestPromotionBlockedBy || [],
     breakoutRetestPromotionReasons: row.breakoutRetestPromotionReasons || [],
     targetRecalibrationVerdict: row.targetRecalibrationVerdict || null,
     targetRecalibrationRequired: Boolean(row.targetRecalibrationRequired),
@@ -658,17 +662,17 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Latest Rows');
   lines.push('');
-  lines.push('| Symbol | Verdict | Lane | Stage6 Reason | Lane Decision | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |');
-  lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
+  lines.push('| Symbol | Verdict | Lane | Stage6 Reason | Lane Decision | Promotion Policy | Blocked By | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
   for (const row of report.latestRows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.lane)} | ${esc(row.decisionReason)} | ${esc(row.laneDecision)} | ${fmt(row.expectedReturnPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${fmt(row.targetBufferFromCurrentPct)} | ${esc(row.geometryStatus)} | ${esc(row.currentRrStatus)} | ${esc(row.recommendedAction)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.lane)} | ${esc(row.decisionReason)} | ${esc(row.laneDecision)} | ${esc(row.breakoutRetestPromotionPolicyDecision || 'N/A')} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${fmt(row.expectedReturnPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${fmt(row.targetBufferFromCurrentPct)} | ${esc(row.geometryStatus)} | ${esc(row.currentRrStatus)} | ${esc(row.recommendedAction)} |`);
   }
   lines.push('');
   lines.push('## Policy Interpretation');
   lines.push('');
   lines.push('- `BREAKOUT_RETEST_POLICY_REVIEW_READY` means current RR and geometry are good, but Stage6 lacks explicit retest proof. This is producer-side policy review, not sidecar chase approval.');
   lines.push('- `BREAKOUT_RETEST_PROOF_REVIEW_READY_NOT_PROMOTABLE` means retest metadata exists but is stale or over-extended. This is a WAIT justification, not an execution unlock.');
-  lines.push('- `BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY` means optional producer proof metadata is present and confirmed. It still requires a separate Stage6 policy change before any executable promotion.');
+  lines.push('- `BREAKOUT_RETEST_PROOF_CONFIRMED_REVIEW_READY` means optional producer proof metadata is present and confirmed. It still requires an explicit producer policy decision, current-entry feasibility, stop-distance policy pass, and promotion flag before executable promotion.');
   lines.push('- `STRUCTURE_CONFIRMATION_EXPLICIT_REJECT_WAIT_JUSTIFIED` means Stage6 produced explicit structure rejection evidence, so it is not merely overbroad WAIT logic.');
   lines.push('- `STRUCTURE_CONFIRMATION_BROAD_WAIT_REVIEW_READY` means broad structure WAIT may be overblocking. Promotion still requires explicit structure evidence fields in Stage6.');
   lines.push('- `QUALITY_GATE_EARNINGS_COVERAGE_REQUIRED` and `QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT` are intentionally separated from structure/breakout/risk geometry tuning.');

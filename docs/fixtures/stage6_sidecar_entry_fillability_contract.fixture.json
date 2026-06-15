@@ -207,7 +207,14 @@
         "current_extension_from_retest_high",
         "proof_not_confirmed"
       ],
-      "zeroExecutableTuningRecommendedAction": "Generate fresh retest proof and set proofConfirmed=true before any executable promotion."
+      "zeroExecutableTuningRecommendedAction": "Review-ready is diagnostic only. Promotion requires proofConfirmed=true.",
+      "breakoutRetestPromotionReady": false,
+      "breakoutRetestPromotionPolicyDecision": "WAIT_REVIEW_READY_ONLY",
+      "breakoutRetestPromotionEntryBasis": "BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT",
+      "breakoutRetestPromotionBlockedBy": [
+        "proof_not_confirmed",
+        "proof_confirmed_promotion_flag_disabled"
+      ]
     },
     {
       "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
@@ -252,7 +259,13 @@
       "zeroExecutableTuningReasons": [
         "proof_confirmed_promotion_flag_disabled"
       ],
-      "zeroExecutableTuningRecommendedAction": "Proof exists, but producer promotion remains disabled; do not emit executable without an explicit policy flag."
+      "zeroExecutableTuningRecommendedAction": "Keep WAIT_PRICE until a separate Stage6 producer policy change explicitly enables proof-confirmed promotion.",
+      "breakoutRetestPromotionReady": true,
+      "breakoutRetestPromotionPolicyDecision": "WAIT_CONSERVATIVE_DEFAULT",
+      "breakoutRetestPromotionEntryBasis": "BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT",
+      "breakoutRetestPromotionBlockedBy": [
+        "proof_confirmed_promotion_flag_disabled"
+      ]
     },
     {
       "symbol": "TARGET_NEAR_WAIT",

@@ -151,6 +151,9 @@ function compactRow(row) {
     breakoutRetestProofContinuationMinRr: numberOrNull(row?.breakoutRetestProofContinuationMinRr),
     breakoutRetestProofContinuationMinTargetBufferPct: numberOrNull(row?.breakoutRetestProofContinuationMinTargetBufferPct),
     breakoutRetestPromotionVerdict: row?.breakoutRetestPromotionVerdict || null,
+    breakoutRetestPromotionReady: row?.breakoutRetestPromotionReady ?? null,
+    breakoutRetestPromotionPolicyDecision: row?.breakoutRetestPromotionPolicyDecision || null,
+    breakoutRetestPromotionBlockedBy: Array.isArray(row?.breakoutRetestPromotionBlockedBy) ? row.breakoutRetestPromotionBlockedBy : [],
     targetRecalibrationVerdict: row?.targetRecalibrationVerdict || null,
     targetRecalibrationCandidate: row?.targetRecalibrationCandidate ?? null,
     targetNoTradeConfirmed: row?.targetNoTradeConfirmed ?? null,
@@ -205,10 +208,10 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Row Focus');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Continuation | Target Source | Target Viability | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |');
+  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |');
   for (const row of report.rows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestProofContinuationConfirmed)} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
   lines.push('## Track Separation');
@@ -234,6 +237,8 @@ function main() {
     zeroExecutableTuningLane: requiredFieldCoverage(rows, 'zeroExecutableTuningLane'),
     breakoutRetestProofConfirmed: requiredFieldCoverage(rows, 'breakoutRetestProofConfirmed'),
     breakoutRetestProofContinuationConfirmed: requiredFieldCoverage(rows, 'breakoutRetestProofContinuationConfirmed'),
+    breakoutRetestPromotionPolicyDecision: requiredFieldCoverage(rows, 'breakoutRetestPromotionPolicyDecision'),
+    breakoutRetestPromotionBlockedBy: requiredFieldCoverage(rows, 'breakoutRetestPromotionBlockedBy'),
     targetRecalibrationViabilityVerdict: requiredFieldCoverage(rows, 'targetRecalibrationViabilityVerdict'),
     targetRecalibrationRequiredTargetSource: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetSource'),
     riskGeometryTargetGapPct: requiredFieldCoverage(rows, 'riskGeometryTargetGapPct')
@@ -268,6 +273,7 @@ function main() {
       breakoutRetestProofConfirmedCounts: countBy(rows, (row) => String(row?.breakoutRetestProofConfirmed ?? 'missing')),
       breakoutRetestProofReviewReadyCounts: countBy(rows, (row) => String(row?.breakoutRetestProofReviewReady ?? 'missing')),
       breakoutContinuationConfirmedCounts: countBy(rows, (row) => String(row?.breakoutRetestProofContinuationConfirmed ?? 'missing')),
+      breakoutPromotionPolicyDecisionCounts: countBy(rows, (row) => row?.breakoutRetestPromotionPolicyDecision || 'missing'),
       targetRecalibrationViabilityVerdictCounts: countBy(rows, (row) => row?.targetRecalibrationViabilityVerdict || 'missing'),
       targetRecalibrationRequiredTargetSourceCounts: countBy(rows, (row) => row?.targetRecalibrationRequiredTargetSource || 'missing'),
       riskGeometryTargetRecalibrationCandidateCounts: countBy(rows, (row) => String(row?.riskGeometryTargetRecalibrationCandidate ?? 'missing')),

@@ -149,6 +149,10 @@ interface AlphaCandidate {
   breakoutRetestPromotionVerdict?: string | null;
   breakoutRetestPromotionEligible?: boolean | null;
   breakoutRetestPromotionEnabled?: boolean | null;
+  breakoutRetestPromotionReady?: boolean | null;
+  breakoutRetestPromotionPolicyDecision?: string | null;
+  breakoutRetestPromotionEntryBasis?: string | null;
+  breakoutRetestPromotionBlockedBy?: string[] | null;
   breakoutRetestPromotionReasons?: string[] | null;
   breakoutRetestPromotionRecommendedAction?: string | null;
   targetRecalibrationVerdict?: string | null;
@@ -652,6 +656,10 @@ type Stage6BreakoutPromotionPayload = {
   verdict: string;
   eligible: boolean;
   enabled: boolean;
+  ready: boolean;
+  policyDecision: string;
+  entryBasis: string | null;
+  blockedBy: string[];
   reasons: string[];
   recommendedAction: string;
 };
@@ -1126,27 +1134,59 @@ const deriveBreakoutRetestPromotion = (input: {
   decisionReason: string | null;
   proof: BreakoutRetestProofPayload;
   currentFeasibilityStatus: string | null;
+  currentEntryStopDistanceOk: boolean;
   promotionEnabled: boolean;
 }): Stage6BreakoutPromotionPayload => {
+  const entryBasis = 'BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT';
   if (input.decisionReason !== 'wait_breakout_retest_required') {
     return {
       verdict: 'BREAKOUT_PROMOTION_NOT_APPLICABLE',
       eligible: false,
       enabled: input.promotionEnabled,
+      ready: false,
+      policyDecision: 'NOT_APPLICABLE',
+      entryBasis: null,
+      blockedBy: ['not_breakout_wait'],
       reasons: ['not_breakout_wait'],
       recommendedAction: 'No breakout promotion action required.'
     };
   }
   const reasons = [...input.proof.reasons];
   if (!input.proof.confirmed) reasons.push('proof_not_confirmed');
+  if (input.currentFeasibilityStatus !== 'PASS') reasons.push('current_entry_feasibility_not_pass');
+  if (!input.currentEntryStopDistanceOk) reasons.push('current_stop_distance_outside_policy');
   const eligible = input.proof.confirmed === true;
-  if (eligible && input.promotionEnabled) {
+  const ready = eligible && input.currentFeasibilityStatus === 'PASS' && input.currentEntryStopDistanceOk;
+  const blockedBy = [
+    ...(eligible ? [] : ['proof_not_confirmed']),
+    ...(input.currentFeasibilityStatus === 'PASS' ? [] : ['current_entry_feasibility_not_pass']),
+    ...(input.currentEntryStopDistanceOk ? [] : ['current_stop_distance_outside_policy']),
+    ...(input.promotionEnabled ? [] : ['proof_confirmed_promotion_flag_disabled'])
+  ];
+  if (ready && input.promotionEnabled) {
     return {
       verdict: 'BREAKOUT_PROOF_CONFIRMED_PROMOTION_ENABLED',
       eligible: true,
       enabled: true,
+      ready: true,
+      policyDecision: 'PROMOTE_CURRENT_ENTRY',
+      entryBasis,
+      blockedBy: [],
       reasons: reasons.length ? reasons : ['proof_confirmed'],
       recommendedAction: 'Producer may emit EXECUTABLE_NOW only because proofConfirmed=true and promotion flag is enabled.'
+    };
+  }
+  if (eligible && !ready) {
+    return {
+      verdict: 'BREAKOUT_PROOF_CONFIRMED_PROMOTION_INPUTS_BLOCKED',
+      eligible: true,
+      enabled: input.promotionEnabled,
+      ready: false,
+      policyDecision: 'WAIT_INPUTS_BLOCKED',
+      entryBasis,
+      blockedBy,
+      reasons,
+      recommendedAction: 'Keep WAIT_PRICE. Proof is confirmed, but current-entry feasibility or stop-distance policy is not ready.'
     };
   }
   if (eligible) {
@@ -1154,6 +1194,10 @@ const deriveBreakoutRetestPromotion = (input: {
       verdict: 'BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED',
       eligible: true,
       enabled: false,
+      ready: false,
+      policyDecision: 'WAIT_CONSERVATIVE_DEFAULT',
+      entryBasis,
+      blockedBy,
       reasons: reasons.length ? reasons : ['proof_confirmed_promotion_flag_disabled'],
       recommendedAction: 'Keep WAIT_PRICE until a separate Stage6 producer policy change explicitly enables proof-confirmed promotion.'
     };
@@ -1163,6 +1207,10 @@ const deriveBreakoutRetestPromotion = (input: {
       verdict: 'BREAKOUT_REVIEW_READY_NOT_PROMOTABLE',
       eligible: false,
       enabled: input.promotionEnabled,
+      ready: false,
+      policyDecision: 'WAIT_REVIEW_READY_ONLY',
+      entryBasis,
+      blockedBy,
       reasons: reasons.length ? reasons : ['review_ready_without_confirmed_proof'],
       recommendedAction: 'Review-ready is diagnostic only. Promotion requires proofConfirmed=true.'
     };
@@ -1171,6 +1219,10 @@ const deriveBreakoutRetestPromotion = (input: {
     verdict: 'BREAKOUT_WAIT_JUSTIFIED_BY_PROOF',
     eligible: false,
     enabled: input.promotionEnabled,
+    ready: false,
+    policyDecision: 'WAIT_PROOF_NOT_CONFIRMED',
+    entryBasis,
+    blockedBy,
     reasons: reasons.length ? reasons : ['breakout_proof_not_ready'],
     recommendedAction: 'Keep WAIT_PRICE until fresh retest proof is confirmed.'
   };
@@ -1673,7 +1725,7 @@ const deriveZeroExecutableTuningPolicy = (input: {
       verdict: input.breakoutPromotion.verdict,
       primaryTuningTarget: true,
       reasons: input.breakoutPromotion.reasons,
-      recommendedAction: 'Generate fresh retest proof and set proofConfirmed=true before any executable promotion.'
+      recommendedAction: input.breakoutPromotion.recommendedAction
     };
   }
   if (reason === 'wait_structure_confirmation_required') {
@@ -6090,6 +6142,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetBufferPct: targetBufferFromCurrentPct,
               basis: 'ORIGINAL_STAGE6_STOP_AT_CURRENT'
           });
+          const breakoutRetestCurrentEntryFeasibility = deriveExecutionFeasibilityAtCurrent({
+              rr: rrAtCurrentPrice,
+              distancePct: 0,
+              targetBufferPct: targetBufferFromCurrentPct,
+              basis: 'BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT'
+          });
+          const breakoutRetestCurrentStopDistanceOk =
+              currentPriceStopDistancePct != null &&
+              Number.isFinite(currentPriceStopDistancePct) &&
+              currentPriceStopDistancePct >= STAGE6_MIN_STOP_DISTANCE_PCT &&
+              currentPriceStopDistancePct <= STAGE6_MAX_STOP_DISTANCE_PCT;
           const expectedReturnPct = parseExpectedReturnPct(
               item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
           );
@@ -6293,12 +6356,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionReason === 'WAIT_PULLBACK_TOO_DEEP' &&
               STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED &&
               breakoutRetestProof.confirmed === true &&
-              rrAtCurrentPrice != null &&
-              Number.isFinite(rrAtCurrentPrice) &&
-              rrAtCurrentPrice >= STAGE6_CURRENT_ENTRY_MIN_RR &&
-              targetBufferFromCurrentPct != null &&
-              Number.isFinite(targetBufferFromCurrentPct) &&
-              targetBufferFromCurrentPct >= STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
+              breakoutRetestCurrentEntryFeasibility.status === 'PASS' &&
+              breakoutRetestCurrentStopDistanceOk
           ) {
               finalDecision = 'EXECUTABLE_NOW';
               decisionReason = 'executable_breakout_retest_confirmed';
@@ -6389,13 +6448,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   targetBufferPct: targetBufferFromCurrentPct,
                   basis: 'RECALCULATED_STOP_CURRENT_ENTRY_CONTRACT'
               })
-              : useAdaptiveCurrentEntry
-                  ? deriveExecutionFeasibilityAtCurrent({
-                      rr: rrAtCurrentPrice,
-                      distancePct: 0,
-                      targetBufferPct: targetBufferFromCurrentPct,
-                      basis: 'ADAPTIVE_CURRENT_ENTRY_CONTRACT'
-                  })
+              : useBreakoutRetestCurrentEntry
+                  ? breakoutRetestCurrentEntryFeasibility
                   : originalStopCurrentFeasibility;
           const contractTradePlanStatus: AlphaCandidate["tradePlanStatusShadow"] =
               useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? 'VALID_EXEC' : tradePlanStatusShadow;
@@ -6458,7 +6512,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const breakoutRetestPromotion = deriveBreakoutRetestPromotion({
               decisionReason,
               proof: breakoutRetestProof,
-              currentFeasibilityStatus: originalStopCurrentFeasibility.status,
+              currentFeasibilityStatus: breakoutRetestCurrentEntryFeasibility.status,
+              currentEntryStopDistanceOk: breakoutRetestCurrentStopDistanceOk,
               promotionEnabled: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED
           });
           const targetRecalibrationPolicy = deriveTargetRecalibrationPolicy({
@@ -6593,6 +6648,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestPromotionVerdict: breakoutRetestPromotion.verdict,
               breakoutRetestPromotionEligible: breakoutRetestPromotion.eligible,
               breakoutRetestPromotionEnabled: breakoutRetestPromotion.enabled,
+              breakoutRetestPromotionReady: breakoutRetestPromotion.ready,
+              breakoutRetestPromotionPolicyDecision: breakoutRetestPromotion.policyDecision,
+              breakoutRetestPromotionEntryBasis: breakoutRetestPromotion.entryBasis,
+              breakoutRetestPromotionBlockedBy: breakoutRetestPromotion.blockedBy,
               breakoutRetestPromotionReasons: breakoutRetestPromotion.reasons,
               breakoutRetestPromotionRecommendedAction: breakoutRetestPromotion.recommendedAction,
               targetRecalibrationVerdict: targetRecalibrationPolicy.verdict,
@@ -6772,6 +6831,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestPromotionVerdict: executionContract.breakoutRetestPromotionVerdict,
               breakoutRetestPromotionEligible: executionContract.breakoutRetestPromotionEligible,
               breakoutRetestPromotionEnabled: executionContract.breakoutRetestPromotionEnabled,
+              breakoutRetestPromotionReady: executionContract.breakoutRetestPromotionReady,
+              breakoutRetestPromotionPolicyDecision: executionContract.breakoutRetestPromotionPolicyDecision,
+              breakoutRetestPromotionEntryBasis: executionContract.breakoutRetestPromotionEntryBasis,
+              breakoutRetestPromotionBlockedBy: executionContract.breakoutRetestPromotionBlockedBy,
               breakoutRetestPromotionReasons: executionContract.breakoutRetestPromotionReasons,
               breakoutRetestPromotionRecommendedAction: executionContract.breakoutRetestPromotionRecommendedAction,
               targetRecalibrationVerdict: executionContract.targetRecalibrationVerdict,
@@ -7241,6 +7304,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestPromotionVerdict: executionContract.breakoutRetestPromotionVerdict,
               breakoutRetestPromotionEligible: executionContract.breakoutRetestPromotionEligible,
               breakoutRetestPromotionEnabled: executionContract.breakoutRetestPromotionEnabled,
+              breakoutRetestPromotionReady: executionContract.breakoutRetestPromotionReady,
+              breakoutRetestPromotionPolicyDecision: executionContract.breakoutRetestPromotionPolicyDecision,
+              breakoutRetestPromotionEntryBasis: executionContract.breakoutRetestPromotionEntryBasis,
+              breakoutRetestPromotionBlockedBy: executionContract.breakoutRetestPromotionBlockedBy,
               breakoutRetestPromotionReasons: executionContract.breakoutRetestPromotionReasons,
               breakoutRetestPromotionRecommendedAction: executionContract.breakoutRetestPromotionRecommendedAction,
               targetRecalibrationVerdict: executionContract.targetRecalibrationVerdict,
@@ -7559,6 +7626,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestPromotionVerdict: normalizeOptionalText(item.breakoutRetestPromotionVerdict),
               breakoutRetestPromotionEligible: Boolean(item.breakoutRetestPromotionEligible),
               breakoutRetestPromotionEnabled: Boolean(item.breakoutRetestPromotionEnabled),
+              breakoutRetestPromotionReady: Boolean(item.breakoutRetestPromotionReady),
+              breakoutRetestPromotionPolicyDecision: normalizeOptionalText(item.breakoutRetestPromotionPolicyDecision),
+              breakoutRetestPromotionEntryBasis: normalizeOptionalText(item.breakoutRetestPromotionEntryBasis),
+              breakoutRetestPromotionBlockedBy: Array.isArray(item.breakoutRetestPromotionBlockedBy) ? item.breakoutRetestPromotionBlockedBy.map((reason: any) => String(reason)).filter(Boolean) : null,
               breakoutRetestPromotionReasons: Array.isArray(item.breakoutRetestPromotionReasons) ? item.breakoutRetestPromotionReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               breakoutRetestPromotionRecommendedAction: normalizeOptionalText(item.breakoutRetestPromotionRecommendedAction),
               targetRecalibrationVerdict: normalizeOptionalText(item.targetRecalibrationVerdict),
@@ -7712,6 +7783,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestPromotionVerdict: normalizeOptionalText(item?.breakoutRetestPromotionVerdict),
               breakoutRetestPromotionEligible: Boolean(item?.breakoutRetestPromotionEligible),
               breakoutRetestPromotionEnabled: Boolean(item?.breakoutRetestPromotionEnabled),
+              breakoutRetestPromotionReady: Boolean(item?.breakoutRetestPromotionReady),
+              breakoutRetestPromotionPolicyDecision: normalizeOptionalText(item?.breakoutRetestPromotionPolicyDecision),
+              breakoutRetestPromotionEntryBasis: normalizeOptionalText(item?.breakoutRetestPromotionEntryBasis),
+              breakoutRetestPromotionBlockedBy: Array.isArray(item?.breakoutRetestPromotionBlockedBy) ? item.breakoutRetestPromotionBlockedBy.map((reason: any) => String(reason)).filter(Boolean) : null,
               breakoutRetestPromotionReasons: Array.isArray(item?.breakoutRetestPromotionReasons) ? item.breakoutRetestPromotionReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               breakoutRetestPromotionRecommendedAction: normalizeOptionalText(item?.breakoutRetestPromotionRecommendedAction),
               targetRecalibrationVerdict: normalizeOptionalText(item?.targetRecalibrationVerdict),

@@ -1,6 +1,6 @@
 # Stage6 Fresh Focus Audit
 
-- GeneratedAt: 2026-06-15T15:52:24.095Z
+- GeneratedAt: 2026-06-15T23:01:30.548Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-16_00-50-14.json
 - Hash: 72375137d616a85901310237aef79eeba3435cc2c401eaaa20eab0432f16a5d4
 - Overall: **pass_zero_executable_focus_fields_ok**
@@ -28,20 +28,22 @@
 | zeroExecutableTuningLane | 6/6 |
 | breakoutRetestProofConfirmed | 6/6 |
 | breakoutRetestProofContinuationConfirmed | 6/6 |
+| breakoutRetestPromotionPolicyDecision | 0/6 |
+| breakoutRetestPromotionBlockedBy | 0/6 |
 | targetRecalibrationViabilityVerdict | 6/6 |
 | targetRecalibrationRequiredTargetSource | 6/6 |
 | riskGeometryTargetGapPct | 6/6 |
 
 ## Row Focus
 
-| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Continuation | Target Source | Target Viability | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
-| DUOL | STRONG_BUY | WAIT_PRICE/wait_earnings_data_missing_quality_floor | quality_gate | earnings_data_coverage | TARGET_RECALIBRATION | false | false | actual_stop_risk | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | N/A | N/A | 22.82 | -17.47 |
-| DAVE | SPECULATIVE_BUY | WAIT_PRICE/wait_verdict_not_sidecar_actionable | quality_gate | non_actionable_verdict | NO_ZERO_EXECUTABLE_TUNING_ACTION | false | false | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 0.32 | 32.4 | 10.57 |
-| INCY | BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | false | false | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 0.41 | 7.44 | 5.76 |
-| ZVRA | SPECULATIVE_BUY | WAIT_PRICE/wait_verdict_not_sidecar_actionable | quality_gate | non_actionable_verdict | NO_ZERO_EXECUTABLE_TUNING_ACTION | false | false | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 4.4 | 18.63 | 119.25 |
-| GOOGL | BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | false | false | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 0.55 | 18.74 | 16.48 |
-| CRMD | BUY | WAIT_PRICE/wait_breakout_retest_required | breakout | N/A | BREAKOUT_PROOF_CONFIRMED_GENERATION | true | true | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 3.72 | 19.26 | 76.25 |
+| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| DUOL | STRONG_BUY | WAIT_PRICE/wait_earnings_data_missing_quality_floor | quality_gate | earnings_data_coverage | TARGET_RECALIBRATION | false | N/A | none | actual_stop_risk | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | N/A | N/A | 22.82 | -17.47 |
+| DAVE | SPECULATIVE_BUY | WAIT_PRICE/wait_verdict_not_sidecar_actionable | quality_gate | non_actionable_verdict | NO_ZERO_EXECUTABLE_TUNING_ACTION | false | N/A | none | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 0.32 | 32.4 | 10.57 |
+| INCY | BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | false | N/A | none | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 0.41 | 7.44 | 5.76 |
+| ZVRA | SPECULATIVE_BUY | WAIT_PRICE/wait_verdict_not_sidecar_actionable | quality_gate | non_actionable_verdict | NO_ZERO_EXECUTABLE_TUNING_ACTION | false | N/A | none | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 4.4 | 18.63 | 119.25 |
+| GOOGL | BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | false | N/A | none | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 0.55 | 18.74 | 16.48 |
+| CRMD | BUY | WAIT_PRICE/wait_breakout_retest_required | breakout | N/A | BREAKOUT_PROOF_CONFIRMED_GENERATION | true | N/A | none | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | N/A | 3.72 | 19.26 | 76.25 |
 
 ## Track Separation
 
