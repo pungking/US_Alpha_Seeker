@@ -1,12 +1,12 @@
 # Stage6 Policy Lane Audit
 
-- GeneratedAt: 2026-06-15T15:09:03.297Z
+- GeneratedAt: 2026-06-15T15:52:23.746Z
 - Source Audit: state/stage6-execution-gate-audit.json
-- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-15_22-50-32.json
-- Latest Verdict: **WATCHLIST_WAIT_JUSTIFIED_OR_DATA_REPAIR_REQUIRED**
+- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-16_00-50-14.json
+- Latest Verdict: **STAGE6_PRODUCER_POLICY_REVIEW_REQUIRED**
 - Latest Review-Ready Rows: 1
-- Latest Promotion-Review Rows: 0
-- Latest Quality-Gate Rows: 2
+- Latest Promotion-Review Rows: 1
+- Latest Quality-Gate Rows: 3
 - Broker Mutation Authorized: false
 - Execution Policy Changed: false
 - Safety Reason: analysis-only Stage6 producer policy audit; sidecar submit/reprice/replace remains out of scope
@@ -16,9 +16,9 @@
 
 | Lane | Latest Rows | Latest Decisions |
 | --- | ---: | --- |
-| breakoutRetest | 1 | BREAKOUT_REVIEW_READY_NOT_PROMOTABLE:1 |
+| breakoutRetest | 1 | BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED:1 |
 | currentDistance | 0 | none |
-| structureConfirmation | 3 | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED:3 |
+| structureConfirmation | 2 | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED:2 |
 | riskGeometry | 0 | none |
 | targetNearCurrent | 0 | none |
 | earningsDataMissing | 1 | EARNINGS_DATA_COVERAGE_REQUIRED:1 |
@@ -27,10 +27,10 @@
 
 | Scope | Lane | Rows | Missing Proof | Explicit Rejects | Confirmed | Continuation Confirmed | Review Ready | Stale/Extended | Current RR OK |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| latest | structureConfirmation | 3 | 0 | 3 | 0 | 0 | 0 | 0 | 0 |
-| latest | breakoutRetest | 1 | 0 | 0 | 0 | 0 | 1 | 1 | 1 |
-| all | structureConfirmation | 78 | 0 | 78 | 0 | 0 | 0 | 0 | 0 |
-| all | breakoutRetest | 33 | 0 | 0 | 0 | 0 | 19 | 19 | 33 |
+| latest | structureConfirmation | 2 | 0 | 2 | 0 | 0 | 0 | 0 | 0 |
+| latest | breakoutRetest | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 1 |
+| all | structureConfirmation | 80 | 0 | 80 | 0 | 0 | 0 | 0 | 0 |
+| all | breakoutRetest | 34 | 0 | 0 | 1 | 0 | 19 | 19 | 34 |
 
 ### Proof Criteria
 
@@ -41,24 +41,24 @@
 
 | Symbol | Verdict | Quality Lane | Stage6 Reason | Lane Decision | Target Verdict | Target Viability | Zero-Exec Lane | Action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| DUOL | BUY | earnings_data_coverage | wait_earnings_data_missing_quality_floor | QUALITY_GATE_EARNINGS_COVERAGE_REQUIRED | TARGET_ALREADY_REACHED_NO_TRADE | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | TARGET_RECALIBRATION | Keep WAIT_PRICE. Repair earnings coverage/freshness first; do not lower execution gates or solve this in sidecar. |
+| DAVE | SPECULATIVE_BUY | non_actionable_verdict | wait_verdict_not_sidecar_actionable | QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT | TARGET_POLICY_NOT_APPLICABLE | TARGET_VIABILITY_NOT_APPLICABLE | NO_ZERO_EXECUTABLE_TUNING_ACTION | Keep WAIT_PRICE. SPECULATIVE_BUY/HOLD-style rows are analysis watchlist only unless Stage6 emits an explicit waiver. |
+| DUOL | STRONG_BUY | earnings_data_coverage | wait_earnings_data_missing_quality_floor | QUALITY_GATE_EARNINGS_COVERAGE_REQUIRED | TARGET_ALREADY_REACHED_NO_TRADE | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | TARGET_RECALIBRATION | Keep WAIT_PRICE. Repair earnings coverage/freshness first; do not lower execution gates or solve this in sidecar. |
 | ZVRA | SPECULATIVE_BUY | non_actionable_verdict | wait_verdict_not_sidecar_actionable | QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT | TARGET_POLICY_NOT_APPLICABLE | TARGET_VIABILITY_NOT_APPLICABLE | NO_ZERO_EXECUTABLE_TUNING_ACTION | Keep WAIT_PRICE. SPECULATIVE_BUY/HOLD-style rows are analysis watchlist only unless Stage6 emits an explicit waiver. |
 
 ## Latest Review-Ready Rows
 
 | Symbol | Lane | Decision | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Action |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
-| CRMD | breakoutRetest | BREAKOUT_REVIEW_READY_NOT_PROMOTABLE | 106.00 | 78.86 | 3.78 | 19.07 | 76.65 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Review-ready is diagnostic only. Promotion requires proofConfirmed=true. |
+| CRMD | breakoutRetest | BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED | 106.00 | 78.86 | 3.72 | 19.26 | 76.25 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Keep WAIT_PRICE until a separate Stage6 producer policy change explicitly enables proof-confirmed promotion. |
 
 ## Latest Rows
 
 | Symbol | Verdict | Lane | Stage6 Reason | Lane Decision | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
-| ASB | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | 21.00 | 0.25 | 14.14 | 3.85 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
-| CRMD | BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_REVIEW_READY_NOT_PROMOTABLE | 106.00 | 3.78 | 19.07 | 76.65 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Review-ready is diagnostic only. Promotion requires proofConfirmed=true. |
-| DAVE | STRONG_BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | 54.00 | 0.31 | 32.52 | 10.37 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
-| DUOL | BUY | earningsDataMissing | wait_earnings_data_missing_quality_floor | EARNINGS_DATA_COVERAGE_REQUIRED | 5.00 | N/A | 19.08 | -13.46 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Separate data freshness/coverage from execution policy; current evidence does not justify promotion. |
-| INCY | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | 13.00 | 0.39 | 7.62 | 5.55 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
+| CRMD | BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED | 106.00 | 3.72 | 19.26 | 76.25 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Keep WAIT_PRICE until a separate Stage6 producer policy change explicitly enables proof-confirmed promotion. |
+| DUOL | STRONG_BUY | earningsDataMissing | wait_earnings_data_missing_quality_floor | EARNINGS_DATA_COVERAGE_REQUIRED | 5.00 | N/A | 22.82 | -17.47 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Separate data freshness/coverage from execution policy; current evidence does not justify promotion. |
+| GOOGL | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | 33.00 | 0.55 | 18.74 | 16.48 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
+| INCY | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | 13.00 | 0.41 | 7.44 | 5.76 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
 
 ## Policy Interpretation
 
