@@ -7,7 +7,12 @@ on:
     # market-date run is missing.
     - cron: "05 13 * * 1-5"
     - cron: "25 13 * * 1-5"
+    # RTH catch-up slots; dispatch-only and canonical Auto-Scheduler gate prevents duplicates.
+    - cron: "35 13 * * 1-5"
+    - cron: "45 13 * * 1-5"
+    - cron: "55 13 * * 1-5"
     - cron: "05 14 * * 1-5"
+    - cron: "20 14 * * 1-5"
   workflow_dispatch:
 
 permissions:

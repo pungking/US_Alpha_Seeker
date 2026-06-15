@@ -10,6 +10,10 @@ on:
     - cron: "47 11 * * 1-5"
     - cron: "47 12 * * 1-5"
     - cron: "27 13 * * 1-5"
+    # RTH catch-up slots; target workflow gate prevents duplicate analysis.
+    - cron: "37 13 * * 1-5"
+    - cron: "57 13 * * 1-5"
+    - cron: "17 14 * * 1-5"
   workflow_dispatch:
 
 permissions:

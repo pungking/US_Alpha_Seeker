@@ -10,6 +10,10 @@ on:
     - cron: '17 11 * * 1-5'
     - cron: '17 12 * * 1-5'
     - cron: '17 13 * * 1-5'
+    # RTH catch-up slots; same-market-day gate prevents duplicate analysis.
+    - cron: '37 13 * * 1-5'
+    - cron: '57 13 * * 1-5'
+    - cron: '17 14 * * 1-5'
   workflow_dispatch: # 수동 실행 버튼 (테스트용)
     inputs:
       force:
