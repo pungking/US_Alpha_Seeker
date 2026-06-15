@@ -12,6 +12,25 @@ This checklist is the bounded RTH verification path after a fresh Stage6 hash is
 
 Confirm the latest Auto-Scheduler run is at or after the expected head, then inspect the Stage6 dispatch artifact and final row payload.
 
+Run the focused audit after downloading the fresh Stage6 artifact:
+
+```bash
+npm run ops:stage6:exec:audit
+npm run ops:stage6:fresh-focus:audit
+```
+
+The second command writes:
+
+- `state/stage6-fresh-focus-audit.json`
+- `docs/STAGE6_FRESH_FOCUS_AUDIT.md`
+
+The primary question is not simply whether `Executable Picks` is zero. The required focus metrics are:
+
+- `latestQualityGateLaneCounts`
+- `zeroExecutableTuningLaneCounts`
+- `breakoutRetestProofConfirmedCounts`
+- `targetRecalibrationViabilityVerdictCounts`
+
 Done when the Stage6 row evidence includes:
 
 - `targetRecalibrationRequiredTargetPrice`
@@ -32,6 +51,8 @@ Interpretation:
 - `targetNoTradeConfirmed=true` means keep no-trade until fresh target/thesis evidence exists.
 - `breakoutRetestProofReviewReady=true` is diagnostic only.
 - `breakoutRetestProofConfirmed=true` may become executable only if the explicit promotion flag is enabled; review-ready never promotes.
+- If zero-executable repeats while the fresh-focus audit passes, stop waiting and tune Stage6 producer logic: breakout `proofConfirmed` criteria, target recalibration formula, and risk-geometry recalculation evidence.
+- `ops-health-report=fail` is not part of Track A. It belongs to the `alpha-exec-engine` protection/guard-metadata track and must not be mixed into Stage6 entry policy tuning.
 
 ## Track B - First Fresh RTH Sidecar Run
 

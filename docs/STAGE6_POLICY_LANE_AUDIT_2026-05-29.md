@@ -1,6 +1,6 @@
 # Stage6 Policy Lane Audit
 
-- GeneratedAt: 2026-06-15T14:13:21.126Z
+- GeneratedAt: 2026-06-15T14:31:54.232Z
 - Source Audit: state/stage6-execution-gate-audit.json
 - Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-15_22-50-32.json
 - Latest Verdict: **WATCHLIST_WAIT_JUSTIFIED_OR_DATA_REPAIR_REQUIRED**
