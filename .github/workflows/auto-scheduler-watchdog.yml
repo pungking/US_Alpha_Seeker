@@ -3,14 +3,14 @@ name: US Alpha Seeker Auto-Scheduler Watchdog
 on:
   schedule:
     # Redundant recovery checks before/near regular US market hours. The target
-    # workflow has its own same-market-day gate, so late schedule arrivals
+    # workflow has its own freshness-aware gate, so late schedule arrivals
     # become no-ops instead of duplicate analysis runs.
     - cron: "47 9 * * 1-5"
     - cron: "47 10 * * 1-5"
     - cron: "47 11 * * 1-5"
     - cron: "47 12 * * 1-5"
     - cron: "27 13 * * 1-5"
-    # RTH catch-up slots; target workflow gate prevents duplicate analysis.
+    # RTH catch-up slots; target workflow freshness gate prevents duplicate analysis.
     - cron: "37 13 * * 1-5"
     - cron: "57 13 * * 1-5"
     - cron: "17 14 * * 1-5"
@@ -30,6 +30,7 @@ jobs:
       TARGET_WORKFLOW_FILE: schedule.yml
       TARGET_REF: main
       GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      DUPLICATE_FRESHNESS_MIN: ${{ vars.AUTO_SCHEDULER_DUPLICATE_FRESHNESS_MIN || '180' }}
     steps:
       - name: Check today's Auto-Scheduler status
         id: check
@@ -56,8 +57,10 @@ jobs:
           NODE
           )"
           since_iso="$(node -e 'console.log(new Date(Number(process.argv[1])).toISOString())' "$since_ms")"
+          fresh_since_iso="$(node -e 'const min = Number(process.argv[1]); console.log(new Date(Date.now() - Math.max(1, min) * 60 * 1000).toISOString())' "${DUPLICATE_FRESHNESS_MIN:-180}")"
           echo "market_date=$market_date" >> "$GITHUB_OUTPUT"
           echo "since_iso=$since_iso" >> "$GITHUB_OUTPUT"
+          echo "fresh_since_iso=$fresh_since_iso" >> "$GITHUB_OUTPUT"
 
           runs="$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
@@ -65,16 +68,25 @@ jobs:
             --created ">=$since_iso" \
             --limit 30 \
             --json databaseId,status,conclusion,event,createdAt,url)"
-          blocking="$(jq '[.[] | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success"))] | length' <<< "$runs")"
+          blocking="$(jq \
+            --arg fresh_since "$fresh_since_iso" \
+            '[.[] | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since))] | length' <<< "$runs")"
+          stale_success="$(jq \
+            --arg fresh_since "$fresh_since_iso" \
+            '[.[] | select(.status == "completed" and .conclusion == "success" and .createdAt < $fresh_since)] | length' <<< "$runs")"
           echo "blocking_runs=$blocking" >> "$GITHUB_OUTPUT"
+          echo "stale_success=$stale_success" >> "$GITHUB_OUTPUT"
           echo "## Auto-Scheduler Watchdog" >> "$GITHUB_STEP_SUMMARY"
           echo "- market_date: \`$market_date\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- since: \`$since_iso\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- fresh_since: \`$fresh_since_iso\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- duplicate_freshness_min: \`${DUPLICATE_FRESHNESS_MIN:-180}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- blocking_runs: \`$blocking\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- stale_success: \`$stale_success\`" >> "$GITHUB_STEP_SUMMARY"
           if [ "$blocking" -gt 0 ]; then
             echo "should_dispatch=false" >> "$GITHUB_OUTPUT"
-            echo "- action: \`skip_existing_run\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "$runs" | jq -c '.[] | {databaseId,status,conclusion,event,createdAt,url}'
+            echo "- action: \`skip_fresh_existing_run\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "$runs" | jq -c --arg fresh_since "$fresh_since_iso" '.[] | {databaseId,status,conclusion,event,createdAt,freshBlocking:(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since)),url}'
             exit 0
           fi
           echo "should_dispatch=true" >> "$GITHUB_OUTPUT"

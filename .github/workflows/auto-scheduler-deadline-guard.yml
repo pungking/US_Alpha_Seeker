@@ -4,10 +4,10 @@ on:
   schedule:
     # Redundant pre/early-RTH deadline checks. These do not run analysis
     # directly; they dispatch the canonical Auto-Scheduler only when today's
-    # market-date run is missing.
+    # market-date run is missing or stale beyond the freshness window.
     - cron: "05 13 * * 1-5"
     - cron: "25 13 * * 1-5"
-    # RTH catch-up slots; dispatch-only and canonical Auto-Scheduler gate prevents duplicates.
+    # RTH catch-up slots; dispatch-only and canonical Auto-Scheduler freshness gate prevents duplicates.
     - cron: "35 13 * * 1-5"
     - cron: "45 13 * * 1-5"
     - cron: "55 13 * * 1-5"
@@ -36,6 +36,7 @@ jobs:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
       TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID || vars.TELEGRAM_ALERT_CHAT_ID }}
+      DUPLICATE_FRESHNESS_MIN: ${{ vars.AUTO_SCHEDULER_DUPLICATE_FRESHNESS_MIN || '180' }}
     steps:
       - name: Check market-date Auto-Scheduler coverage
         id: guard
@@ -62,27 +63,39 @@ jobs:
           NODE
           )"
           since_iso="$(node -e 'console.log(new Date(Number(process.argv[1])).toISOString())' "$since_ms")"
+          fresh_since_iso="$(node -e 'const min = Number(process.argv[1]); console.log(new Date(Date.now() - Math.max(1, min) * 60 * 1000).toISOString())' "${DUPLICATE_FRESHNESS_MIN:-180}")"
           runs="$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
             --workflow "$TARGET_WORKFLOW_NAME" \
             --created ">=$since_iso" \
             --limit 50 \
             --json databaseId,status,conclusion,event,createdAt,headSha,url)"
-          active_or_success="$(jq '[.[] | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success"))] | length' <<< "$runs")"
+          active_or_success="$(jq \
+            --arg fresh_since "$fresh_since_iso" \
+            '[.[] | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since))] | length' <<< "$runs")"
+          stale_success="$(jq \
+            --arg fresh_since "$fresh_since_iso" \
+            '[.[] | select(.status == "completed" and .conclusion == "success" and .createdAt < $fresh_since)] | length' <<< "$runs")"
           failed="$(jq '[.[] | select(.status == "completed" and .conclusion != "success")] | length' <<< "$runs")"
           mkdir -p state
           jq -n \
             --arg generatedAt "$(date -u +%FT%TZ)" \
             --arg marketDate "$market_date" \
             --arg since "$since_iso" \
+            --arg freshSince "$fresh_since_iso" \
+            --argjson duplicateFreshnessMin "${DUPLICATE_FRESHNESS_MIN:-180}" \
             --argjson activeOrSuccess "$active_or_success" \
+            --argjson staleSuccess "$stale_success" \
             --argjson failed "$failed" \
             --argjson runs "$runs" \
             '{
               generatedAt: $generatedAt,
               marketDate: $marketDate,
               since: $since,
+              freshSince: $freshSince,
+              duplicateFreshnessMin: $duplicateFreshnessMin,
               activeOrSuccess: $activeOrSuccess,
+              staleSuccess: $staleSuccess,
               failed: $failed,
               shouldDispatch: ($activeOrSuccess == 0),
               runs: $runs,
@@ -95,14 +108,16 @@ jobs:
 
           echo "market_date=$market_date" >> "$GITHUB_OUTPUT"
           echo "since_iso=$since_iso" >> "$GITHUB_OUTPUT"
+          echo "fresh_since_iso=$fresh_since_iso" >> "$GITHUB_OUTPUT"
           echo "active_or_success=$active_or_success" >> "$GITHUB_OUTPUT"
+          echo "stale_success=$stale_success" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
           if [ "$active_or_success" -eq 0 ]; then
             echo "should_dispatch=true" >> "$GITHUB_OUTPUT"
-            status="missing_dispatch_recovery"
+            status="missing_or_stale_dispatch_recovery"
           else
             echo "should_dispatch=false" >> "$GITHUB_OUTPUT"
-            status="covered"
+            status="fresh_covered"
           fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
@@ -110,7 +125,10 @@ jobs:
             echo "## Auto-Scheduler Deadline Guard"
             echo "- market_date: \`$market_date\`"
             echo "- since: \`$since_iso\`"
+            echo "- fresh_since: \`$fresh_since_iso\`"
+            echo "- duplicate_freshness_min: \`${DUPLICATE_FRESHNESS_MIN:-180}\`"
             echo "- active_or_success: \`$active_or_success\`"
+            echo "- stale_success: \`$stale_success\`"
             echo "- failed: \`$failed\`"
             echo "- status: \`$status\`"
             echo "- safety: \`dispatch only; no broker/state mutation\`"

@@ -8,16 +8,21 @@ for (const file of files) {
   const exists=fs.existsSync(file); const text=exists?fs.readFileSync(file,'utf8'):'';
   checks.push({id:`${file}:present`,status:exists?'PASS':'FAIL',detail:exists?'workflow present':'missing workflow'});
   if (exists) checks.push({id:`${file}:manual_dispatch`,status:/workflow_dispatch:/.test(text)?'PASS':'WARN',detail:'manual rerun path'});
+  if (exists) checks.push({
+    id:`${file}:freshness_aware_duplicate_gate`,
+    status:/DUPLICATE_FRESHNESS_MIN/.test(text)&&/fresh_since_iso|freshSince/.test(text)&&/fresh_same_market_day_run_exists|missing_or_stale_dispatch_recovery|skip_fresh_existing_run/.test(text)?'PASS':'FAIL',
+    detail:'duplicate suppression must use freshness window, not only same-market-day success'
+  });
   if (file.endsWith('schedule.yml') && exists) checks.push({id:'schedule:cron',status:/cron:/.test(text)?'PASS':'FAIL',detail:'cron trigger exists'});
   if (file.endsWith('schedule.yml') && exists) checks.push({
     id:'schedule:rth_catchup_slots',
     status:/37 13 \* \* 1-5/.test(text)&&/57 13 \* \* 1-5/.test(text)&&/17 14 \* \* 1-5/.test(text)?'PASS':'FAIL',
-    detail:'canonical Auto-Scheduler has RTH catch-up slots guarded by same-market-day gate'
+    detail:'canonical Auto-Scheduler has RTH catch-up slots guarded by freshness-aware gate'
   });
   if (file.endsWith('auto-scheduler-deadline-guard.yml') && exists) checks.push({
     id:'deadline_guard:rth_catchup_slots',
     status:/35 13 \* \* 1-5/.test(text)&&/45 13 \* \* 1-5/.test(text)&&/55 13 \* \* 1-5/.test(text)&&/20 14 \* \* 1-5/.test(text)?'PASS':'FAIL',
-    detail:'deadline guard has redundant RTH dispatch checks when canonical run is missing'
+    detail:'deadline guard has redundant RTH dispatch checks when canonical run is missing or stale'
   });
   if (file.endsWith('auto-scheduler-watchdog.yml') && exists) checks.push({
     id:'watchdog:rth_catchup_slots',

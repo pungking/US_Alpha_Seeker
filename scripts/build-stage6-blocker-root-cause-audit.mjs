@@ -306,6 +306,87 @@ function isRiskGeometryReason(row) {
   ].includes(reason);
 }
 
+function isStructureWaitReason(row) {
+  return String(row?.decisionReason || '').toLowerCase() === 'wait_structure_confirmation_required';
+}
+
+function classifyStructureWait(row, policy) {
+  const p = prices(row);
+  const structureVerdict = text(row?.currentEntryStructureVerdict);
+  const structureReasons = arr(row?.currentEntryStructureReasons);
+  const structurePolicyVerdict = text(row?.structurePolicyVerdict);
+  const structurePolicyReasons = arr(row?.structurePolicyReasons);
+  const structureConfirmed = bool(row?.currentEntryStructureConfirmed) || structureVerdict === 'STRUCTURE_CONFIRMED_RECALC_CANDIDATE';
+  const recalcFeasible = bool(row?.currentEntryRecalcFeasible);
+  const rrAtCurrent = p.rrAtCurrentPrice ?? p.rrWithRecalc;
+  const entryDistancePct = numberOrNull(row?.entryDistancePct);
+  const currentRrPass = rrAtCurrent != null && rrAtCurrent >= policy.currentEntryMinRr;
+  const targetBufferPass = p.targetBufferFromCurrentPct != null && p.targetBufferFromCurrentPct >= policy.currentEntryMinTargetBufferPct;
+  const explicitReject = String(structureVerdict || '').startsWith('STRUCTURE_REJECT');
+  const overblockReviewReady = Boolean(
+    structurePolicyVerdict &&
+    /OVERBLOCK|REVIEW_READY|BROAD_WAIT/.test(structurePolicyVerdict)
+  );
+
+  let rootCause = 'STRUCTURE_PROOF_MISSING_WAIT_JUSTIFIED';
+  let recommendation = 'Keep WAIT_PRICE. Require explicit structure confirmation before promotion.';
+  if (structureConfirmed) {
+    rootCause = 'STRUCTURE_CONFIRMED_PROMOTION_REVIEW';
+    recommendation = 'Review producer promotion path; structure is confirmed but final decision remains WAIT.';
+  } else if (explicitReject) {
+    rootCause = currentRrPass && targetBufferPass && overblockReviewReady
+      ? 'STRUCTURE_REJECT_OVERBLOCK_REVIEW_READY'
+      : 'STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED';
+    recommendation = rootCause === 'STRUCTURE_REJECT_OVERBLOCK_REVIEW_READY'
+      ? 'Audit structure proof thresholds; do not relax unless independent proof confirms support/retest structure.'
+      : 'Keep WAIT_PRICE. Structure explicitly rejected and current evidence is insufficient for execution.';
+  } else if (recalcFeasible && currentRrPass && targetBufferPass) {
+    rootCause = 'STRUCTURE_PROOF_MISSING_NUMERICALLY_VIABLE';
+    recommendation = 'Improve Stage6 structure proof generation; do not bypass the structure gate in sidecar.';
+  }
+
+  return {
+    type: 'structure_wait',
+    symbol: String(row?.symbol || '').toUpperCase(),
+    finalDecision: row?.finalDecision || null,
+    decisionReason: row?.decisionReason || null,
+    verdict: rowVerdict(row),
+    rootCause,
+    isStructureConfirmed: structureConfirmed,
+    isRecalcFeasible: recalcFeasible,
+    isOverblockReviewReady: overblockReviewReady,
+    recommendation,
+    evidence: {
+      price: p.price,
+      entry: p.entry,
+      target: p.target,
+      stop: p.stop,
+      rrAtCurrent: round(rrAtCurrent),
+      rrAtCurrentPass: currentRrPass,
+      targetBufferFromCurrentPct: round(p.targetBufferFromCurrentPct),
+      targetBufferPass,
+      entryDistancePct: round(entryDistancePct),
+      currentEntryRequiredStop: p.requiredStop,
+      currentEntryRequiredStopDistancePct: round(p.requiredStopDistancePct),
+      currentEntryRecalcFeasible: recalcFeasible,
+      currentEntryStructureConfirmed: structureConfirmed,
+      currentEntryStructureVerdict: structureVerdict,
+      currentEntryStructureReasons: structureReasons,
+      structurePolicyVerdict,
+      structurePolicyReasons,
+      executionFeasibilityAtCurrent: row?.executionFeasibilityAtCurrent || null,
+      executionFeasibilityAtCurrentVerdict: row?.executionFeasibilityAtCurrentVerdict || null,
+      executionFeasibilityAtCurrentReason: row?.executionFeasibilityAtCurrentReason || null,
+      zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
+      producerFlags: {
+        adaptiveCurrentEntryEnabled: policy.adaptiveCurrentEntryEnabled,
+        currentEntryStopRecalcEnabled: policy.currentEntryStopRecalcEnabled,
+        currentEntryStructureGateRequired: policy.currentEntryStructureGateRequired
+      }
+    }
+  };
+}
+
 function classifyQualityGate(row, policy) {
   const p = prices(row);
   const verdict = rowVerdict(row);
@@ -396,9 +477,18 @@ function buildMarkdown(report) {
   lines.push(`- Stage6: ${report.stage6.file}`);
   lines.push(`- Hash: ${report.stage6.hash || 'N/A'}`);
   lines.push(`- Rows audited: ${report.summary.rowsAudited}`);
+  lines.push(`- Structure wait rows: ${report.summary.structureWaitRows}`);
   lines.push(`- Risk geometry rows: ${report.summary.riskGeometryRows}`);
   lines.push(`- Quality gate rows: ${report.summary.qualityGateRows}`);
   lines.push(`- Safety: report-only; broker/order mutation is out of scope.`);
+  lines.push('');
+  lines.push('## Structure Wait');
+  lines.push('');
+  lines.push('| Symbol | Decision | Root Cause | Structure Confirmed | Recalc Feasible | RR@Current | TargetBuf% | EntryDist% | Structure Verdict | Recommendation |');
+  lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- |');
+  for (const row of report.structureWait) {
+    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.rootCause)} | ${row.isStructureConfirmed ? 'yes' : 'no'} | ${row.isRecalcFeasible ? 'yes' : 'no'} | ${fmt(row.evidence.rrAtCurrent)} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${fmt(row.evidence.entryDistancePct)} | ${esc(row.evidence.currentEntryStructureVerdict)} | ${esc(row.recommendation)} |`);
+  }
   lines.push('');
   lines.push('## Risk Geometry');
   lines.push('');
@@ -420,6 +510,8 @@ function buildMarkdown(report) {
   lines.push('## Done-When Interpretation');
   lines.push('');
   lines.push('- `RECALC_CANDIDATE_BLOCKED_BY_PRODUCER_FLAGS` means Stage6 has a real current-entry recalculated-stop candidate, but the producer manifest disables promotion. Fix producer flag propagation before touching sidecar order policy.');
+  lines.push('- `STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED` means structure relaxation is not the next lever; improve proof generation or keep WAIT.');
+  lines.push('- `STRUCTURE_PROOF_MISSING_NUMERICALLY_VIABLE` means the row is numerically interesting but still lacks structure proof. Fix Stage6 proof generation, not sidecar execution.');
   lines.push('- `QUALITY_GATE_VALID_HOLD_AND_TARGET_GEOMETRY_BLOCK` means the block is valid: non-actionable verdict plus target/current geometry failure. This is target recalibration/no-trade, not broker reprice.');
   lines.push('- `AI_VERDICT_NORMALIZATION_SUSPICIOUS` must be present before treating quality_gate as a normalization bug.');
   return `${lines.join('\n')}\n`;
@@ -430,6 +522,7 @@ function main() {
   const stage6 = readJson(stage6Path);
   const policy = policyFromStage6(stage6);
   const rows = uniqueRows(stage6);
+  const structureWait = rows.filter(isStructureWaitReason).map((row) => classifyStructureWait(row, policy));
   const riskGeometry = rows.filter(isRiskGeometryReason).map((row) => classifyRiskGeometry(row, policy));
   const qualityGate = rows.filter((row) => row?.decisionReason === 'blocked_quality_verdict_unusable').map((row) => classifyQualityGate(row, policy));
   const evidence = sidecarEvidence(process.env.STAGE6_BLOCKER_AUDIT_SIDECAR_STATE_DIR);
@@ -444,11 +537,14 @@ function main() {
     sidecarEvidenceRoot: evidence.root || null,
     summary: {
       rowsAudited: rows.length,
+      structureWaitRows: structureWait.length,
       riskGeometryRows: riskGeometry.length,
       qualityGateRows: qualityGate.length,
+      structureWaitRootCauses: structureWait.reduce((acc, row) => ({ ...acc, [row.rootCause]: (acc[row.rootCause] || 0) + 1 }), {}),
       riskGeometryRootCauses: riskGeometry.reduce((acc, row) => ({ ...acc, [row.rootCause]: (acc[row.rootCause] || 0) + 1 }), {}),
       qualityGateRootCauses: qualityGate.reduce((acc, row) => ({ ...acc, [row.rootCause]: (acc[row.rootCause] || 0) + 1 }), {})
     },
+    structureWait: attachSidecarEvidence(structureWait, evidence),
     riskGeometry: attachSidecarEvidence(riskGeometry, evidence),
     qualityGate: attachSidecarEvidence(qualityGate, evidence),
     safety: {
@@ -463,7 +559,7 @@ function main() {
   ensureParent(outMd);
   fs.writeFileSync(path.resolve(REPO_ROOT, outJson), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   fs.writeFileSync(path.resolve(REPO_ROOT, outMd), buildMarkdown(report), 'utf8');
-  console.log(`[STAGE6_BLOCKER_ROOT_CAUSE_AUDIT] risk_geometry=${riskGeometry.length} quality_gate=${qualityGate.length} json=${outJson} md=${outMd}`);
+  console.log(`[STAGE6_BLOCKER_ROOT_CAUSE_AUDIT] structure_wait=${structureWait.length} risk_geometry=${riskGeometry.length} quality_gate=${qualityGate.length} json=${outJson} md=${outMd}`);
 }
 
 main();
