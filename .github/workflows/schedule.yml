@@ -4,13 +4,14 @@ name: US Alpha Seeker Auto-Scheduler
 on:
   schedule:
     # Redundant pre-RTH fanout. GitHub scheduled events can be delayed or
-    # dropped; the same-market-day gate below prevents duplicate analysis.
+    # dropped; the freshness-aware gate below prevents duplicate analysis
+    # without letting an early manual force run suppress the RTH-ready hash.
     - cron: '17 9 * * 1-5'
     - cron: '17 10 * * 1-5'
     - cron: '17 11 * * 1-5'
     - cron: '17 12 * * 1-5'
     - cron: '17 13 * * 1-5'
-    # RTH catch-up slots; same-market-day gate prevents duplicate analysis.
+    # RTH catch-up slots; freshness-aware gate prevents duplicate analysis.
     - cron: '37 13 * * 1-5'
     - cron: '57 13 * * 1-5'
     - cron: '17 14 * * 1-5'
@@ -47,6 +48,7 @@ jobs:
           GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
           TARGET_WORKFLOW: US Alpha Seeker Auto-Scheduler
+          DUPLICATE_FRESHNESS_MIN: ${{ vars.AUTO_SCHEDULER_DUPLICATE_FRESHNESS_MIN || '180' }}
         run: |
           set -euo pipefail
           market_date="$(TZ=America/New_York date +%F)"
@@ -70,8 +72,9 @@ jobs:
           NODE
           )"
           since_iso="$(node -e 'console.log(new Date(Number(process.argv[1])).toISOString())' "$since")"
+          fresh_since_iso="$(node -e 'const min = Number(process.argv[1]); console.log(new Date(Date.now() - Math.max(1, min) * 60 * 1000).toISOString())' "${DUPLICATE_FRESHNESS_MIN:-180}")"
           echo "market_date=$market_date" >> "$GITHUB_OUTPUT"
-          echo "[DAILY_GATE] marketDate=$market_date since=$since_iso currentRun=$GITHUB_RUN_ID force=${FORCE_RUN:-false}"
+          echo "[DAILY_GATE] marketDate=$market_date since=$since_iso freshSince=$fresh_since_iso duplicateFreshnessMin=${DUPLICATE_FRESHNESS_MIN:-180} currentRun=$GITHUB_RUN_ID force=${FORCE_RUN:-false}"
 
           if [ "${FORCE_RUN:-false}" = "true" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
@@ -86,17 +89,20 @@ jobs:
             --created ">=$since_iso" \
             --limit 30 \
             --json databaseId,status,conclusion,event,createdAt,url)"
-          blocking="$(jq --arg current "$GITHUB_RUN_ID" '[.[] | select((.databaseId | tostring) != $current) | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success"))] | length' <<< "$runs")"
-          echo "[DAILY_GATE] same_day_blocking_runs=$blocking"
+          blocking="$(jq \
+            --arg current "$GITHUB_RUN_ID" \
+            --arg fresh_since "$fresh_since_iso" \
+            '[.[] | select((.databaseId | tostring) != $current) | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since))] | length' <<< "$runs")"
+          echo "[DAILY_GATE] freshness_blocking_runs=$blocking"
           if [ "$blocking" -gt 0 ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "reason=same_market_day_run_exists" >> "$GITHUB_OUTPUT"
-            echo "$runs" | jq -c '.[] | {databaseId,status,conclusion,event,createdAt,url}'
+            echo "reason=fresh_same_market_day_run_exists" >> "$GITHUB_OUTPUT"
+            echo "$runs" | jq -c --arg fresh_since "$fresh_since_iso" '.[] | {databaseId,status,conclusion,event,createdAt,freshBlocking:(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since)),url}'
             exit 0
           fi
 
           echo "should_run=true" >> "$GITHUB_OUTPUT"
-          echo "reason=no_same_market_day_run" >> "$GITHUB_OUTPUT"
+          echo "reason=no_fresh_same_market_day_run" >> "$GITHUB_OUTPUT"
 
   alpha-mining:
     name: Alpha Seeking Pipeline
