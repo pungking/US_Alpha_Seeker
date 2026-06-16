@@ -187,6 +187,7 @@ function compactRow(row) {
     targetRecalibrationCurrentTargetGapPct: numberOrNull(row?.targetRecalibrationCurrentTargetGapPct),
     targetRecalibrationRequiredTargetByBufferPrice: numberOrNull(row?.targetRecalibrationRequiredTargetByBufferPrice),
     targetRecalibrationRequiredTargetByRrPrice: numberOrNull(row?.targetRecalibrationRequiredTargetByRrPrice),
+    targetRecalibrationRequiredTargetByExpectedReturnPrice: numberOrNull(row?.targetRecalibrationRequiredTargetByExpectedReturnPrice),
     targetRecalibrationSourcePrice: numberOrNull(row?.targetRecalibrationSourcePrice),
     targetRecalibrationSourceStopPrice: numberOrNull(row?.targetRecalibrationSourceStopPrice),
     targetRecalibrationStopDistanceAtCurrent: numberOrNull(row?.targetRecalibrationStopDistanceAtCurrent),
@@ -198,6 +199,14 @@ function compactRow(row) {
     riskGeometryRequiredTargetBufferPct: numberOrNull(row?.riskGeometryRequiredTargetBufferPct),
     riskGeometryTargetGapPct: numberOrNull(row?.riskGeometryTargetGapPct),
     riskGeometryTargetRecalibrationCandidate: row?.riskGeometryTargetRecalibrationCandidate ?? null,
+    riskGeometryTargetAboveCurrent: row?.riskGeometryTargetAboveCurrent ?? null,
+    riskGeometryRequiredStopValid: row?.riskGeometryRequiredStopValid ?? null,
+    riskGeometryRequiredStopDistanceValid: row?.riskGeometryRequiredStopDistanceValid ?? null,
+    riskGeometryRecalculatedStopRrOk: row?.riskGeometryRecalculatedStopRrOk ?? null,
+    riskGeometryTargetBufferOk: row?.riskGeometryTargetBufferOk ?? null,
+    currentEntryStructureSupportReference: row?.currentEntryStructureSupportReference || null,
+    currentEntryStructureSupportGapAtr: numberOrNull(row?.currentEntryStructureSupportGapAtr),
+    currentEntryStructureStopAlignedSupportGapAtr: numberOrNull(row?.currentEntryStructureStopAlignedSupportGapAtr),
     rrAtCurrentPrice: numberOrNull(row?.rrAtCurrentPrice),
     entryDistancePct: numberOrNull(row?.entryDistancePctShadow ?? row?.entryDistancePct),
     targetBufferFromCurrentPct: numberOrNull(row?.targetBufferFromCurrentPct)
@@ -242,10 +251,17 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Row Focus');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | StopDist@Cur | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Support Ref | SupportGapATR | StopAlignedGapATR | Risk Checks | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |');
   for (const row of report.rows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationStopDistanceAtCurrent)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
+    const riskChecks = [
+      `target=${row.riskGeometryTargetAboveCurrent}`,
+      `stop=${row.riskGeometryRequiredStopValid}`,
+      `dist=${row.riskGeometryRequiredStopDistanceValid}`,
+      `rr=${row.riskGeometryRecalculatedStopRrOk}`,
+      `buf=${row.riskGeometryTargetBufferOk}`
+    ].join(',');
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.currentEntryStructureSupportReference)} | ${esc(row.currentEntryStructureSupportGapAtr)} | ${esc(row.currentEntryStructureStopAlignedSupportGapAtr)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
   lines.push('## Track Separation');
@@ -279,11 +295,20 @@ function main() {
     targetRecalibrationViabilityVerdict: requiredFieldCoverage(rows, 'targetRecalibrationViabilityVerdict'),
     targetRecalibrationRequiredTargetByBufferPrice: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetByBufferPrice'),
     targetRecalibrationRequiredTargetByRrPrice: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetByRrPrice'),
+    targetRecalibrationRequiredTargetByExpectedReturnPrice: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetByExpectedReturnPrice'),
     targetRecalibrationSourcePrice: requiredFieldCoverage(rows, 'targetRecalibrationSourcePrice'),
     targetRecalibrationSourceStopPrice: requiredFieldCoverage(rows, 'targetRecalibrationSourceStopPrice'),
     targetRecalibrationStopDistanceAtCurrent: requiredFieldCoverage(rows, 'targetRecalibrationStopDistanceAtCurrent'),
     targetRecalibrationRequiredTargetSource: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetSource'),
-    riskGeometryTargetGapPct: requiredFieldCoverage(rows, 'riskGeometryTargetGapPct')
+    riskGeometryTargetGapPct: requiredFieldCoverage(rows, 'riskGeometryTargetGapPct'),
+    riskGeometryTargetAboveCurrent: requiredFieldCoverage(rows, 'riskGeometryTargetAboveCurrent'),
+    riskGeometryRequiredStopValid: requiredFieldCoverage(rows, 'riskGeometryRequiredStopValid'),
+    riskGeometryRequiredStopDistanceValid: requiredFieldCoverage(rows, 'riskGeometryRequiredStopDistanceValid'),
+    riskGeometryRecalculatedStopRrOk: requiredFieldCoverage(rows, 'riskGeometryRecalculatedStopRrOk'),
+    riskGeometryTargetBufferOk: requiredFieldCoverage(rows, 'riskGeometryTargetBufferOk'),
+    currentEntryStructureSupportReference: requiredFieldCoverage(rows, 'currentEntryStructureSupportReference'),
+    currentEntryStructureSupportGapAtr: requiredFieldCoverage(rows, 'currentEntryStructureSupportGapAtr'),
+    currentEntryStructureStopAlignedSupportGapAtr: requiredFieldCoverage(rows, 'currentEntryStructureStopAlignedSupportGapAtr')
   };
   const requiredCoveragePass = requiredFocusFields.every((field) => {
     const coverage = fieldCoverage[field];

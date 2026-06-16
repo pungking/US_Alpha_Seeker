@@ -1,6 +1,6 @@
 # Stage6 Blocker Root Cause Audit
 
-- GeneratedAt: 2026-06-16T14:07:47.998Z
+- GeneratedAt: 2026-06-16T14:30:40.486Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-16_22-56-56.json
 - Hash: 8598d3408722bfc8a99c53ed8b74b73e63e524f8cb862d095469c46b5566fd23
 - Rows audited: 6
