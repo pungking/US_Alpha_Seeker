@@ -1,12 +1,12 @@
 # Stage6 Blocker Root Cause Audit
 
-- GeneratedAt: 2026-06-16T15:03:34.448Z
+- GeneratedAt: 2026-06-16T23:21:03.639Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-16_23-59-28.json
 - Hash: 191e5e5231619841e5c83cc9b20142a333ce57c0dd235e214849eff553e985c7
 - Rows audited: 6
 - Structure wait rows: 4
 - Risk geometry rows: 1
-- Quality gate rows: 0
+- Quality gate rows: 1
 - Safety: report-only; broker/order mutation is out of scope.
 
 ## Structure Wait
@@ -26,8 +26,9 @@
 
 ## Quality Gate
 
-| Symbol | Verdict | Decision | Root Cause | Verdict Unusable | HOLD | Target Geometry Block | Normalization Issue | TargetBuf% | Recommendation |
-| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |
+| Symbol | Verdict | Decision | Producer Lane | Producer Verdict | Root Cause | Verdict Unusable | HOLD | Target Geometry Block | Normalization Issue | TargetBuf% | Recommendation |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |
+| ZVRA | SPECULATIVE_BUY | WAIT_PRICE/wait_verdict_not_sidecar_actionable | N/A | N/A | QUALITY_GATE_VALID_NON_ACTIONABLE_VERDICT | yes | no | no | no | 122.22 | Keep blocked until Stage6 emits an actionable BUY/STRONG_BUY verdict or explicit waiver. |
 
 ## Done-When Interpretation
 

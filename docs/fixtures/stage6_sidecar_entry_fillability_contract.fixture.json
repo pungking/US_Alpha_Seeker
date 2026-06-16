@@ -175,7 +175,16 @@
       "zeroExecutableTuningReasons": [
         "not_zero_executable_policy_lane"
       ],
-      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
+      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required.",
+      "qualityGateLane": "non_actionable_verdict",
+      "qualityGatePolicyVerdict": "QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT",
+      "qualityGateReasons": [
+        "quality_gate_lane:non_actionable_verdict",
+        "decision_reason:wait_verdict_not_sidecar_actionable",
+        "execution_actionable_verdict_false",
+        "ai_verdict_key:SPECULATIVE_BUY"
+      ],
+      "qualityGateRecommendedAction": "Keep WAIT_PRICE unless Stage6 emits BUY/STRONG_BUY or an explicit producer-side waiver."
     },
     {
       "symbol": "STRUCT_REJECT_WAIT",
@@ -205,7 +214,8 @@
       "structurePolicyReviewReady": false,
       "structurePolicyReasons": [
         "stop_too_far_below_support",
-        "current_rr_or_target_buffer_weak"
+        "current_rr_below_min",
+        "structure_blocker_lane:STRUCTURE_CURRENT_RR_WEAK"
       ],
       "structurePolicyRecommendedAction": "Keep WAIT_PRICE.",
       "zeroExecutableTuningLane": "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
@@ -215,7 +225,11 @@
         "stop_too_far_below_support",
         "current_rr_or_target_buffer_weak"
       ],
-      "zeroExecutableTuningRecommendedAction": "Do not relax structure gates. Keep WAIT unless Stage6 emits stronger structure proof."
+      "zeroExecutableTuningRecommendedAction": "Do not relax structure gates. Keep WAIT unless Stage6 emits stronger structure proof.",
+      "structurePolicyBlockerLane": "STRUCTURE_CURRENT_RR_WEAK",
+      "structurePolicyCurrentRrOk": false,
+      "structurePolicyTargetBufferOk": true,
+      "structurePolicyDistanceWithinReviewBand": true
     },
     {
       "symbol": "BREAKOUT_REVIEW_WAIT",
@@ -347,10 +361,10 @@
       "targetRecalibrationRequired": true,
       "targetNoChaseRequired": true,
       "targetRecalibrationCurrentTargetPrice": 102.8,
-      "targetRecalibrationRequiredTargetPrice": 104.5,
+      "targetRecalibrationRequiredTargetPrice": 110.8,
       "targetRecalibrationRequiredTargetBufferPct": 4.5,
       "targetRecalibrationRequiredRr": 1.8,
-      "targetRecalibrationCurrentTargetGapPct": -1.63,
+      "targetRecalibrationCurrentTargetGapPct": -7.22,
       "targetRecalibrationReasons": [
         "target_buffer_below_review_floor",
         "current_rr_weak_or_unavailable",
@@ -396,7 +410,26 @@
       "targetRecalibrationRequiredTargetByRrPrice": 110.8,
       "targetRecalibrationSourcePrice": 100,
       "targetRecalibrationSourceStopPrice": 94,
-      "targetRecalibrationStopDistanceAtCurrent": 6
+      "targetRecalibrationStopDistanceAtCurrent": 6,
+      "targetRecalibrationRequiredTargetByExpectedReturnPrice": null,
+      "targetRecalibrationRequiredTargetSource": "actual_stop_risk",
+      "riskGeometryRequiredTargetPrice": 110.8,
+      "riskGeometryRequiredTargetByStopPrice": 110.8,
+      "riskGeometryRequiredTargetByBufferPrice": 103,
+      "riskGeometryRequiredTargetByExpectedReturnPrice": null,
+      "riskGeometryRequiredTargetSource": "stop_min_rr",
+      "riskGeometryRequiredTargetBufferPct": 10.8,
+      "riskGeometryTargetGapPct": -7.22,
+      "riskGeometryTargetShortfallPct": 7.22,
+      "riskGeometryTargetRecalibrationCandidate": false,
+      "riskGeometryTargetBufferPct": 2.8,
+      "riskGeometryTargetAboveCurrent": true,
+      "riskGeometryRequiredStopValid": false,
+      "riskGeometryRequiredStopDistanceValid": false,
+      "riskGeometryRecalculatedStopRrOk": false,
+      "riskGeometryTargetBufferOk": false,
+      "riskGeometryRepairLane": "RISK_GEOMETRY_PROOF_INCOMPLETE",
+      "riskGeometryProofConfirmed": false
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -473,7 +506,26 @@
       "targetRecalibrationRequiredTargetByRrPrice": 110.8,
       "targetRecalibrationSourcePrice": 100,
       "targetRecalibrationSourceStopPrice": 94,
-      "targetRecalibrationStopDistanceAtCurrent": 6
+      "targetRecalibrationStopDistanceAtCurrent": 6,
+      "targetRecalibrationRequiredTargetByExpectedReturnPrice": 136,
+      "targetRecalibrationRequiredTargetSource": "expected_return_and_actual_stop_risk",
+      "riskGeometryRequiredTargetPrice": 136,
+      "riskGeometryRequiredTargetByStopPrice": 110.8,
+      "riskGeometryRequiredTargetByBufferPrice": 103,
+      "riskGeometryRequiredTargetByExpectedReturnPrice": 136,
+      "riskGeometryRequiredTargetSource": "expected_return",
+      "riskGeometryRequiredTargetBufferPct": 36,
+      "riskGeometryTargetGapPct": -25.74,
+      "riskGeometryTargetShortfallPct": 25.74,
+      "riskGeometryTargetRecalibrationCandidate": false,
+      "riskGeometryTargetBufferPct": 0.8,
+      "riskGeometryTargetAboveCurrent": true,
+      "riskGeometryRequiredStopValid": false,
+      "riskGeometryRequiredStopDistanceValid": false,
+      "riskGeometryRecalculatedStopRrOk": false,
+      "riskGeometryTargetBufferOk": false,
+      "riskGeometryRepairLane": "RISK_GEOMETRY_PROOF_INCOMPLETE",
+      "riskGeometryProofConfirmed": false
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -514,7 +566,24 @@
       "zeroExecutableTuningReasons": [
         "required_stop_distance_out_of_policy"
       ],
-      "zeroExecutableTuningRecommendedAction": "Keep blocked until Stage6 emits valid stop recalibration evidence."
+      "zeroExecutableTuningRecommendedAction": "Keep blocked until Stage6 emits valid stop recalibration evidence.",
+      "riskGeometryRequiredTargetPrice": 53,
+      "riskGeometryRequiredTargetByStopPrice": 50.54,
+      "riskGeometryRequiredTargetByBufferPrice": 51.5,
+      "riskGeometryRequiredTargetByExpectedReturnPrice": 53,
+      "riskGeometryRequiredTargetSource": "expected_return",
+      "riskGeometryRequiredTargetBufferPct": 6,
+      "riskGeometryTargetGapPct": 9.43,
+      "riskGeometryTargetShortfallPct": 0,
+      "riskGeometryTargetRecalibrationCandidate": false,
+      "riskGeometryTargetBufferPct": 12,
+      "riskGeometryTargetAboveCurrent": true,
+      "riskGeometryRequiredStopValid": false,
+      "riskGeometryRequiredStopDistanceValid": false,
+      "riskGeometryRecalculatedStopRrOk": false,
+      "riskGeometryTargetBufferOk": true,
+      "riskGeometryRepairLane": "RISK_GEOMETRY_PROOF_INCOMPLETE",
+      "riskGeometryProofConfirmed": false
     }
   ]
 }

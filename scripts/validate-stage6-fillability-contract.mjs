@@ -42,6 +42,15 @@ for (const [idx, row] of candidates.entries()) {
   if (!actionableVerdict && row.finalDecision === 'WAIT_PRICE' && row.decisionReason === 'wait_verdict_not_sidecar_actionable' && row.executionActionableVerdict !== false) {
     errors.push(`${label}: non-actionable wait must declare executionActionableVerdict=false`);
   }
+  if (row.finalDecision === 'WAIT_PRICE' && row.decisionReason === 'wait_verdict_not_sidecar_actionable') {
+    if (row.qualityGateLane !== 'non_actionable_verdict') {
+      errors.push(`${label}: non-actionable wait must declare qualityGateLane=non_actionable_verdict`);
+    }
+    if (row.qualityGatePolicyVerdict !== 'QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT') {
+      errors.push(`${label}: non-actionable wait must declare QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT`);
+    }
+    if (!Array.isArray(row.qualityGateReasons)) errors.push(`${label}: non-actionable wait missing qualityGateReasons array`);
+  }
   if (row.executionFeasibilityAtCurrent === 'BLOCKED' && !String(row.decisionReason || '').startsWith('wait_') && !String(row.decisionReason || '').startsWith('blocked_')) {
     errors.push(`${label}: blocked current feasibility needs wait_/blocked_ decisionReason`);
   }
@@ -139,6 +148,14 @@ for (const [idx, row] of candidates.entries()) {
   }
   if (row.decisionReason === 'wait_structure_confirmation_required') {
     if (!row.structurePolicyVerdict) errors.push(`${label}: structure wait missing structurePolicyVerdict`);
+    if (!row.structurePolicyBlockerLane) errors.push(`${label}: structure wait missing structurePolicyBlockerLane`);
+    for (const field of [
+      'structurePolicyCurrentRrOk',
+      'structurePolicyTargetBufferOk',
+      'structurePolicyDistanceWithinReviewBand'
+    ]) {
+      if (!isBooleanLike(row[field])) errors.push(`${label}: structure wait missing boolean ${field}`);
+    }
     if (tuningLane(row) !== 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
       errors.push(`${label}: structure wait must be marked as proof-required, not a relaxation lane`);
     }
@@ -196,9 +213,20 @@ for (const [idx, row] of candidates.entries()) {
         'riskGeometryRecalculatedStopPrice',
         'riskGeometryRecalculatedStopDistancePct',
         'riskGeometryRrAtRecalculatedStop',
+        'riskGeometryRequiredTargetPrice',
+        'riskGeometryRequiredTargetByStopPrice',
+        'riskGeometryRequiredTargetByBufferPrice',
         'riskGeometryTargetBufferPct'
       ]) {
         if (!isFiniteNumber(row[field])) errors.push(`${label}: recalculated stop candidate missing numeric ${field}`);
+      }
+      if (!row.riskGeometryRequiredTargetSource) errors.push(`${label}: recalculated stop candidate missing riskGeometryRequiredTargetSource`);
+      if (!row.riskGeometryRepairLane) errors.push(`${label}: recalculated stop candidate missing riskGeometryRepairLane`);
+      if (!isBooleanLike(row.riskGeometryProofConfirmed)) errors.push(`${label}: recalculated stop candidate missing riskGeometryProofConfirmed`);
+    }
+    if (isTrue(row.riskGeometryRecalibrationRequired) || isTrue(row.riskGeometryTargetRecalibrationCandidate)) {
+      for (const field of ['riskGeometryTargetGapPct', 'riskGeometryTargetShortfallPct']) {
+        if (!isFiniteNumber(row[field])) errors.push(`${label}: risk geometry recalibration missing numeric ${field}`);
       }
     }
     if (

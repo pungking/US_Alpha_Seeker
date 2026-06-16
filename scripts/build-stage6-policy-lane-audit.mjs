@@ -251,8 +251,10 @@ function currentDistanceDecision(row) {
 function actionableVerdictDecision(row) {
   if (!isReason(row, 'wait_verdict_not_sidecar_actionable')) return null;
   return {
-    laneDecision: 'ACTIONABLE_VERDICT_CONTRACT_WAIT',
-    recommendedAction: 'Keep WAIT_PRICE. Stage6 may track speculative alpha, but executablePicks must match sidecar actionable verdicts unless an explicit producer waiver is approved.'
+    laneDecision: row.qualityGatePolicyVerdict || 'ACTIONABLE_VERDICT_CONTRACT_WAIT',
+    recommendedAction:
+      row.qualityGateRecommendedAction ||
+      'Keep WAIT_PRICE. Stage6 may track speculative alpha, but executablePicks must match sidecar actionable verdicts unless an explicit producer waiver is approved.'
   };
 }
 
@@ -329,6 +331,7 @@ function isQualityGateReason(row) {
 }
 
 function qualityGateLane(row) {
+  if (row?.qualityGateLane && row.qualityGateLane !== 'not_applicable') return row.qualityGateLane;
   const reason = String(row?.decisionReason || '').toLowerCase();
   if (reason === 'wait_earnings_data_missing_quality_floor' || reason === 'wait_earnings_data_missing') {
     return 'earnings_data_coverage';
@@ -524,6 +527,10 @@ function compactRow(row) {
     currentEntryStructureReasons: row.currentEntryStructureReasons || [],
     structurePolicyVerdict: row.structurePolicyVerdict || null,
     structurePolicyReviewReady: Boolean(row.structurePolicyReviewReady),
+    structurePolicyBlockerLane: row.structurePolicyBlockerLane || null,
+    structurePolicyCurrentRrOk: row.structurePolicyCurrentRrOk ?? null,
+    structurePolicyTargetBufferOk: row.structurePolicyTargetBufferOk ?? null,
+    structurePolicyDistanceWithinReviewBand: row.structurePolicyDistanceWithinReviewBand ?? null,
     structurePolicyReasons: row.structurePolicyReasons || [],
     breakoutRetestProofVerdict: row.breakoutRetestProofVerdict || null,
     breakoutRetestProofConfirmed: Boolean(row.breakoutRetestProofConfirmed),
@@ -578,10 +585,17 @@ function compactRow(row) {
     riskGeometryRecalculatedStopDistancePct: row.riskGeometryRecalculatedStopDistancePct ?? null,
     riskGeometryRrAtRecalculatedStop: row.riskGeometryRrAtRecalculatedStop ?? null,
     riskGeometryRequiredTargetPrice: row.riskGeometryRequiredTargetPrice ?? null,
+    riskGeometryRequiredTargetByStopPrice: row.riskGeometryRequiredTargetByStopPrice ?? null,
+    riskGeometryRequiredTargetByBufferPrice: row.riskGeometryRequiredTargetByBufferPrice ?? null,
+    riskGeometryRequiredTargetByExpectedReturnPrice: row.riskGeometryRequiredTargetByExpectedReturnPrice ?? null,
+    riskGeometryRequiredTargetSource: row.riskGeometryRequiredTargetSource || null,
     riskGeometryRequiredTargetBufferPct: row.riskGeometryRequiredTargetBufferPct ?? null,
     riskGeometryTargetGapPct: row.riskGeometryTargetGapPct ?? null,
+    riskGeometryTargetShortfallPct: row.riskGeometryTargetShortfallPct ?? null,
     riskGeometryTargetRecalibrationCandidate: row.riskGeometryTargetRecalibrationCandidate ?? null,
     riskGeometryTargetBufferPct: row.riskGeometryTargetBufferPct ?? null,
+    riskGeometryRepairLane: row.riskGeometryRepairLane || null,
+    riskGeometryProofConfirmed: row.riskGeometryProofConfirmed ?? null,
     riskGeometryProofReasons: row.riskGeometryProofReasons || [],
     riskGeometryReasons: row.riskGeometryReasons || [],
     blockerClass: row.blockerClass,
@@ -591,7 +605,10 @@ function compactRow(row) {
     zeroExecutablePrimaryTuningTarget: row.zeroExecutablePrimaryTuningTarget ?? null,
     zeroExecutableTuningReasons: row.zeroExecutableTuningReasons || [],
     zeroExecutableTuningRecommendedAction: row.zeroExecutableTuningRecommendedAction || null,
-    qualityGateLane: row.qualityGateLane || null
+    qualityGateLane: row.qualityGateLane || null,
+    qualityGatePolicyVerdict: row.qualityGatePolicyVerdict || null,
+    qualityGateReasons: row.qualityGateReasons || [],
+    qualityGateRecommendedAction: row.qualityGateRecommendedAction || null
   };
 }
 

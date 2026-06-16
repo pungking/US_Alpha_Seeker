@@ -126,6 +126,10 @@ interface AlphaCandidate {
   currentEntryStructurePriceDriftPct?: number | null;
   structurePolicyVerdict?: string | null;
   structurePolicyReviewReady?: boolean | null;
+  structurePolicyBlockerLane?: string | null;
+  structurePolicyCurrentRrOk?: boolean | null;
+  structurePolicyTargetBufferOk?: boolean | null;
+  structurePolicyDistanceWithinReviewBand?: boolean | null;
   structurePolicyReasons?: string[] | null;
   structurePolicyRecommendedAction?: string | null;
   breakoutRetestProofVerdict?: string | null;
@@ -194,8 +198,13 @@ interface AlphaCandidate {
   riskGeometryRecalculatedStopDistancePct?: number | null;
   riskGeometryRrAtRecalculatedStop?: number | null;
   riskGeometryRequiredTargetPrice?: number | null;
+  riskGeometryRequiredTargetByStopPrice?: number | null;
+  riskGeometryRequiredTargetByBufferPrice?: number | null;
+  riskGeometryRequiredTargetByExpectedReturnPrice?: number | null;
+  riskGeometryRequiredTargetSource?: string | null;
   riskGeometryRequiredTargetBufferPct?: number | null;
   riskGeometryTargetGapPct?: number | null;
+  riskGeometryTargetShortfallPct?: number | null;
   riskGeometryTargetRecalibrationCandidate?: boolean | null;
   riskGeometryTargetBufferPct?: number | null;
   riskGeometryTargetAboveCurrent?: boolean | null;
@@ -203,9 +212,15 @@ interface AlphaCandidate {
   riskGeometryRequiredStopDistanceValid?: boolean | null;
   riskGeometryRecalculatedStopRrOk?: boolean | null;
   riskGeometryTargetBufferOk?: boolean | null;
+  riskGeometryRepairLane?: string | null;
+  riskGeometryProofConfirmed?: boolean | null;
   riskGeometryProofReasons?: string[] | null;
   riskGeometryReasons?: string[] | null;
   riskGeometryRecommendedAction?: string | null;
+  qualityGateLane?: string | null;
+  qualityGatePolicyVerdict?: string | null;
+  qualityGateReasons?: string[] | null;
+  qualityGateRecommendedAction?: string | null;
   zeroExecutableTuningLane?: string | null;
   zeroExecutableTuningVerdict?: string | null;
   zeroExecutablePrimaryTuningTarget?: boolean | null;
@@ -671,6 +686,17 @@ type BreakoutRetestProofPayload = {
 type Stage6PolicyReviewPayload = {
   verdict: string;
   reviewReady: boolean;
+  blockerLane: string;
+  currentRrOk: boolean;
+  targetBufferOk: boolean;
+  distanceWithinReviewBand: boolean;
+  reasons: string[];
+  recommendedAction: string;
+};
+
+type Stage6QualityGatePolicyPayload = {
+  lane: string;
+  verdict: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -724,8 +750,13 @@ type Stage6RiskGeometryPolicyPayload = {
   recalculatedStopDistancePct: number | null;
   rrAtRecalculatedStop: number | null;
   requiredTargetPrice: number | null;
+  requiredTargetByStopPrice: number | null;
+  requiredTargetByBufferPrice: number | null;
+  requiredTargetByExpectedReturnPrice: number | null;
+  requiredTargetSource: string | null;
   requiredTargetBufferPct: number | null;
   targetGapPct: number | null;
+  targetShortfallPct: number | null;
   targetRecalibrationCandidate: boolean;
   targetBufferPct: number | null;
   targetAboveCurrent: boolean;
@@ -733,6 +764,8 @@ type Stage6RiskGeometryPolicyPayload = {
   requiredStopDistanceValid: boolean;
   recalculatedStopRrOk: boolean;
   targetBufferOk: boolean;
+  repairLane: string;
+  proofConfirmed: boolean;
   proofReasons: string[];
   reasons: string[];
   recommendedAction: string;
@@ -1137,6 +1170,10 @@ const deriveStructurePolicyReview = (input: {
     return {
       verdict: 'STRUCTURE_POLICY_NOT_APPLICABLE',
       reviewReady: false,
+      blockerLane: 'not_applicable',
+      currentRrOk: false,
+      targetBufferOk: false,
+      distanceWithinReviewBand: false,
       reasons: ['not_structure_wait'],
       recommendedAction: 'No structure policy action required.'
     };
@@ -1158,31 +1195,53 @@ const deriveStructurePolicyReview = (input: {
   const currentRrOk =
     input.rrAtCurrentPrice != null &&
     Number.isFinite(input.rrAtCurrentPrice) &&
-    input.rrAtCurrentPrice >= minRr &&
+    input.rrAtCurrentPrice >= minRr;
+  const targetBufferOk =
     input.targetBufferFromCurrentPct != null &&
     Number.isFinite(input.targetBufferFromCurrentPct) &&
     input.targetBufferFromCurrentPct >= minTargetBufferPct;
-  const distanceModerate =
+  const distanceWithinReviewBand =
     input.entryDistancePct != null &&
     Number.isFinite(input.entryDistancePct) &&
     input.entryDistancePct <= maxReviewDistancePct;
+  const blockerLane = !currentRrOk
+    ? 'STRUCTURE_CURRENT_RR_WEAK'
+    : !targetBufferOk
+      ? 'STRUCTURE_TARGET_BUFFER_WEAK'
+      : !distanceWithinReviewBand
+        ? 'STRUCTURE_DISTANCE_ABOVE_REVIEW_BAND'
+        : explicitReject
+          ? 'STRUCTURE_EXPLICIT_REJECT'
+          : input.structureConfirmed
+            ? 'STRUCTURE_CONFIRMED_NOT_PROMOTED'
+            : 'STRUCTURE_PROOF_MISSING';
   const reasons = [
     ...input.structureReasons,
-    ...(currentRrOk ? [] : ['current_rr_or_target_buffer_weak']),
-    ...(distanceModerate ? [] : ['current_distance_above_structure_review_band'])
+    ...(currentRrOk ? [] : ['current_rr_below_min']),
+    ...(targetBufferOk ? [] : ['target_buffer_below_min']),
+    ...(distanceWithinReviewBand ? [] : ['current_distance_above_structure_review_band']),
+    `structure_blocker_lane:${blockerLane}`
   ];
   if (input.structureConfirmed) {
     return {
       verdict: 'STRUCTURE_CONFIRMED_WAIT_REVIEW_READY',
       reviewReady: true,
+      blockerLane,
+      currentRrOk,
+      targetBufferOk,
+      distanceWithinReviewBand,
       reasons: reasons.length ? reasons : ['structure_confirmed_but_not_promoted'],
       recommendedAction: 'Structure is confirmed; review producer current-entry rules before any executable promotion.'
     };
   }
-  if (explicitReject && currentRrOk && distanceModerate) {
+  if (explicitReject && currentRrOk && targetBufferOk && distanceWithinReviewBand) {
     return {
       verdict: 'STRUCTURE_EXPLICIT_REJECT_OVERBLOCK_REVIEW_READY',
       reviewReady: true,
+      blockerLane,
+      currentRrOk,
+      targetBufferOk,
+      distanceWithinReviewBand,
       reasons: reasons.length ? reasons : ['explicit_reject_with_current_rr_ok'],
       recommendedAction: 'Inspect support/stop proof. Do not promote until Stage6 emits confirmed structure metadata.'
     };
@@ -1191,14 +1250,22 @@ const deriveStructurePolicyReview = (input: {
     return {
       verdict: 'STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED',
       reviewReady: false,
+      blockerLane,
+      currentRrOk,
+      targetBufferOk,
+      distanceWithinReviewBand,
       reasons: reasons.length ? reasons : ['explicit_structure_reject'],
       recommendedAction: 'Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion.'
     };
   }
-  if (currentRrOk && distanceModerate) {
+  if (currentRrOk && targetBufferOk && distanceWithinReviewBand) {
     return {
       verdict: 'STRUCTURE_PROOF_MISSING_OVERBLOCK_REVIEW_READY',
       reviewReady: true,
+      blockerLane,
+      currentRrOk,
+      targetBufferOk,
+      distanceWithinReviewBand,
       reasons: reasons.length ? reasons : ['structure_proof_missing_with_current_rr_ok'],
       recommendedAction: 'Add or repair structure proof metadata. Do not use sidecar chase as substitute proof.'
     };
@@ -1206,6 +1273,10 @@ const deriveStructurePolicyReview = (input: {
   return {
     verdict: 'STRUCTURE_WAIT_JUSTIFIED_BY_CURRENT_EXECUTION',
     reviewReady: false,
+    blockerLane,
+    currentRrOk,
+    targetBufferOk,
+    distanceWithinReviewBand,
     reasons: reasons.length ? reasons : ['current_execution_not_ready'],
     recommendedAction: 'Keep WAIT_PRICE; current RR/distance is not strong enough to override structure wait.'
   };
@@ -1306,6 +1377,67 @@ const deriveBreakoutRetestPromotion = (input: {
     blockedBy,
     reasons: reasons.length ? reasons : ['breakout_proof_not_ready'],
     recommendedAction: 'Keep WAIT_PRICE until fresh retest proof is confirmed.'
+  };
+};
+
+const deriveQualityGatePolicy = (input: {
+  decisionReason: string | null;
+  aiVerdictKey: string | null;
+  executionActionableVerdict: boolean;
+  expectedReturnPct: number | null;
+  convictionScore: number | null;
+}): Stage6QualityGatePolicyPayload => {
+  const reason = String(input.decisionReason || '');
+  const qualityReasons = new Set([
+    'wait_verdict_not_sidecar_actionable',
+    'wait_earnings_data_missing_quality_floor',
+    'blocked_quality_missing_expected_return',
+    'blocked_quality_conviction_floor',
+    'blocked_quality_verdict_unusable'
+  ]);
+  if (!qualityReasons.has(reason)) {
+    return {
+      lane: 'not_applicable',
+      verdict: 'QUALITY_GATE_POLICY_NOT_APPLICABLE',
+      reasons: ['not_quality_gate_blocker'],
+      recommendedAction: 'No quality gate action required.'
+    };
+  }
+
+  const lane = reason === 'wait_verdict_not_sidecar_actionable'
+    ? 'non_actionable_verdict'
+    : reason === 'wait_earnings_data_missing_quality_floor'
+      ? 'earnings_data_missing_quality_floor'
+      : reason === 'blocked_quality_missing_expected_return'
+        ? 'missing_expected_return'
+        : reason === 'blocked_quality_conviction_floor'
+          ? 'conviction_floor'
+          : 'verdict_unusable';
+  const verdict = lane === 'non_actionable_verdict'
+    ? 'QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT'
+    : lane === 'earnings_data_missing_quality_floor'
+      ? 'QUALITY_GATE_EARNINGS_DATA_COVERAGE_REQUIRED'
+      : lane === 'missing_expected_return'
+        ? 'QUALITY_GATE_EXPECTED_RETURN_MISSING'
+        : lane === 'conviction_floor'
+          ? 'QUALITY_GATE_CONVICTION_FLOOR_BLOCKED'
+          : 'QUALITY_GATE_VERDICT_UNUSABLE_BLOCKED';
+  const reasons = [
+    `quality_gate_lane:${lane}`,
+    `decision_reason:${reason}`,
+    ...(input.executionActionableVerdict ? [] : ['execution_actionable_verdict_false']),
+    ...(input.aiVerdictKey ? [`ai_verdict_key:${input.aiVerdictKey}`] : ['ai_verdict_key_missing']),
+    ...(input.expectedReturnPct != null && Number.isFinite(input.expectedReturnPct) ? [] : ['expected_return_missing']),
+    ...(input.convictionScore != null && Number.isFinite(input.convictionScore) ? [] : ['conviction_missing'])
+  ];
+  return {
+    lane,
+    verdict,
+    reasons,
+    recommendedAction:
+      lane === 'non_actionable_verdict'
+        ? 'Keep WAIT_PRICE unless Stage6 emits BUY/STRONG_BUY or an explicit producer-side waiver.'
+        : 'Keep blocked/waiting and repair the analysis-side data or verdict source before execution review.'
   };
 };
 
@@ -1557,6 +1689,7 @@ const deriveRiskGeometryPolicy = (input: {
   stopDistancePct: number | null;
   targetDistancePct: number | null;
   riskRewardRatioValue: number | null;
+  expectedReturnPct: number | null;
   rrAtCurrentPrice: number | null;
   targetBufferFromCurrentPct: number | null;
   currentEntryRecalcFeasible: boolean;
@@ -1589,7 +1722,23 @@ const deriveRiskGeometryPolicy = (input: {
       recalculatedStopPrice: null,
       recalculatedStopDistancePct: null,
       rrAtRecalculatedStop: null,
+      requiredTargetPrice: null,
+      requiredTargetByStopPrice: null,
+      requiredTargetByBufferPrice: null,
+      requiredTargetByExpectedReturnPrice: null,
+      requiredTargetSource: null,
+      requiredTargetBufferPct: null,
+      targetGapPct: null,
+      targetShortfallPct: null,
+      targetRecalibrationCandidate: false,
       targetBufferPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
+      targetAboveCurrent: false,
+      requiredStopValid: false,
+      requiredStopDistanceValid: false,
+      recalculatedStopRrOk: false,
+      targetBufferOk: false,
+      repairLane: 'not_applicable',
+      proofConfirmed: false,
       proofReasons: ['not_risk_geometry_blocker'],
       reasons: ['not_risk_geometry_blocker'],
       recommendedAction: 'No risk-geometry policy action required.'
@@ -1646,10 +1795,26 @@ const deriveRiskGeometryPolicy = (input: {
     input.price != null && Number.isFinite(input.price) && input.price > 0
       ? input.price * (1 + input.minTargetBufferPct / 100)
       : null;
-  const requiredTargetPrice =
-    requiredTargetByRecalculatedStop != null && requiredTargetByBuffer != null
-      ? Math.max(requiredTargetByRecalculatedStop, requiredTargetByBuffer)
-      : requiredTargetByRecalculatedStop ?? requiredTargetByBuffer ?? null;
+  const requiredTargetByExpectedReturn =
+    input.price != null &&
+    input.expectedReturnPct != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.expectedReturnPct) &&
+    input.price > 0 &&
+    input.expectedReturnPct > 0
+      ? input.price * (1 + input.expectedReturnPct / 100)
+      : null;
+  const requiredTargetCandidates = [
+    { source: 'stop_min_rr', value: requiredTargetByRecalculatedStop },
+    { source: 'target_buffer', value: requiredTargetByBuffer },
+    { source: 'expected_return', value: requiredTargetByExpectedReturn }
+  ].filter((item): item is { source: string; value: number } => item.value != null && Number.isFinite(item.value));
+  const requiredTargetWinner = requiredTargetCandidates.reduce<{ source: string | null; value: number | null }>(
+    (winner, item) => (winner.value == null || item.value > winner.value ? item : winner),
+    { source: null, value: null }
+  );
+  const requiredTargetPrice = requiredTargetWinner.value;
+  const requiredTargetSource = requiredTargetWinner.source;
   const requiredTargetBufferPct =
     requiredTargetPrice != null && input.price != null && Number.isFinite(input.price) && input.price > 0
       ? ((requiredTargetPrice - input.price) / input.price) * 100
@@ -1661,6 +1826,12 @@ const deriveRiskGeometryPolicy = (input: {
     requiredTargetPrice > 0
       ? ((input.target - requiredTargetPrice) / requiredTargetPrice) * 100
       : null;
+  const targetShortfallPct =
+    targetGapPct != null && Number.isFinite(targetGapPct) && targetGapPct < 0
+      ? Math.abs(targetGapPct)
+      : targetGapPct == null
+        ? null
+        : 0;
   const recalculatedStopRrOk =
     rrAtRecalculatedStop != null &&
     Number.isFinite(rrAtRecalculatedStop) &&
@@ -1671,7 +1842,6 @@ const deriveRiskGeometryPolicy = (input: {
     requiredStopValid &&
     requiredStopDistanceValid &&
     targetAboveCurrent;
-  const recalculatedStopProofConfirmed = recalculatedStopCandidate && recalculatedStopRrOk && targetBufferOk;
   const targetRecalibrationCandidate = Boolean(
     recalculatedStopCandidate &&
     requiredTargetPrice != null &&
@@ -1680,6 +1850,16 @@ const deriveRiskGeometryPolicy = (input: {
     targetGapPct != null &&
     targetGapPct < 0
   );
+  const recalculatedStopProofConfirmed = recalculatedStopCandidate && recalculatedStopRrOk && targetBufferOk && !targetRecalibrationCandidate;
+  const repairLane = !targetAboveCurrent
+    ? 'TARGET_NO_TRADE'
+    : targetRecalibrationCandidate
+      ? 'TARGET_RECALIBRATION'
+      : recalculatedStopProofConfirmed
+        ? 'RECALCULATED_STOP_PROOF_CONFIRMED'
+        : recalculatedStopCandidate
+          ? 'RECALCULATED_STOP_REVIEW'
+          : 'RISK_GEOMETRY_PROOF_INCOMPLETE';
   const proofReasons = [
     ...(input.currentEntryRecalcFeasible ? [] : ['current_entry_recalc_not_feasible']),
     ...(input.currentEntryStructureConfirmed ? [] : ['structure_not_confirmed']),
@@ -1688,7 +1868,14 @@ const deriveRiskGeometryPolicy = (input: {
     ...(targetAboveCurrent ? [] : ['target_not_above_current']),
     ...(recalculatedStopRrOk ? [] : ['recalculated_stop_rr_below_min']),
     ...(targetBufferOk ? [] : ['target_buffer_below_min']),
-    ...(targetRecalibrationCandidate ? ['target_below_required_after_recalculated_stop'] : [])
+    ...(requiredTargetByExpectedReturn != null &&
+      input.target != null &&
+      Number.isFinite(input.target) &&
+      input.target < requiredTargetByExpectedReturn
+      ? ['target_below_expected_return_required_target']
+      : []),
+    ...(targetRecalibrationCandidate ? ['target_below_required_after_recalculated_stop'] : []),
+    `risk_geometry_repair_lane:${repairLane}`
   ];
   const proofVerdict = recalculatedStopProofConfirmed
     ? 'RECALCULATED_STOP_PROOF_CONFIRMED'
@@ -1701,8 +1888,13 @@ const deriveRiskGeometryPolicy = (input: {
     recalculatedStopDistancePct: roundOrNull(input.currentEntryRequiredStopDistancePct, 2),
     rrAtRecalculatedStop: roundOrNull(rrAtRecalculatedStop, 2),
     requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
+    requiredTargetByStopPrice: roundOrNull(requiredTargetByRecalculatedStop, 4),
+    requiredTargetByBufferPrice: roundOrNull(requiredTargetByBuffer, 4),
+    requiredTargetByExpectedReturnPrice: roundOrNull(requiredTargetByExpectedReturn, 4),
+    requiredTargetSource,
     requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
     targetGapPct: roundOrNull(targetGapPct, 2),
+    targetShortfallPct: roundOrNull(targetShortfallPct, 2),
     targetRecalibrationCandidate,
     targetBufferPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
     targetAboveCurrent,
@@ -1710,6 +1902,8 @@ const deriveRiskGeometryPolicy = (input: {
     requiredStopDistanceValid,
     recalculatedStopRrOk,
     targetBufferOk,
+    repairLane,
+    proofConfirmed: recalculatedStopProofConfirmed,
     proofReasons
   };
   const reasons = [
@@ -6678,6 +6872,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               stopDistancePct: contractStopDistancePct,
               targetDistancePct: contractTargetDistancePct,
               riskRewardRatioValue: contractRiskRewardRatioValue,
+              expectedReturnPct,
               rrAtCurrentPrice,
               targetBufferFromCurrentPct,
               currentEntryRecalcFeasible,
@@ -6688,6 +6883,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               maxStopDistancePct: STAGE6_MAX_STOP_DISTANCE_PCT,
               minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
               minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
+          });
+          const qualityGatePolicy = deriveQualityGatePolicy({
+              decisionReason,
+              aiVerdictKey,
+              executionActionableVerdict,
+              expectedReturnPct,
+              convictionScore
           });
           const zeroExecutableTuningPolicy = deriveZeroExecutableTuningPolicy({
               decisionReason,
@@ -6769,6 +6971,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructurePriceDriftPct,
               structurePolicyVerdict: structurePolicyReview.verdict,
               structurePolicyReviewReady: structurePolicyReview.reviewReady,
+              structurePolicyBlockerLane: structurePolicyReview.blockerLane,
+              structurePolicyCurrentRrOk: structurePolicyReview.currentRrOk,
+              structurePolicyTargetBufferOk: structurePolicyReview.targetBufferOk,
+              structurePolicyDistanceWithinReviewBand: structurePolicyReview.distanceWithinReviewBand,
               structurePolicyReasons: structurePolicyReview.reasons,
               structurePolicyRecommendedAction: structurePolicyReview.recommendedAction,
               breakoutRetestProofVerdict: breakoutRetestProof.verdict,
@@ -6837,8 +7043,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopDistancePct: riskGeometryPolicy.recalculatedStopDistancePct,
               riskGeometryRrAtRecalculatedStop: riskGeometryPolicy.rrAtRecalculatedStop,
               riskGeometryRequiredTargetPrice: riskGeometryPolicy.requiredTargetPrice,
+              riskGeometryRequiredTargetByStopPrice: riskGeometryPolicy.requiredTargetByStopPrice,
+              riskGeometryRequiredTargetByBufferPrice: riskGeometryPolicy.requiredTargetByBufferPrice,
+              riskGeometryRequiredTargetByExpectedReturnPrice: riskGeometryPolicy.requiredTargetByExpectedReturnPrice,
+              riskGeometryRequiredTargetSource: riskGeometryPolicy.requiredTargetSource,
               riskGeometryRequiredTargetBufferPct: riskGeometryPolicy.requiredTargetBufferPct,
               riskGeometryTargetGapPct: riskGeometryPolicy.targetGapPct,
+              riskGeometryTargetShortfallPct: riskGeometryPolicy.targetShortfallPct,
               riskGeometryTargetRecalibrationCandidate: riskGeometryPolicy.targetRecalibrationCandidate,
               riskGeometryTargetBufferPct: riskGeometryPolicy.targetBufferPct,
               riskGeometryTargetAboveCurrent: riskGeometryPolicy.targetAboveCurrent,
@@ -6846,9 +7057,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRequiredStopDistanceValid: riskGeometryPolicy.requiredStopDistanceValid,
               riskGeometryRecalculatedStopRrOk: riskGeometryPolicy.recalculatedStopRrOk,
               riskGeometryTargetBufferOk: riskGeometryPolicy.targetBufferOk,
+              riskGeometryRepairLane: riskGeometryPolicy.repairLane,
+              riskGeometryProofConfirmed: riskGeometryPolicy.proofConfirmed,
               riskGeometryProofReasons: riskGeometryPolicy.proofReasons,
               riskGeometryReasons: riskGeometryPolicy.reasons,
               riskGeometryRecommendedAction: riskGeometryPolicy.recommendedAction,
+              qualityGateLane: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.lane,
+              qualityGatePolicyVerdict: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.verdict,
+              qualityGateReasons: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.reasons,
+              qualityGateRecommendedAction: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.recommendedAction,
               zeroExecutableTuningLane: zeroExecutableTuningPolicy.lane,
               zeroExecutableTuningVerdict: zeroExecutableTuningPolicy.verdict,
               zeroExecutablePrimaryTuningTarget: zeroExecutableTuningPolicy.primaryTuningTarget,
@@ -6969,6 +7186,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructurePriceDriftPct: executionContract.currentEntryStructurePriceDriftPct,
               structurePolicyVerdict: executionContract.structurePolicyVerdict,
               structurePolicyReviewReady: executionContract.structurePolicyReviewReady,
+              structurePolicyBlockerLane: executionContract.structurePolicyBlockerLane,
+              structurePolicyCurrentRrOk: executionContract.structurePolicyCurrentRrOk,
+              structurePolicyTargetBufferOk: executionContract.structurePolicyTargetBufferOk,
+              structurePolicyDistanceWithinReviewBand: executionContract.structurePolicyDistanceWithinReviewBand,
               structurePolicyReasons: executionContract.structurePolicyReasons,
               structurePolicyRecommendedAction: executionContract.structurePolicyRecommendedAction,
               breakoutRetestProofVerdict: executionContract.breakoutRetestProofVerdict,
@@ -7037,8 +7258,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopDistancePct: executionContract.riskGeometryRecalculatedStopDistancePct,
               riskGeometryRrAtRecalculatedStop: executionContract.riskGeometryRrAtRecalculatedStop,
               riskGeometryRequiredTargetPrice: executionContract.riskGeometryRequiredTargetPrice,
+              riskGeometryRequiredTargetByStopPrice: executionContract.riskGeometryRequiredTargetByStopPrice,
+              riskGeometryRequiredTargetByBufferPrice: executionContract.riskGeometryRequiredTargetByBufferPrice,
+              riskGeometryRequiredTargetByExpectedReturnPrice: executionContract.riskGeometryRequiredTargetByExpectedReturnPrice,
+              riskGeometryRequiredTargetSource: executionContract.riskGeometryRequiredTargetSource,
               riskGeometryRequiredTargetBufferPct: executionContract.riskGeometryRequiredTargetBufferPct,
               riskGeometryTargetGapPct: executionContract.riskGeometryTargetGapPct,
+              riskGeometryTargetShortfallPct: executionContract.riskGeometryTargetShortfallPct,
               riskGeometryTargetRecalibrationCandidate: executionContract.riskGeometryTargetRecalibrationCandidate,
               riskGeometryTargetBufferPct: executionContract.riskGeometryTargetBufferPct,
               riskGeometryTargetAboveCurrent: executionContract.riskGeometryTargetAboveCurrent,
@@ -7046,9 +7272,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRequiredStopDistanceValid: executionContract.riskGeometryRequiredStopDistanceValid,
               riskGeometryRecalculatedStopRrOk: executionContract.riskGeometryRecalculatedStopRrOk,
               riskGeometryTargetBufferOk: executionContract.riskGeometryTargetBufferOk,
+              riskGeometryRepairLane: executionContract.riskGeometryRepairLane,
+              riskGeometryProofConfirmed: executionContract.riskGeometryProofConfirmed,
               riskGeometryProofReasons: executionContract.riskGeometryProofReasons,
               riskGeometryReasons: executionContract.riskGeometryReasons,
               riskGeometryRecommendedAction: executionContract.riskGeometryRecommendedAction,
+              qualityGateLane: executionContract.qualityGateLane,
+              qualityGatePolicyVerdict: executionContract.qualityGatePolicyVerdict,
+              qualityGateReasons: executionContract.qualityGateReasons,
+              qualityGateRecommendedAction: executionContract.qualityGateRecommendedAction,
               zeroExecutableTuningLane: executionContract.zeroExecutableTuningLane,
               zeroExecutableTuningVerdict: executionContract.zeroExecutableTuningVerdict,
               zeroExecutablePrimaryTuningTarget: executionContract.zeroExecutablePrimaryTuningTarget,
@@ -7459,6 +7691,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructurePriceDriftPct: executionContract.currentEntryStructurePriceDriftPct,
               structurePolicyVerdict: executionContract.structurePolicyVerdict,
               structurePolicyReviewReady: executionContract.structurePolicyReviewReady,
+              structurePolicyBlockerLane: executionContract.structurePolicyBlockerLane,
+              structurePolicyCurrentRrOk: executionContract.structurePolicyCurrentRrOk,
+              structurePolicyTargetBufferOk: executionContract.structurePolicyTargetBufferOk,
+              structurePolicyDistanceWithinReviewBand: executionContract.structurePolicyDistanceWithinReviewBand,
               structurePolicyReasons: executionContract.structurePolicyReasons,
               structurePolicyRecommendedAction: executionContract.structurePolicyRecommendedAction,
               breakoutRetestProofVerdict: executionContract.breakoutRetestProofVerdict,
@@ -7527,8 +7763,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopDistancePct: executionContract.riskGeometryRecalculatedStopDistancePct,
               riskGeometryRrAtRecalculatedStop: executionContract.riskGeometryRrAtRecalculatedStop,
               riskGeometryRequiredTargetPrice: executionContract.riskGeometryRequiredTargetPrice,
+              riskGeometryRequiredTargetByStopPrice: executionContract.riskGeometryRequiredTargetByStopPrice,
+              riskGeometryRequiredTargetByBufferPrice: executionContract.riskGeometryRequiredTargetByBufferPrice,
+              riskGeometryRequiredTargetByExpectedReturnPrice: executionContract.riskGeometryRequiredTargetByExpectedReturnPrice,
+              riskGeometryRequiredTargetSource: executionContract.riskGeometryRequiredTargetSource,
               riskGeometryRequiredTargetBufferPct: executionContract.riskGeometryRequiredTargetBufferPct,
               riskGeometryTargetGapPct: executionContract.riskGeometryTargetGapPct,
+              riskGeometryTargetShortfallPct: executionContract.riskGeometryTargetShortfallPct,
               riskGeometryTargetRecalibrationCandidate: executionContract.riskGeometryTargetRecalibrationCandidate,
               riskGeometryTargetBufferPct: executionContract.riskGeometryTargetBufferPct,
               riskGeometryTargetAboveCurrent: executionContract.riskGeometryTargetAboveCurrent,
@@ -7536,9 +7777,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRequiredStopDistanceValid: executionContract.riskGeometryRequiredStopDistanceValid,
               riskGeometryRecalculatedStopRrOk: executionContract.riskGeometryRecalculatedStopRrOk,
               riskGeometryTargetBufferOk: executionContract.riskGeometryTargetBufferOk,
+              riskGeometryRepairLane: executionContract.riskGeometryRepairLane,
+              riskGeometryProofConfirmed: executionContract.riskGeometryProofConfirmed,
               riskGeometryProofReasons: executionContract.riskGeometryProofReasons,
               riskGeometryReasons: executionContract.riskGeometryReasons,
               riskGeometryRecommendedAction: executionContract.riskGeometryRecommendedAction,
+              qualityGateLane: executionContract.qualityGateLane,
+              qualityGatePolicyVerdict: executionContract.qualityGatePolicyVerdict,
+              qualityGateReasons: executionContract.qualityGateReasons,
+              qualityGateRecommendedAction: executionContract.qualityGateRecommendedAction,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -7798,6 +8045,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructurePriceDriftPct: toOptionalFiniteNumber(item.currentEntryStructurePriceDriftPct),
               structurePolicyVerdict: normalizeOptionalText(item.structurePolicyVerdict),
               structurePolicyReviewReady: Boolean(item.structurePolicyReviewReady),
+              structurePolicyBlockerLane: normalizeOptionalText(item.structurePolicyBlockerLane),
+              structurePolicyCurrentRrOk: item.structurePolicyCurrentRrOk == null ? null : Boolean(item.structurePolicyCurrentRrOk),
+              structurePolicyTargetBufferOk: item.structurePolicyTargetBufferOk == null ? null : Boolean(item.structurePolicyTargetBufferOk),
+              structurePolicyDistanceWithinReviewBand: item.structurePolicyDistanceWithinReviewBand == null ? null : Boolean(item.structurePolicyDistanceWithinReviewBand),
               structurePolicyReasons: Array.isArray(item.structurePolicyReasons) ? item.structurePolicyReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               structurePolicyRecommendedAction: normalizeOptionalText(item.structurePolicyRecommendedAction),
               breakoutRetestProofVerdict: normalizeOptionalText(item.breakoutRetestProofVerdict),
@@ -7866,8 +8117,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopDistancePct: toOptionalFiniteNumber(item.riskGeometryRecalculatedStopDistancePct),
               riskGeometryRrAtRecalculatedStop: toOptionalFiniteNumber(item.riskGeometryRrAtRecalculatedStop),
               riskGeometryRequiredTargetPrice: toOptionalFiniteNumber(item.riskGeometryRequiredTargetPrice),
+              riskGeometryRequiredTargetByStopPrice: toOptionalFiniteNumber(item.riskGeometryRequiredTargetByStopPrice),
+              riskGeometryRequiredTargetByBufferPrice: toOptionalFiniteNumber(item.riskGeometryRequiredTargetByBufferPrice),
+              riskGeometryRequiredTargetByExpectedReturnPrice: toOptionalFiniteNumber(item.riskGeometryRequiredTargetByExpectedReturnPrice),
+              riskGeometryRequiredTargetSource: normalizeOptionalText(item.riskGeometryRequiredTargetSource),
               riskGeometryRequiredTargetBufferPct: toOptionalFiniteNumber(item.riskGeometryRequiredTargetBufferPct),
               riskGeometryTargetGapPct: toOptionalFiniteNumber(item.riskGeometryTargetGapPct),
+              riskGeometryTargetShortfallPct: toOptionalFiniteNumber(item.riskGeometryTargetShortfallPct),
               riskGeometryTargetRecalibrationCandidate: item.riskGeometryTargetRecalibrationCandidate == null ? null : Boolean(item.riskGeometryTargetRecalibrationCandidate),
               riskGeometryTargetBufferPct: toOptionalFiniteNumber(item.riskGeometryTargetBufferPct),
               riskGeometryTargetAboveCurrent: item.riskGeometryTargetAboveCurrent == null ? null : Boolean(item.riskGeometryTargetAboveCurrent),
@@ -7875,9 +8131,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRequiredStopDistanceValid: item.riskGeometryRequiredStopDistanceValid == null ? null : Boolean(item.riskGeometryRequiredStopDistanceValid),
               riskGeometryRecalculatedStopRrOk: item.riskGeometryRecalculatedStopRrOk == null ? null : Boolean(item.riskGeometryRecalculatedStopRrOk),
               riskGeometryTargetBufferOk: item.riskGeometryTargetBufferOk == null ? null : Boolean(item.riskGeometryTargetBufferOk),
+              riskGeometryRepairLane: normalizeOptionalText(item.riskGeometryRepairLane),
+              riskGeometryProofConfirmed: item.riskGeometryProofConfirmed == null ? null : Boolean(item.riskGeometryProofConfirmed),
               riskGeometryProofReasons: Array.isArray(item.riskGeometryProofReasons) ? item.riskGeometryProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryReasons: Array.isArray(item.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryRecommendedAction: normalizeOptionalText(item.riskGeometryRecommendedAction),
+              qualityGateLane: normalizeOptionalText(item.qualityGateLane),
+              qualityGatePolicyVerdict: normalizeOptionalText(item.qualityGatePolicyVerdict),
+              qualityGateReasons: Array.isArray(item.qualityGateReasons) ? item.qualityGateReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              qualityGateRecommendedAction: normalizeOptionalText(item.qualityGateRecommendedAction),
               zeroExecutableTuningLane: normalizeOptionalText(item.zeroExecutableTuningLane),
               zeroExecutableTuningVerdict: normalizeOptionalText(item.zeroExecutableTuningVerdict),
               zeroExecutablePrimaryTuningTarget: Boolean(item.zeroExecutablePrimaryTuningTarget),
@@ -7972,6 +8234,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructurePriceDriftPct: toOptionalFiniteNumber(item?.currentEntryStructurePriceDriftPct),
               structurePolicyVerdict: normalizeOptionalText(item?.structurePolicyVerdict),
               structurePolicyReviewReady: Boolean(item?.structurePolicyReviewReady),
+              structurePolicyBlockerLane: normalizeOptionalText(item?.structurePolicyBlockerLane),
+              structurePolicyCurrentRrOk: item?.structurePolicyCurrentRrOk == null ? null : Boolean(item.structurePolicyCurrentRrOk),
+              structurePolicyTargetBufferOk: item?.structurePolicyTargetBufferOk == null ? null : Boolean(item.structurePolicyTargetBufferOk),
+              structurePolicyDistanceWithinReviewBand: item?.structurePolicyDistanceWithinReviewBand == null ? null : Boolean(item.structurePolicyDistanceWithinReviewBand),
               structurePolicyReasons: Array.isArray(item?.structurePolicyReasons) ? item.structurePolicyReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               structurePolicyRecommendedAction: normalizeOptionalText(item?.structurePolicyRecommendedAction),
               breakoutRetestProofVerdict: normalizeOptionalText(item?.breakoutRetestProofVerdict),
@@ -8040,8 +8306,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRecalculatedStopDistancePct: toOptionalFiniteNumber(item?.riskGeometryRecalculatedStopDistancePct),
               riskGeometryRrAtRecalculatedStop: toOptionalFiniteNumber(item?.riskGeometryRrAtRecalculatedStop),
               riskGeometryRequiredTargetPrice: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetPrice),
+              riskGeometryRequiredTargetByStopPrice: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetByStopPrice),
+              riskGeometryRequiredTargetByBufferPrice: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetByBufferPrice),
+              riskGeometryRequiredTargetByExpectedReturnPrice: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetByExpectedReturnPrice),
+              riskGeometryRequiredTargetSource: normalizeOptionalText(item?.riskGeometryRequiredTargetSource),
               riskGeometryRequiredTargetBufferPct: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetBufferPct),
               riskGeometryTargetGapPct: toOptionalFiniteNumber(item?.riskGeometryTargetGapPct),
+              riskGeometryTargetShortfallPct: toOptionalFiniteNumber(item?.riskGeometryTargetShortfallPct),
               riskGeometryTargetRecalibrationCandidate: item?.riskGeometryTargetRecalibrationCandidate == null ? null : Boolean(item.riskGeometryTargetRecalibrationCandidate),
               riskGeometryTargetBufferPct: toOptionalFiniteNumber(item?.riskGeometryTargetBufferPct),
               riskGeometryTargetAboveCurrent: item?.riskGeometryTargetAboveCurrent == null ? null : Boolean(item.riskGeometryTargetAboveCurrent),
@@ -8049,9 +8320,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRequiredStopDistanceValid: item?.riskGeometryRequiredStopDistanceValid == null ? null : Boolean(item.riskGeometryRequiredStopDistanceValid),
               riskGeometryRecalculatedStopRrOk: item?.riskGeometryRecalculatedStopRrOk == null ? null : Boolean(item.riskGeometryRecalculatedStopRrOk),
               riskGeometryTargetBufferOk: item?.riskGeometryTargetBufferOk == null ? null : Boolean(item.riskGeometryTargetBufferOk),
+              riskGeometryRepairLane: normalizeOptionalText(item?.riskGeometryRepairLane),
+              riskGeometryProofConfirmed: item?.riskGeometryProofConfirmed == null ? null : Boolean(item.riskGeometryProofConfirmed),
               riskGeometryProofReasons: Array.isArray(item?.riskGeometryProofReasons) ? item.riskGeometryProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryReasons: Array.isArray(item?.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryRecommendedAction: normalizeOptionalText(item?.riskGeometryRecommendedAction),
+              qualityGateLane: normalizeOptionalText(item?.qualityGateLane),
+              qualityGatePolicyVerdict: normalizeOptionalText(item?.qualityGatePolicyVerdict),
+              qualityGateReasons: Array.isArray(item?.qualityGateReasons) ? item.qualityGateReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              qualityGateRecommendedAction: normalizeOptionalText(item?.qualityGateRecommendedAction),
               zeroExecutableTuningLane: normalizeOptionalText(item?.zeroExecutableTuningLane),
               zeroExecutableTuningVerdict: normalizeOptionalText(item?.zeroExecutableTuningVerdict),
               zeroExecutablePrimaryTuningTarget: Boolean(item?.zeroExecutablePrimaryTuningTarget),

@@ -391,6 +391,8 @@ function classifyQualityGate(row, policy) {
   const p = prices(row);
   const verdict = rowVerdict(row);
   const actionable = verdict ? policy.actionableVerdicts.includes(verdict) : false;
+  const producerLane = text(row?.qualityGateLane);
+  const producerVerdict = text(row?.qualityGatePolicyVerdict);
   const targetGeometryInvalid = !(p.price != null && p.target != null && p.target > p.price);
   const targetBufferBelowMin = p.targetBufferFromCurrentPct != null && p.targetBufferFromCurrentPct < policy.currentEntryMinTargetBufferPct;
   const holdOrUnusable = !actionable;
@@ -422,6 +424,8 @@ function classifyQualityGate(row, policy) {
     decisionReason: row?.decisionReason || null,
     verdict,
     rootCause,
+    producerLane,
+    producerVerdict,
     isVerdictUnusable: holdOrUnusable,
     isHold: String(verdict || '').toUpperCase() === 'HOLD',
     isTargetGeometryBlock: targetGeometryInvalid || targetBufferBelowMin,
@@ -501,10 +505,10 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Quality Gate');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Root Cause | Verdict Unusable | HOLD | Target Geometry Block | Normalization Issue | TargetBuf% | Recommendation |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |');
+  lines.push('| Symbol | Verdict | Decision | Producer Lane | Producer Verdict | Root Cause | Verdict Unusable | HOLD | Target Geometry Block | Normalization Issue | TargetBuf% | Recommendation |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |');
   for (const row of report.qualityGate) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.rootCause)} | ${row.isVerdictUnusable ? 'yes' : 'no'} | ${row.isHold ? 'yes' : 'no'} | ${row.isTargetGeometryBlock ? 'yes' : 'no'} | ${row.isAiVerdictNormalizationIssue ? 'yes' : 'no'} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${esc(row.recommendation)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerLane)} | ${esc(row.producerVerdict)} | ${esc(row.rootCause)} | ${row.isVerdictUnusable ? 'yes' : 'no'} | ${row.isHold ? 'yes' : 'no'} | ${row.isTargetGeometryBlock ? 'yes' : 'no'} | ${row.isAiVerdictNormalizationIssue ? 'yes' : 'no'} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${esc(row.recommendation)} |`);
   }
   lines.push('');
   lines.push('## Done-When Interpretation');
@@ -524,7 +528,18 @@ function main() {
   const rows = uniqueRows(stage6);
   const structureWait = rows.filter(isStructureWaitReason).map((row) => classifyStructureWait(row, policy));
   const riskGeometry = rows.filter(isRiskGeometryReason).map((row) => classifyRiskGeometry(row, policy));
-  const qualityGate = rows.filter((row) => row?.decisionReason === 'blocked_quality_verdict_unusable').map((row) => classifyQualityGate(row, policy));
+  const qualityGate = rows
+    .filter((row) =>
+      (row?.qualityGateLane && row.qualityGateLane !== 'not_applicable') ||
+      [
+        'wait_verdict_not_sidecar_actionable',
+        'wait_earnings_data_missing_quality_floor',
+        'blocked_quality_verdict_unusable',
+        'blocked_quality_conviction_floor',
+        'blocked_quality_missing_expected_return'
+      ].includes(String(row?.decisionReason || ''))
+    )
+    .map((row) => classifyQualityGate(row, policy));
   const evidence = sidecarEvidence(process.env.STAGE6_BLOCKER_AUDIT_SIDECAR_STATE_DIR);
   const report = {
     generatedAt: new Date().toISOString(),
