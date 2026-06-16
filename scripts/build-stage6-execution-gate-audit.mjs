@@ -467,7 +467,11 @@ function extractRowsFromStage6(filePath, payload, notionRows) {
   }
 
   const pickRow = (rows) => {
-    const priority = ['executable', 'modelTop6', 'watchlist', 'alpha_candidates'];
+    // Final execution surfaces must override raw modelTop6 diagnostics.
+    // Stage6 can downgrade raw EXECUTABLE_NOW rows after late geometry gates;
+    // treating modelTop6 as higher priority makes audits report false payload
+    // readiness.
+    const priority = ['executable', 'alpha_candidates', 'watchlist', 'modelTop6'];
     for (const group of priority) {
       const found = rows.find((item) => item.group === group);
       if (found) return found.row;

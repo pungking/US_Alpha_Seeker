@@ -77,32 +77,50 @@ function countBy(rows, keyFn) {
   return counts;
 }
 
-function rowScore(row) {
-  if (decisionOf(row) === 'EXECUTABLE_NOW') return 6;
-  if (row?.zeroExecutableTuningLane) return 5;
-  if (row?.targetRecalibrationViabilityVerdict) return 4;
-  if (row?.breakoutRetestProofVerdict) return 3;
-  if (String(row?.executionBucket || '').toUpperCase() === 'WATCHLIST') return 2;
-  return 1;
-}
-
 function uniqueRows(stage6) {
   const contract = stage6?.execution_contract || {};
-  const rows = [
-    ...(Array.isArray(contract.modelTop6) ? contract.modelTop6 : []),
-    ...(Array.isArray(contract.executablePicks) ? contract.executablePicks : []),
-    ...(Array.isArray(contract.watchlistTop) ? contract.watchlistTop : []),
-    ...(Array.isArray(stage6?.alpha_candidates) ? stage6.alpha_candidates : []),
-    ...(Array.isArray(stage6?.candidates) ? stage6.candidates : [])
+  const sourceGroups = [
+    // Final executable contract must win over any raw model row.
+    ...(Array.isArray(contract.executablePicks) ? contract.executablePicks.map((row) => [row, 50]) : []),
+    // `alpha_candidates` is the final exported candidate surface and can downgrade
+    // raw model EXECUTABLE_NOW rows after late geometry gates.
+    ...(Array.isArray(stage6?.alpha_candidates) ? stage6.alpha_candidates.map((row) => [row, 40]) : []),
+    ...(Array.isArray(contract.watchlistTop) ? contract.watchlistTop.map((row) => [row, 30]) : []),
+    ...(Array.isArray(contract.modelTop6) ? contract.modelTop6.map((row) => [row, 20]) : []),
+    ...(Array.isArray(stage6?.candidates) ? stage6.candidates.map((row) => [row, 10]) : [])
   ];
   const bySymbol = new Map();
-  for (const row of rows) {
+  for (const [row, sourcePriority] of sourceGroups) {
     const symbol = normalizeSymbol(row);
     if (!symbol) continue;
     const existing = bySymbol.get(symbol);
-    if (!existing || rowScore(row) > rowScore(existing)) bySymbol.set(symbol, row);
+    if (!existing || sourcePriority > existing.sourcePriority) {
+      bySymbol.set(symbol, { row, sourcePriority });
+    }
   }
-  return [...bySymbol.values()];
+  return [...bySymbol.values()].map((entry) => entry.row);
+}
+
+function rawExecutableDowngrades(stage6) {
+  const contract = stage6?.execution_contract || {};
+  const finalRows = uniqueRows(stage6);
+  const finalBySymbol = new Map(finalRows.map((row) => [normalizeSymbol(row), row]));
+  const modelTop6 = Array.isArray(contract.modelTop6) ? contract.modelTop6 : [];
+  return modelTop6
+    .filter((row) => decisionOf(row) === 'EXECUTABLE_NOW')
+    .map((row) => {
+      const symbol = normalizeSymbol(row);
+      const finalRow = finalBySymbol.get(symbol);
+      const finalDecision = finalRow ? decisionOf(finalRow) : 'MISSING_FROM_FINAL_SURFACE';
+      return {
+        symbol,
+        rawDecision: decisionOf(row),
+        rawReason: reasonOf(row),
+        finalDecision,
+        finalReason: finalRow ? reasonOf(finalRow) : 'missing_from_final_surface'
+      };
+    })
+    .filter((row) => row.finalDecision !== 'EXECUTABLE_NOW');
 }
 
 function qualityGateLane(row) {
@@ -183,6 +201,8 @@ function buildMarkdown(report) {
   lines.push(`- Overall: **${report.overall}**`);
   lines.push(`- Rows: ${report.summary.rows}`);
   lines.push(`- Executable Rows: ${report.summary.executableRows}`);
+  lines.push(`- Contract Executable Picks: ${report.summary.contractExecutablePicks}`);
+  lines.push(`- Raw Model Executable Downgraded: ${report.summary.rawExecutableDowngradedRows}`);
   lines.push(`- Safety: report-only; no broker/state mutation.`);
   lines.push('');
   lines.push('## Required Focus Metrics');
@@ -197,6 +217,7 @@ function buildMarkdown(report) {
   lines.push(`| targetRecalibrationRequiredTargetSourceCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationRequiredTargetSourceCounts))} |`);
   lines.push(`| riskGeometryTargetRecalibrationCandidateCounts | ${esc(JSON.stringify(report.summary.riskGeometryTargetRecalibrationCandidateCounts))} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
+  lines.push(`| rawExecutableDowngrades | ${esc(JSON.stringify(report.rawExecutableDowngrades))} |`);
   lines.push('');
   lines.push('## Field Coverage');
   lines.push('');
@@ -226,6 +247,9 @@ function main() {
   const stage6Path = latestStage6Path();
   const stage6 = readJson(stage6Path);
   const rows = uniqueRows(stage6);
+  const contract = stage6?.execution_contract || {};
+  const contractExecutablePicks = Array.isArray(contract.executablePicks) ? contract.executablePicks : [];
+  const rawExecutableDowngradeRows = rawExecutableDowngrades(stage6);
   const executableRows = rows.filter((row) => decisionOf(row) === 'EXECUTABLE_NOW');
   const qualityGateRows = rows.filter((row) => qualityGateLane(row));
   const requiredFocusFields = [
@@ -268,6 +292,8 @@ function main() {
     summary: {
       rows: rows.length,
       executableRows: executableRows.length,
+      contractExecutablePicks: contractExecutablePicks.length,
+      rawExecutableDowngradedRows: rawExecutableDowngradeRows.length,
       latestQualityGateLaneCounts: countBy(qualityGateRows, qualityGateLane),
       zeroExecutableTuningLaneCounts: countBy(rows, (row) => row?.zeroExecutableTuningLane || 'missing'),
       breakoutRetestProofConfirmedCounts: countBy(rows, (row) => String(row?.breakoutRetestProofConfirmed ?? 'missing')),
@@ -281,6 +307,7 @@ function main() {
     },
     fieldCoverage,
     requiredFocusFields,
+    rawExecutableDowngrades: rawExecutableDowngradeRows,
     trackSeparation: {
       stage6ProducerTuning: ['breakout_proofConfirmed_criteria', 'target_recalibration_formula', 'risk_geometry_recalculation_evidence'],
       sidecarSubmitReprice: 'out_of_scope_until_executable_payload_and_explicit_approval',
