@@ -57,6 +57,13 @@ for (const [idx, row] of candidates.entries()) {
   if (row.decisionReason === 'executable_adaptive_current') {
     errors.push(`${label}: proof-less executable_adaptive_current is not allowed; use executable_current_recalculated_stop or executable_breakout_retest_confirmed`);
   }
+  if (
+    String(row.chosenPlanType || '').toUpperCase() === 'ADAPTIVE_RECALC_STOP' &&
+    row.finalDecision === 'EXECUTABLE_NOW' &&
+    row.decisionReason !== 'executable_current_recalculated_stop'
+  ) {
+    errors.push(`${label}: executable ADAPTIVE_RECALC_STOP must preserve executable_current_recalculated_stop reason`);
+  }
   if (row.decisionReason === 'executable_current_recalculated_stop') {
     if (row.finalDecision !== 'EXECUTABLE_NOW') errors.push(`${label}: recalculated-stop executable reason must remain EXECUTABLE_NOW`);
     if (!isTrue(row.currentEntryRecalcFeasible)) errors.push(`${label}: recalculated-stop executable must keep currentEntryRecalcFeasible=true`);

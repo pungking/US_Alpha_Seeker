@@ -6421,6 +6421,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           } else if (earningsDataMissing && STAGE6_EARNINGS_MISSING_POLICY === 'HAIRCUT') {
               decisionReason = 'executable_earnings_data_missing_haircut';
           }
+          if (
+              priorCurrentEntryContract &&
+              finalDecision === 'EXECUTABLE_NOW' &&
+              decisionReason === 'executable_pullback' &&
+              currentEntryRecalcFeasible &&
+              currentEntryStructureGatePassed &&
+              currentEntryRequiredStopPrice != null &&
+              currentEntryRequiredStopDistancePct != null
+          ) {
+              decisionReason = 'executable_current_recalculated_stop';
+          }
           const isCurrentEntryExecutableReason =
               decisionReason === 'executable_current_recalculated_stop' ||
               decisionReason === 'executable_breakout_retest_confirmed';
