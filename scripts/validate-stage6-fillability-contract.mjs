@@ -57,6 +57,20 @@ for (const [idx, row] of candidates.entries()) {
   if (row.decisionReason === 'executable_adaptive_current') {
     errors.push(`${label}: proof-less executable_adaptive_current is not allowed; use executable_current_recalculated_stop or executable_breakout_retest_confirmed`);
   }
+  if (row.decisionReason === 'executable_current_recalculated_stop') {
+    if (row.finalDecision !== 'EXECUTABLE_NOW') errors.push(`${label}: recalculated-stop executable reason must remain EXECUTABLE_NOW`);
+    if (!isTrue(row.currentEntryRecalcFeasible)) errors.push(`${label}: recalculated-stop executable must keep currentEntryRecalcFeasible=true`);
+    if (!isTrue(row.currentEntryStructureConfirmed)) errors.push(`${label}: recalculated-stop executable must keep currentEntryStructureConfirmed=true`);
+    if (!isFiniteNumber(row.currentEntryRequiredStopPrice)) errors.push(`${label}: recalculated-stop executable missing currentEntryRequiredStopPrice`);
+    if (!isFiniteNumber(row.entryExecPrice)) errors.push(`${label}: recalculated-stop executable missing entryExecPrice`);
+    if (!isFiniteNumber(row.price)) errors.push(`${label}: recalculated-stop executable missing price`);
+    if (isFiniteNumber(row.entryExecPrice) && isFiniteNumber(row.price) && Math.abs(Number(row.entryExecPrice) - Number(row.price)) > 0.01) {
+      errors.push(`${label}: recalculated-stop executable entryExecPrice must be current price`);
+    }
+    if (isFiniteNumber(row.stopPrice) && isFiniteNumber(row.currentEntryRequiredStopPrice) && Math.abs(Number(row.stopPrice) - Number(row.currentEntryRequiredStopPrice)) > 0.01) {
+      errors.push(`${label}: recalculated-stop executable stopPrice must be currentEntryRequiredStopPrice`);
+    }
+  }
   if (row.decisionReason === 'wait_breakout_retest_required') {
     if (row.finalDecision === 'EXECUTABLE_NOW') errors.push(`${label}: breakout retest wait cannot be executable`);
     if (tuningLane(row) !== 'BREAKOUT_PROOF_CONFIRMED_GENERATION') {
@@ -136,9 +150,14 @@ for (const [idx, row] of candidates.entries()) {
     for (const field of [
       'targetRecalibrationCurrentTargetPrice',
       'targetRecalibrationRequiredTargetPrice',
+      'targetRecalibrationRequiredTargetByBufferPrice',
+      'targetRecalibrationRequiredTargetByRrPrice',
       'targetRecalibrationRequiredTargetBufferPct',
       'targetRecalibrationRequiredRr',
       'targetRecalibrationCurrentTargetGapPct',
+      'targetRecalibrationSourcePrice',
+      'targetRecalibrationSourceStopPrice',
+      'targetRecalibrationStopDistanceAtCurrent',
       'targetRecalibrationGapPolicyPct'
     ]) {
       if (!isFiniteNumber(row[field])) errors.push(`${label}: target recalibration missing numeric ${field}`);

@@ -55,6 +55,63 @@
       "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
     },
     {
+      "symbol": "CURRENT_RECALC_EXEC",
+      "aiVerdict": "STRONG_BUY",
+      "finalDecision": "EXECUTABLE_NOW",
+      "decisionReason": "executable_current_recalculated_stop",
+      "executionBucket": "EXECUTABLE",
+      "executionActionableVerdict": true,
+      "executionActionablePolicy": "BUY,STRONG_BUY,STRONGBUY",
+      "executionActionableWaiver": false,
+      "price": 100,
+      "entryExecPrice": 100,
+      "entryExecPriceShadow": 100,
+      "targetPrice": 112,
+      "stopPrice": 93.3333,
+      "stopLoss": 93.3333,
+      "currentEntryRequiredStopPrice": 93.3333,
+      "currentEntryRequiredStopDistancePct": 6.67,
+      "currentEntryRecalcFeasible": true,
+      "currentEntryStructureVerdict": "STRUCTURE_CONFIRMED_RECALC_CANDIDATE",
+      "currentEntryStructureConfirmed": true,
+      "currentEntryStructureReasons": [],
+      "rrAtCurrentPrice": 1.8,
+      "entryDistancePct": 0,
+      "targetBufferFromCurrentPct": 12,
+      "executionFeasibilityAtCurrent": "PASS",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "executionFeasibilityAtCurrentReason": null,
+      "executionFeasibilityAtCurrentReasons": [],
+      "executionFeasibilityAtCurrentRr": 1.8,
+      "executionFeasibilityAtCurrentDistancePct": 0,
+      "executionFeasibilityAtCurrentMinRr": 1.8,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
+      "executionFeasibilityAtCurrentBasis": "RECALCULATED_STOP_CURRENT_ENTRY_CONTRACT",
+      "chosenPlanType": "ADAPTIVE_RECALC_STOP",
+      "tradePlanDecision": "EXECUTABLE_NOW/executable_current_recalculated_stop",
+      "tradePlanReason": "current_price_requires_recalculated_stop_structure_confirmed_and_explicit_enable",
+      "riskRewardRatioValue": 1.8,
+      "riskGeometryPolicyVerdict": "RISK_GEOMETRY_POLICY_NOT_APPLICABLE",
+      "riskGeometryRecalibrationRequired": false,
+      "riskGeometryNoTradeRequired": false,
+      "riskGeometryRecalculatedStopCandidate": false,
+      "riskGeometryProofVerdict": "RISK_GEOMETRY_PROOF_NOT_APPLICABLE",
+      "riskGeometryProofReasons": [
+        "not_risk_geometry_blocker"
+      ],
+      "riskGeometryReasons": [
+        "not_risk_geometry_blocker"
+      ],
+      "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutableTuningVerdict": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutablePrimaryTuningTarget": false,
+      "zeroExecutableTuningReasons": [
+        "not_zero_executable_policy_lane"
+      ],
+      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
+    },
+    {
       "symbol": "WAIT1",
       "aiVerdict": "BUY",
       "finalDecision": "WAIT_PRICE",
@@ -334,7 +391,12 @@
         "current_target_below_required_target",
         "target_recalibration_gap_within_policy"
       ],
-      "targetRecalibrationGapPolicyPct": 20
+      "targetRecalibrationGapPolicyPct": 20,
+      "targetRecalibrationRequiredTargetByBufferPrice": 103,
+      "targetRecalibrationRequiredTargetByRrPrice": 110.8,
+      "targetRecalibrationSourcePrice": 100,
+      "targetRecalibrationSourceStopPrice": 94,
+      "targetRecalibrationStopDistanceAtCurrent": 6
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -406,7 +468,12 @@
         "target_recalibration_gap_above_policy",
         "target_no_trade_until_fresh_thesis"
       ],
-      "targetRecalibrationGapPolicyPct": 20
+      "targetRecalibrationGapPolicyPct": 20,
+      "targetRecalibrationRequiredTargetByBufferPrice": 103,
+      "targetRecalibrationRequiredTargetByRrPrice": 110.8,
+      "targetRecalibrationSourcePrice": 100,
+      "targetRecalibrationSourceStopPrice": 94,
+      "targetRecalibrationStopDistanceAtCurrent": 6
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",

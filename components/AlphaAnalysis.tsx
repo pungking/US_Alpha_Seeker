@@ -160,10 +160,15 @@ interface AlphaCandidate {
   targetNoChaseRequired?: boolean | null;
   targetRecalibrationCurrentTargetPrice?: number | null;
   targetRecalibrationRequiredTargetPrice?: number | null;
+  targetRecalibrationRequiredTargetByBufferPrice?: number | null;
+  targetRecalibrationRequiredTargetByRrPrice?: number | null;
   targetRecalibrationRequiredTargetBufferPct?: number | null;
   targetRecalibrationRequiredRr?: number | null;
   targetRecalibrationCurrentTargetGapPct?: number | null;
   targetRecalibrationRequiredTargetSource?: string | null;
+  targetRecalibrationSourcePrice?: number | null;
+  targetRecalibrationSourceStopPrice?: number | null;
+  targetRecalibrationStopDistanceAtCurrent?: number | null;
   targetRecalibrationRiskBasisStopDistancePct?: number | null;
   targetRecalibrationShortfallPct?: number | null;
   targetRecalibrationCandidate?: boolean | null;
@@ -670,10 +675,15 @@ type Stage6TargetPolicyPayload = {
   noChaseRequired: boolean;
   currentTargetPrice: number | null;
   requiredTargetPrice: number | null;
+  requiredTargetByBufferPrice: number | null;
+  requiredTargetByRrPrice: number | null;
   requiredTargetBufferPct: number | null;
   requiredRr: number | null;
   currentTargetGapPct: number | null;
   requiredTargetSource: string | null;
+  sourcePrice: number | null;
+  sourceStopPrice: number | null;
+  stopDistanceAtCurrent: number | null;
   riskBasisStopDistancePct: number | null;
   shortfallPct: number | null;
   recalibrationCandidate: boolean;
@@ -1371,10 +1381,15 @@ const deriveTargetRecalibrationPolicy = (input: {
   const targetEvidence = {
     currentTargetPrice: roundOrNull(input.target, 4),
     requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
+    requiredTargetByBufferPrice: roundOrNull(requiredTargetByBuffer, 4),
+    requiredTargetByRrPrice: roundOrNull(requiredTargetByRr, 4),
     requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
     requiredRr: roundOrNull(minRr, 2),
     currentTargetGapPct: roundOrNull(currentTargetGapPct, 2),
     requiredTargetSource,
+    sourcePrice: roundOrNull(input.price, 4),
+    sourceStopPrice: roundOrNull(input.stop, 4),
+    stopDistanceAtCurrent: roundOrNull(stopDistanceAtCurrent, 4),
     riskBasisStopDistancePct: roundOrNull(riskBasisStopDistancePct, 2),
     shortfallPct: roundOrNull(currentTargetShortfallPct, 2),
     recalibrationCandidate: targetRecalibrationCandidate,
@@ -5901,11 +5916,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           };
       };
       const deriveExecutionContractFields = (item: AlphaCandidate) => {
-          const mirroredEntry = pickPositiveFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
+          const priorDecisionReason = String(item?.decisionReason || '').trim().toLowerCase();
+          const priorChosenPlanType = String(item?.chosenPlanType || '').trim().toUpperCase();
+          const priorCurrentEntryContract =
+              priorDecisionReason === 'executable_current_recalculated_stop' ||
+              (priorChosenPlanType === 'ADAPTIVE_RECALC_STOP' && pickPositiveFinite(item?.entryExecPrice, item?.entryExecPriceShadow) != null);
+          const priorCurrentEntryPrice = priorCurrentEntryContract
+              ? pickPositiveFinite(item?.entryExecPrice, item?.entryExecPriceShadow, item?.price)
+              : null;
+          const priorRecalculatedStop = priorCurrentEntryContract
+              ? pickPositiveFinite(item?.currentEntryRequiredStopPrice, item?.riskGeometryRecalculatedStopPrice, item?.stopLoss, item?.ictStopLoss)
+              : null;
+          const mirroredEntry = pickPositiveFinite(priorCurrentEntryPrice, item?.otePrice, item?.supportLevel, item?.entryPrice);
           const mirroredTarget = pickPositiveFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
-          const mirroredStop = pickPositiveFinite(item?.stopLoss, item?.ictStopLoss);
-          const entryAnchorPrice = pickPositiveFinite(item?.otePrice, item?.supportLevel, mirroredEntry);
-          const entryExecPriceShadow = pickPositiveFinite(item?.entryPrice, entryAnchorPrice, item?.price);
+          const mirroredStop = pickPositiveFinite(priorRecalculatedStop, item?.stopLoss, item?.ictStopLoss);
+          const entryAnchorPrice = pickPositiveFinite(priorCurrentEntryPrice, item?.otePrice, item?.supportLevel, mirroredEntry);
+          const entryExecPriceShadow = pickPositiveFinite(priorCurrentEntryPrice, item?.entryPrice, entryAnchorPrice, item?.price);
           const livePrice = pickFinite(item?.price);
           const entryDistancePctShadow =
               livePrice != null && entryExecPriceShadow != null && livePrice > 0
@@ -5996,13 +6022,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryRequiredStopPrice < livePrice
                   ? Number((((livePrice - currentEntryRequiredStopPrice) / livePrice) * 100).toFixed(2))
                   : null;
+          const currentEntryStopImprovesOrPreserves =
+              currentEntryRequiredStopPrice != null &&
+              mirroredStop != null &&
+              (priorCurrentEntryContract
+                  ? currentEntryRequiredStopPrice >= mirroredStop - 0.0001
+                  : currentEntryRequiredStopPrice > mirroredStop);
           const currentEntryRecalcFeasible = Boolean(
               hasGeometry &&
               livePrice != null &&
               mirroredStop != null &&
               currentEntryRequiredStopPrice != null &&
               currentEntryRequiredStopDistancePct != null &&
-              currentEntryRequiredStopPrice > mirroredStop &&
+              currentEntryStopImprovesOrPreserves &&
               currentEntryRequiredStopPrice < livePrice &&
               targetBufferFromCurrentPct != null &&
               Number.isFinite(targetBufferFromCurrentPct) &&
@@ -6659,10 +6691,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: targetRecalibrationPolicy.noChaseRequired,
               targetRecalibrationCurrentTargetPrice: targetRecalibrationPolicy.currentTargetPrice,
               targetRecalibrationRequiredTargetPrice: targetRecalibrationPolicy.requiredTargetPrice,
+              targetRecalibrationRequiredTargetByBufferPrice: targetRecalibrationPolicy.requiredTargetByBufferPrice,
+              targetRecalibrationRequiredTargetByRrPrice: targetRecalibrationPolicy.requiredTargetByRrPrice,
               targetRecalibrationRequiredTargetBufferPct: targetRecalibrationPolicy.requiredTargetBufferPct,
               targetRecalibrationRequiredRr: targetRecalibrationPolicy.requiredRr,
               targetRecalibrationCurrentTargetGapPct: targetRecalibrationPolicy.currentTargetGapPct,
               targetRecalibrationRequiredTargetSource: targetRecalibrationPolicy.requiredTargetSource,
+              targetRecalibrationSourcePrice: targetRecalibrationPolicy.sourcePrice,
+              targetRecalibrationSourceStopPrice: targetRecalibrationPolicy.sourceStopPrice,
+              targetRecalibrationStopDistanceAtCurrent: targetRecalibrationPolicy.stopDistanceAtCurrent,
               targetRecalibrationRiskBasisStopDistancePct: targetRecalibrationPolicy.riskBasisStopDistancePct,
               targetRecalibrationShortfallPct: targetRecalibrationPolicy.shortfallPct,
               targetRecalibrationCandidate: targetRecalibrationPolicy.recalibrationCandidate,
@@ -6842,10 +6879,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: executionContract.targetNoChaseRequired,
               targetRecalibrationCurrentTargetPrice: executionContract.targetRecalibrationCurrentTargetPrice,
               targetRecalibrationRequiredTargetPrice: executionContract.targetRecalibrationRequiredTargetPrice,
+              targetRecalibrationRequiredTargetByBufferPrice: executionContract.targetRecalibrationRequiredTargetByBufferPrice,
+              targetRecalibrationRequiredTargetByRrPrice: executionContract.targetRecalibrationRequiredTargetByRrPrice,
               targetRecalibrationRequiredTargetBufferPct: executionContract.targetRecalibrationRequiredTargetBufferPct,
               targetRecalibrationRequiredRr: executionContract.targetRecalibrationRequiredRr,
               targetRecalibrationCurrentTargetGapPct: executionContract.targetRecalibrationCurrentTargetGapPct,
               targetRecalibrationRequiredTargetSource: executionContract.targetRecalibrationRequiredTargetSource,
+              targetRecalibrationSourcePrice: executionContract.targetRecalibrationSourcePrice,
+              targetRecalibrationSourceStopPrice: executionContract.targetRecalibrationSourceStopPrice,
+              targetRecalibrationStopDistanceAtCurrent: executionContract.targetRecalibrationStopDistanceAtCurrent,
               targetRecalibrationRiskBasisStopDistancePct: executionContract.targetRecalibrationRiskBasisStopDistancePct,
               targetRecalibrationShortfallPct: executionContract.targetRecalibrationShortfallPct,
               targetRecalibrationCandidate: executionContract.targetRecalibrationCandidate,
@@ -7315,10 +7357,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: executionContract.targetNoChaseRequired,
               targetRecalibrationCurrentTargetPrice: executionContract.targetRecalibrationCurrentTargetPrice,
               targetRecalibrationRequiredTargetPrice: executionContract.targetRecalibrationRequiredTargetPrice,
+              targetRecalibrationRequiredTargetByBufferPrice: executionContract.targetRecalibrationRequiredTargetByBufferPrice,
+              targetRecalibrationRequiredTargetByRrPrice: executionContract.targetRecalibrationRequiredTargetByRrPrice,
               targetRecalibrationRequiredTargetBufferPct: executionContract.targetRecalibrationRequiredTargetBufferPct,
               targetRecalibrationRequiredRr: executionContract.targetRecalibrationRequiredRr,
               targetRecalibrationCurrentTargetGapPct: executionContract.targetRecalibrationCurrentTargetGapPct,
               targetRecalibrationRequiredTargetSource: executionContract.targetRecalibrationRequiredTargetSource,
+              targetRecalibrationSourcePrice: executionContract.targetRecalibrationSourcePrice,
+              targetRecalibrationSourceStopPrice: executionContract.targetRecalibrationSourceStopPrice,
+              targetRecalibrationStopDistanceAtCurrent: executionContract.targetRecalibrationStopDistanceAtCurrent,
               targetRecalibrationRiskBasisStopDistancePct: executionContract.targetRecalibrationRiskBasisStopDistancePct,
               targetRecalibrationShortfallPct: executionContract.targetRecalibrationShortfallPct,
               targetRecalibrationCandidate: executionContract.targetRecalibrationCandidate,
@@ -7637,10 +7684,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: Boolean(item.targetNoChaseRequired),
               targetRecalibrationCurrentTargetPrice: toOptionalFiniteNumber(item.targetRecalibrationCurrentTargetPrice),
               targetRecalibrationRequiredTargetPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetPrice),
+              targetRecalibrationRequiredTargetByBufferPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetByBufferPrice),
+              targetRecalibrationRequiredTargetByRrPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetByRrPrice),
               targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetBufferPct),
               targetRecalibrationRequiredRr: toOptionalFiniteNumber(item.targetRecalibrationRequiredRr),
               targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item.targetRecalibrationCurrentTargetGapPct),
               targetRecalibrationRequiredTargetSource: normalizeOptionalText(item.targetRecalibrationRequiredTargetSource),
+              targetRecalibrationSourcePrice: toOptionalFiniteNumber(item.targetRecalibrationSourcePrice),
+              targetRecalibrationSourceStopPrice: toOptionalFiniteNumber(item.targetRecalibrationSourceStopPrice),
+              targetRecalibrationStopDistanceAtCurrent: toOptionalFiniteNumber(item.targetRecalibrationStopDistanceAtCurrent),
               targetRecalibrationRiskBasisStopDistancePct: toOptionalFiniteNumber(item.targetRecalibrationRiskBasisStopDistancePct),
               targetRecalibrationShortfallPct: toOptionalFiniteNumber(item.targetRecalibrationShortfallPct),
               targetRecalibrationCandidate: item.targetRecalibrationCandidate == null ? null : Boolean(item.targetRecalibrationCandidate),
@@ -7794,10 +7846,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: Boolean(item?.targetNoChaseRequired),
               targetRecalibrationCurrentTargetPrice: toOptionalFiniteNumber(item?.targetRecalibrationCurrentTargetPrice),
               targetRecalibrationRequiredTargetPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetPrice),
+              targetRecalibrationRequiredTargetByBufferPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetByBufferPrice),
+              targetRecalibrationRequiredTargetByRrPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetByRrPrice),
               targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetBufferPct),
               targetRecalibrationRequiredRr: toOptionalFiniteNumber(item?.targetRecalibrationRequiredRr),
               targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item?.targetRecalibrationCurrentTargetGapPct),
               targetRecalibrationRequiredTargetSource: normalizeOptionalText(item?.targetRecalibrationRequiredTargetSource),
+              targetRecalibrationSourcePrice: toOptionalFiniteNumber(item?.targetRecalibrationSourcePrice),
+              targetRecalibrationSourceStopPrice: toOptionalFiniteNumber(item?.targetRecalibrationSourceStopPrice),
+              targetRecalibrationStopDistanceAtCurrent: toOptionalFiniteNumber(item?.targetRecalibrationStopDistanceAtCurrent),
               targetRecalibrationRiskBasisStopDistancePct: toOptionalFiniteNumber(item?.targetRecalibrationRiskBasisStopDistancePct),
               targetRecalibrationShortfallPct: toOptionalFiniteNumber(item?.targetRecalibrationShortfallPct),
               targetRecalibrationCandidate: item?.targetRecalibrationCandidate == null ? null : Boolean(item.targetRecalibrationCandidate),

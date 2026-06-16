@@ -116,8 +116,16 @@ function rawExecutableDowngrades(stage6) {
         symbol,
         rawDecision: decisionOf(row),
         rawReason: reasonOf(row),
+        rawEntryExecPrice: numberOrNull(row?.entryExecPrice ?? row?.entryExecPriceShadow),
+        rawStopPrice: numberOrNull(row?.stopPrice ?? row?.stopLoss ?? row?.ictStopLoss),
         finalDecision,
-        finalReason: finalRow ? reasonOf(finalRow) : 'missing_from_final_surface'
+        finalReason: finalRow ? reasonOf(finalRow) : 'missing_from_final_surface',
+        finalEntryExecPrice: numberOrNull(finalRow?.entryExecPrice ?? finalRow?.entryExecPriceShadow),
+        finalStopPrice: numberOrNull(finalRow?.stopPrice ?? finalRow?.stopLoss ?? finalRow?.ictStopLoss),
+        currentEntryRequiredStopPrice: numberOrNull(finalRow?.currentEntryRequiredStopPrice),
+        currentEntryRecalcFeasible: finalRow?.currentEntryRecalcFeasible ?? null,
+        riskGeometryPolicyVerdict: finalRow?.riskGeometryPolicyVerdict || null,
+        riskGeometryProofReasons: Array.isArray(finalRow?.riskGeometryProofReasons) ? finalRow.riskGeometryProofReasons : []
       };
     })
     .filter((row) => row.finalDecision !== 'EXECUTABLE_NOW');
@@ -177,6 +185,11 @@ function compactRow(row) {
     targetNoTradeConfirmed: row?.targetNoTradeConfirmed ?? null,
     targetRecalibrationViabilityVerdict: row?.targetRecalibrationViabilityVerdict || null,
     targetRecalibrationCurrentTargetGapPct: numberOrNull(row?.targetRecalibrationCurrentTargetGapPct),
+    targetRecalibrationRequiredTargetByBufferPrice: numberOrNull(row?.targetRecalibrationRequiredTargetByBufferPrice),
+    targetRecalibrationRequiredTargetByRrPrice: numberOrNull(row?.targetRecalibrationRequiredTargetByRrPrice),
+    targetRecalibrationSourcePrice: numberOrNull(row?.targetRecalibrationSourcePrice),
+    targetRecalibrationSourceStopPrice: numberOrNull(row?.targetRecalibrationSourceStopPrice),
+    targetRecalibrationStopDistanceAtCurrent: numberOrNull(row?.targetRecalibrationStopDistanceAtCurrent),
     targetRecalibrationRequiredTargetSource: row?.targetRecalibrationRequiredTargetSource || null,
     targetRecalibrationRiskBasisStopDistancePct: numberOrNull(row?.targetRecalibrationRiskBasisStopDistancePct),
     targetRecalibrationShortfallPct: numberOrNull(row?.targetRecalibrationShortfallPct),
@@ -229,10 +242,10 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Row Focus');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |');
+  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Zero-Exec Lane | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | StopDist@Cur | Risk Target Gap% | RR@Cur | Dist% | TargetBuf% |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const row of report.rows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationStopDistanceAtCurrent)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
   lines.push('## Track Separation');
@@ -264,6 +277,11 @@ function main() {
     breakoutRetestPromotionPolicyDecision: requiredFieldCoverage(rows, 'breakoutRetestPromotionPolicyDecision'),
     breakoutRetestPromotionBlockedBy: requiredFieldCoverage(rows, 'breakoutRetestPromotionBlockedBy'),
     targetRecalibrationViabilityVerdict: requiredFieldCoverage(rows, 'targetRecalibrationViabilityVerdict'),
+    targetRecalibrationRequiredTargetByBufferPrice: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetByBufferPrice'),
+    targetRecalibrationRequiredTargetByRrPrice: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetByRrPrice'),
+    targetRecalibrationSourcePrice: requiredFieldCoverage(rows, 'targetRecalibrationSourcePrice'),
+    targetRecalibrationSourceStopPrice: requiredFieldCoverage(rows, 'targetRecalibrationSourceStopPrice'),
+    targetRecalibrationStopDistanceAtCurrent: requiredFieldCoverage(rows, 'targetRecalibrationStopDistanceAtCurrent'),
     targetRecalibrationRequiredTargetSource: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetSource'),
     riskGeometryTargetGapPct: requiredFieldCoverage(rows, 'riskGeometryTargetGapPct')
   };
