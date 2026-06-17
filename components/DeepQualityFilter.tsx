@@ -501,6 +501,21 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       setTimeout(() => reject(new Error(msg)), ms)
   );
 
+  const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: number, label: string) => {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+          return await fetch(url, { ...init, signal: controller.signal });
+      } catch (error: any) {
+          if (error?.name === 'AbortError') {
+              throw new Error(`${label} timed out after ${timeoutMs}ms`);
+          }
+          throw error;
+      } finally {
+          window.clearTimeout(timer);
+      }
+  };
+
   const sanitizeJson = (text: string) => {
       try {
         let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -515,7 +530,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   // --- DRIVE UTILS ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }, 15000, `findFolder(${name})`);
       await assertDriveOk(res, `findFolder(${name})`);
       const data = await res.json();
       return data.files?.[0]?.id || null;
@@ -523,14 +538,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const findFileId = async (token: string, name: string, parentId: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }, 15000, `findFileId(${name})`);
       await assertDriveOk(res, `findFileId(${name})`);
       const data = await res.json();
       return data.files?.[0]?.id || null;
   };
 
   const downloadFile = async (token: string, fileId: string) => {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } }, 30000, `downloadFile(${fileId})`);
       await assertDriveOk(res, `downloadFile(${fileId})`);
       const text = await res.text();
       return parseDriveJsonText(text);
@@ -538,14 +553,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const ensureFolder = async (token: string, name: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }, 15000, `ensureFolder.list(${name})`);
       await assertDriveOk(res, `ensureFolder.list(${name})`);
       const data = await res.json();
       if (data.files?.length > 0) return data.files[0].id;
-      const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+      const create = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files`, {
           method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-      });
+      }, 15000, `ensureFolder.create(${name})`);
       await assertDriveOk(create, `ensureFolder.create(${name})`);
       const json = await create.json();
       if (!json?.id) throw new Error(`Drive ensureFolder.create(${name}) succeeded but missing folder id`);
@@ -557,11 +572,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-      const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      const uploadRes = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` },
           body: form
-      });
+      }, 30000, `uploadFile(${name})`);
       if (!uploadRes.ok) {
           const errText = await uploadRes.text().catch(() => '');
           throw new Error(`Drive upload failed (${name}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
@@ -590,17 +605,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               ? `name contains 'STAGE1_PURIFIED_UNIVERSE' and '${stage1FolderId}' in parents and trashed = false`
               : `name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`;
           const q = encodeURIComponent(stage1Query);
-          const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          const listRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
-          });
+          }, 15000, 'executeDeepFilter.listStage1');
           await assertDriveOk(listRes, "executeDeepFilter.listStage1");
           const listData = await listRes.json();
 
           if (!listData.files?.length) throw new Error("Stage 1 Data Missing.");
 
-          const stage1Res = await fetch(`https://www.googleapis.com/drive/v3/files/${listData.files[0].id}?alt=media`, {
+          const stage1Res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${listData.files[0].id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
-          });
+          }, 30000, 'executeDeepFilter.downloadStage1');
           await assertDriveOk(stage1Res, "executeDeepFilter.downloadStage1");
           const stage1Text = await stage1Res.text();
           const stage1Content = parseDriveJsonText(stage1Text);
@@ -662,14 +677,21 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               let historyDataMap = new Map();
               if (historyFolderId) {
                   const histFileName = `${letter}_stocks_history.json`;
-                  const histFileId = await findFileId(accessToken, histFileName, historyFolderId);
-                  if (histFileId) {
-                      const content = await downloadFile(accessToken, histFileId);
-                      if (Array.isArray(content)) {
-                          content.forEach((d: any) => d.symbol && historyDataMap.set(d.symbol, Array.isArray(d.financials) ? d.financials : []));
-                      } else {
-                          Object.keys(content).forEach(sym => historyDataMap.set(sym, Array.isArray(content[sym].financials) ? content[sym].financials : []));
+                  try {
+                      const histFileId = await findFileId(accessToken, histFileName, historyFolderId);
+                      if (histFileId) {
+                          const content = await downloadFile(accessToken, histFileId);
+                          if (Array.isArray(content)) {
+                              content.forEach((d: any) => d.symbol && historyDataMap.set(d.symbol, Array.isArray(d.financials) ? d.financials : []));
+                          } else {
+                              Object.keys(content).forEach(sym => historyDataMap.set(sym, Array.isArray(content[sym].financials) ? content[sym].financials : []));
+                          }
                       }
+                  } catch (historyError: any) {
+                      addLog(
+                          `[WARN] History load skipped for ${letter}: ${historyError?.message || 'unknown'}. Continuing with snapshot-only scoring.`,
+                          "warn"
+                      );
                   }
               }
 
@@ -915,6 +937,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       } catch (e: any) {
           addLog(`Engine Failure: ${e.message}`, "err");
+          if (autoStart) {
+              (window as any).__AUTO_DONE = `AUTO ABORTED: STAGE2 FAILED. ${e?.message || 'unknown'}`;
+          }
       } finally {
           setLoading(false);
           setProgress({ current: 0, total: 0, msg: '' });
