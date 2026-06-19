@@ -290,6 +290,10 @@ jobs:
         if: success()
         run: npm run ops:stage6:policy-lane:audit
 
+      - name: 7.036 Stage6 weak pillar runtime audit
+        if: success()
+        run: npm run ops:stage6:weak-pillar:audit
+
       - name: 7.04 Stage6 holiday safety audit
         id: stage6_holiday_safety
         if: success()
@@ -585,6 +589,8 @@ jobs:
             docs/STAGE6_FRESH_FOCUS_AUDIT.md
             state/stage6-policy-lane-audit.json
             docs/STAGE6_POLICY_LANE_AUDIT_2026-05-29.md
+            state/stage6-weak-pillar-runtime-audit.json
+            docs/STAGE6_WEAK_PILLAR_RUNTIME_AUDIT.md
             state/stage3-audit-source/*.json
             state/stage4-audit-source/*.json
             state/stage5-audit-source/*.json

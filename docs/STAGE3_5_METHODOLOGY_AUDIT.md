@@ -49,7 +49,7 @@
 | Stage5 | yes | stage5_ict_metric_components | components/IctAnalysis.tsx | 19 |
 | Stage6 | yes | stage6_weak_pillar_gate | components/AlphaAnalysis.tsx | 64 |
 | Stage6 | yes | stage6_non_actionable_verdict_gate | components/AlphaAnalysis.tsx | 63 |
-| Stage6 | yes | stage6_breakout_proof_gate | components/AlphaAnalysis.tsx | 8644 |
+| Stage6 | yes | stage6_breakout_proof_gate | components/AlphaAnalysis.tsx | 8652 |
 
 ## Artifact Audit Snapshot
 

@@ -52,6 +52,7 @@
     "ops:stage6:earnings:audit": "node scripts/build-stage6-earnings-coverage-audit.mjs",
     "ops:stage6:earnings:lineage": "node scripts/build-stage6-earnings-lineage-trace.mjs",
     "ops:stage6:blocker-root-cause:audit": "node scripts/build-stage6-blocker-root-cause-audit.mjs",
+    "ops:stage6:weak-pillar:audit": "node scripts/build-stage6-weak-pillar-runtime-audit.mjs",
     "ops:stage6:flag-parity:assert": "node scripts/assert-stage6-flag-parity.mjs",
     "ops:safety:client-secret-exposure": "node scripts/check-client-secret-exposure.mjs",
     "ops:stage6:fresh-focus:audit": "node scripts/build-stage6-fresh-focus-audit.mjs",
