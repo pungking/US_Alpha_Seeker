@@ -1,11 +1,11 @@
 # Stage6 Policy Lane Audit
 
-- GeneratedAt: 2026-06-16T23:21:02.729Z
+- GeneratedAt: 2026-06-19T17:05:50.843Z
 - Source Audit: state/stage6-execution-gate-audit.json
-- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-16_23-59-28.json
-- Latest Verdict: **WATCHLIST_WAIT_JUSTIFIED_OR_DATA_REPAIR_REQUIRED**
-- Latest Review-Ready Rows: 0
-- Latest Promotion-Review Rows: 0
+- Latest Stage6: STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json
+- Latest Verdict: **STAGE6_PRODUCER_POLICY_REVIEW_REQUIRED**
+- Latest Review-Ready Rows: 3
+- Latest Promotion-Review Rows: 2
 - Latest Quality-Gate Rows: 1
 - Broker Mutation Authorized: false
 - Execution Policy Changed: false
@@ -16,21 +16,21 @@
 
 | Lane | Latest Rows | Latest Decisions |
 | --- | ---: | --- |
-| breakoutRetest | 0 | none |
+| breakoutRetest | 2 | BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED:1, BREAKOUT_REVIEW_READY_NOT_PROMOTABLE:1 |
 | currentDistance | 0 | none |
-| structureConfirmation | 4 | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED:4 |
+| structureConfirmation | 2 | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED:2 |
 | riskGeometry | 0 | none |
-| targetNearCurrent | 1 | TARGET_ALREADY_REACHED_NO_TRADE:1 |
-| earningsDataMissing | 0 | none |
+| targetNearCurrent | 0 | none |
+| earningsDataMissing | 1 | EARNINGS_DATA_OVERBLOCK_REVIEW_READY:1 |
 
 ## Confirmation Proof Quality
 
 | Scope | Lane | Rows | Missing Proof | Explicit Rejects | Confirmed | Continuation Confirmed | Review Ready | Stale/Extended | Current RR OK |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| latest | structureConfirmation | 4 | 0 | 4 | 0 | 0 | 0 | 0 | 0 |
-| latest | breakoutRetest | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| all | structureConfirmation | 98 | 0 | 98 | 0 | 0 | 0 | 0 | 0 |
-| all | breakoutRetest | 34 | 0 | 0 | 1 | 0 | 19 | 19 | 34 |
+| latest | structureConfirmation | 2 | 0 | 2 | 0 | 0 | 0 | 0 | 0 |
+| latest | breakoutRetest | 2 | 0 | 0 | 1 | 0 | 1 | 1 | 2 |
+| all | structureConfirmation | 108 | 0 | 108 | 0 | 0 | 0 | 0 | 1 |
+| all | breakoutRetest | 42 | 0 | 0 | 4 | 0 | 24 | 24 | 42 |
 
 ### Proof Criteria
 
@@ -41,23 +41,25 @@
 
 | Symbol | Verdict | Quality Lane | Stage6 Reason | Lane Decision | Target Verdict | Target Viability | Zero-Exec Lane | Action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| ZVRA | SPECULATIVE_BUY | non_actionable_verdict | wait_verdict_not_sidecar_actionable | QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT | TARGET_POLICY_NOT_APPLICABLE | TARGET_VIABILITY_NOT_APPLICABLE | NO_ZERO_EXECUTABLE_TUNING_ACTION | Keep WAIT_PRICE. SPECULATIVE_BUY/HOLD-style rows are analysis watchlist only unless Stage6 emits an explicit waiver. |
+| WSBC | BUY | earnings_data_coverage | wait_earnings_data_missing_quality_floor | QUALITY_GATE_EARNINGS_COVERAGE_REQUIRED | TARGET_POLICY_NOT_APPLICABLE | TARGET_VIABILITY_NOT_APPLICABLE | NO_ZERO_EXECUTABLE_TUNING_ACTION | Keep WAIT_PRICE. Repair earnings coverage/freshness first; do not lower execution gates or solve this in sidecar. |
 
 ## Latest Review-Ready Rows
 
 | Symbol | Lane | Decision | ER% | RR | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Action |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
-| none | none | none | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
+| CRMD | breakoutRetest | BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED | 109.00 | 72.83 | 4.24 | 16.41 | 74.91 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Keep WAIT_PRICE until a separate Stage6 producer policy change explicitly enables proof-confirmed promotion. |
+| WSBC | earningsDataMissing | EARNINGS_DATA_OVERBLOCK_REVIEW_READY | 15.00 | 2.00 | 2.00 | 0.00 | 8.10 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Do not lower quality gates blindly; first repair earnings coverage/freshness, then rerun Stage6. |
+| ZVRA | breakoutRetest | BREAKOUT_REVIEW_READY_NOT_PROMOTABLE | 136.00 | 16.23 | 4.10 | 19.89 | 115.86 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Review-ready is diagnostic only. Promotion requires proofConfirmed=true. |
 
 ## Latest Rows
 
 | Symbol | Verdict | Lane | Stage6 Reason | Lane Decision | Promotion Policy | Blocked By | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |
 | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
-| AUPH | STRONG_BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | N/A | none | 15.00 | 0.59 | 8.31 | 5.92 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
-| DAVE | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | N/A | none | 52.00 | 0.26 | 32.37 | 8.88 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
-| LTM | STRONG_BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | N/A | none | 41.00 | 1.27 | 12.41 | 27.10 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
-| MLI | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | N/A | none | 27.00 | 0.33 | 16.57 | 5.91 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
-| VIRT | STRONG_BUY | targetNearCurrent | wait_target_near_current | TARGET_ALREADY_REACHED_NO_TRADE | N/A | none | 14.00 | N/A | 22.44 | -10.33 | INVALID_OR_STALE_GEOMETRY | RR_CURRENT_TARGET_ALREADY_REACHED | Keep no-trade. Require fresh target/thesis recalibration before this can become executable. |
+| ATEX | STRONG_BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | N/A | none | 49.00 | 0.22 | 32.26 | 7.31 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
+| AUPH | BUY | structureConfirmation | wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | N/A | none | 15.00 | 0.26 | 10.71 | 3.16 | VALID_GEOMETRY | RR_CURRENT_WEAK | Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion. |
+| CRMD | STRONG_BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED | N/A | none | 109.00 | 4.24 | 16.41 | 74.91 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Keep WAIT_PRICE until a separate Stage6 producer policy change explicitly enables proof-confirmed promotion. |
+| WSBC | BUY | earningsDataMissing | wait_earnings_data_missing_quality_floor | EARNINGS_DATA_OVERBLOCK_REVIEW_READY | N/A | none | 15.00 | 2.00 | 0.00 | 8.10 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Do not lower quality gates blindly; first repair earnings coverage/freshness, then rerun Stage6. |
+| ZVRA | STRONG_BUY | breakoutRetest | wait_breakout_retest_required | BREAKOUT_REVIEW_READY_NOT_PROMOTABLE | N/A | none | 136.00 | 4.10 | 19.89 | 115.86 | VALID_GEOMETRY | RR_CURRENT_ACCEPTABLE | Review-ready is diagnostic only. Promotion requires proofConfirmed=true. |
 
 ## Policy Interpretation
 

@@ -1,11 +1,11 @@
 # Stage6 Blocker Root Cause Audit
 
-- GeneratedAt: 2026-06-16T23:21:03.639Z
-- Stage6: STAGE6_ALPHA_FINAL_2026-06-16_23-59-28.json
-- Hash: 191e5e5231619841e5c83cc9b20142a333ce57c0dd235e214849eff553e985c7
-- Rows audited: 6
-- Structure wait rows: 4
-- Risk geometry rows: 1
+- GeneratedAt: 2026-06-19T17:05:49.622Z
+- Stage6: STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json
+- Hash: 2ea6fd5b26acbe89c2334543e1a94c10f9629c2b9e7904e353cfebfc0342d207
+- Rows audited: 7
+- Structure wait rows: 2
+- Risk geometry rows: 0
 - Quality gate rows: 1
 - Safety: report-only; broker/order mutation is out of scope.
 
@@ -13,22 +13,19 @@
 
 | Symbol | Decision | Root Cause | Structure Confirmed | Recalc Feasible | RR@Current | TargetBuf% | EntryDist% | Structure Verdict | Recommendation |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- |
-| AUPH | WAIT_PRICE/wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | no | yes | 0.59 | 5.92 | 8.31 | STRUCTURE_REJECT_STOP_ABOVE_SUPPORT | Keep WAIT_PRICE. Structure explicitly rejected and current evidence is insufficient for execution. |
-| LTM | WAIT_PRICE/wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | no | yes | 1.27 | 27.10 | 12.41 | STRUCTURE_REJECT_STOP_ATR_OUT_OF_BAND | Keep WAIT_PRICE. Structure explicitly rejected and current evidence is insufficient for execution. |
-| MLI | WAIT_PRICE/wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | no | yes | 0.33 | 5.91 | 16.57 | STRUCTURE_REJECT_STOP_ABOVE_SUPPORT | Keep WAIT_PRICE. Structure explicitly rejected and current evidence is insufficient for execution. |
-| DAVE | WAIT_PRICE/wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | no | yes | 0.26 | 8.88 | 32.37 | STRUCTURE_REJECT_STOP_ATR_OUT_OF_BAND | Keep WAIT_PRICE. Structure explicitly rejected and current evidence is insufficient for execution. |
+| AUPH | WAIT_PRICE/wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | no | yes | 0.26 | 3.16 | 10.71 | STRUCTURE_REJECT_STOP_ATR_OUT_OF_BAND | Keep WAIT_PRICE. Structure explicitly rejected and current evidence is insufficient for execution. |
+| ATEX | WAIT_PRICE/wait_structure_confirmation_required | STRUCTURE_EXPLICIT_REJECT_WAIT_JUSTIFIED | no | yes | 0.22 | 7.31 | 32.26 | STRUCTURE_REJECT_STOP_ATR_OUT_OF_BAND | Keep WAIT_PRICE. Structure explicitly rejected and current evidence is insufficient for execution. |
 
 ## Risk Geometry
 
 | Symbol | Decision | Root Cause | Recalc Candidate | RR@Current | RR@Recalc | TargetBuf% | StopDist% | Producer Flags | Recommendation |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
-| VIRT | WAIT_PRICE/wait_target_near_current | RISK_GEOMETRY_INVALID_NO_TRADE | no | N/A | N/A | -10.33 | N/A | adaptive=true, stopRecalc=true | Keep no-trade. Stage6 must refresh target/stop geometry before execution can be reconsidered. |
 
 ## Quality Gate
 
 | Symbol | Verdict | Decision | Producer Lane | Producer Verdict | Root Cause | Verdict Unusable | HOLD | Target Geometry Block | Normalization Issue | TargetBuf% | Recommendation |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |
-| ZVRA | SPECULATIVE_BUY | WAIT_PRICE/wait_verdict_not_sidecar_actionable | N/A | N/A | QUALITY_GATE_VALID_NON_ACTIONABLE_VERDICT | yes | no | no | no | 122.22 | Keep blocked until Stage6 emits an actionable BUY/STRONG_BUY verdict or explicit waiver. |
+| WSBC | BUY | WAIT_PRICE/wait_earnings_data_missing_quality_floor | earnings_data_missing_quality_floor | QUALITY_GATE_EARNINGS_DATA_COVERAGE_REQUIRED | QUALITY_GATE_REASON_UNRESOLVED | no | no | no | no | 8.10 | Keep blocked until Stage6 emits an actionable BUY/STRONG_BUY verdict or explicit waiver. |
 
 ## Done-When Interpretation
 

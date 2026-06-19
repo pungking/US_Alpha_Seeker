@@ -1,35 +1,34 @@
 # Stage3-5 Methodology Audit
 
-- GeneratedAt: 2026-06-19T16:13:38.029Z
-- Stage6: STAGE6_ALPHA_FINAL_2026-06-19_22-40-48.json
-- Stage6Hash: bc5b6cafebe8f657fc7a402cb34cd7e0a1291c5591fa062d600ab8ff41773cb6
-- Overall: **fail_methodology_contract_violation**
+- GeneratedAt: 2026-06-19T17:03:54.384Z
+- Stage6: STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json
+- Stage6Hash: 2ea6fd5b26acbe89c2334543e1a94c10f9629c2b9e7904e353cfebfc0342d207
+- Overall: **pass_full_artifact_methodology_review**
 - Safety: report-only; no broker/state mutation.
 
 ## Methodology Scores
 
 | Stage | Score | Artifact Mode | Main Risk |
 | --- | ---: | --- | --- |
-| Stage3 | 67/100 | stage6_finalist_fallback | Stage3 artifact rows violate bounded score contract. |
-| Stage4 | 92/100 | stage6_finalist_fallback | none |
-| Stage5 | 92/100 | stage6_finalist_fallback | none |
-| InterStage | 77/100 | stage6_contract | Stage6 artifact contains executable rows with weak Stage3/4/5 pillar. |
+| Stage3 | 100/100 | full_stage_artifact | none |
+| Stage4 | 93/100 | full_stage_artifact | Some Stage4 rows have fewer than 80 bars. |
+| Stage5 | 100/100 | full_stage_artifact | none |
+| InterStage | 92/100 | stage6_contract | none |
 
 ## Artifact Sources
 
 | Stage | Mode | File | Rows | Hash |
 | --- | --- | --- | ---: | --- |
-| Stage3 | stage6_finalist_fallback | Stage6 finalist fallback | 5 | N/A |
-| Stage4 | stage6_finalist_fallback | Stage6 finalist fallback | 5 | N/A |
-| Stage5 | stage6_finalist_fallback | Stage6 finalist fallback | 5 | N/A |
-| InterStage | stage6_contract | STAGE6_ALPHA_FINAL_2026-06-19_22-40-48.json | 5 | bc5b6cafebe8 |
+| Stage3 | full_stage_artifact | STAGE3_FUNDAMENTAL_FULL_2026-06-20_01-37-55.json | 300 | 016e3425e9b3 |
+| Stage4 | full_stage_artifact | STAGE4_TECHNICAL_FULL_2026-06-20_01-59-17.json | 300 | f7bc02461271 |
+| Stage5 | full_stage_artifact | STAGE5_ICT_ELITE_50_2026-06-20_01-59-27.json | 50 | e1cef12e9dc2 |
+| InterStage | stage6_contract | STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json | 3 | 2ea6fd5b26ac |
 
 ## Findings
 
 | Severity | Stage | ID | Evidence | Recommendation |
 | --- | --- | --- | --- | --- |
-| critical | Stage3 | stage3_score_bounds_violation_in_artifact | [{"symbol":"ACAD","fundamentalScore":100.5846886648797,"compositeAlpha":76.53}] | Fresh Stage3 should regenerate after clamp fix; do not use stale artifacts for final policy judgement. |
-| high | InterStage | stage6_weak_pillar_executable_in_artifact | [{"symbol":"ACAD","fundamentalScore":100.5846886648797,"technicalScore":48.46,"ictScore":92.34,"weakPillarGateVerdict":null}] | Fresh Stage6 should route these to WAIT_PRICE/wait_weak_pillar_execution_gate after weak-pillar gate fix. |
+| medium | Stage4 | stage4_short_price_history | [{"symbol":"PAYP","bars":69}] | Downgrade structure/ICT confidence or block execution promotion when history is short. |
 
 ## Static Method Checks
 
@@ -58,25 +57,25 @@
 
 | Metric | Value |
 | --- | --- |
-| rows | 5 |
-| scoreStats | {"count":5,"min":64.04,"max":100.58,"avg":80.1} |
-| dataQualityCounts | {"HIGH":5} |
+| rows | 300 |
+| scoreStats | {"count":300,"min":4.51,"max":100,"avg":59.4} |
+| dataQualityCounts | {"HIGH":300} |
 
 ### Stage4
 
 | Metric | Value |
 | --- | --- |
-| rows | 5 |
-| scoreStats | {"count":5,"min":48.46,"max":99,"avg":81.61} |
-| dataSourceCounts | {"DRIVE":5} |
+| rows | 300 |
+| scoreStats | {"count":300,"min":1,"max":99,"avg":53.68} |
+| dataSourceCounts | {"DRIVE":300} |
 
 ### Stage5
 
 | Metric | Value |
 | --- | --- |
-| rows | 5 |
-| scoreStats | {"count":5,"min":71.17,"max":96.42,"avg":88.03} |
-| pdZoneCounts | {"DISCOUNT":3,"PREMIUM":2} |
+| rows | 50 |
+| scoreStats | {"count":50,"min":67.41,"max":100,"avg":85.9} |
+| pdZoneCounts | {"PREMIUM":31,"DISCOUNT":18,"EQUILIBRIUM":1} |
 
 ## Interpretation
 
