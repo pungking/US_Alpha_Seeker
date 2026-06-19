@@ -5,6 +5,9 @@ import crypto from 'node:crypto';
 
 const ROOT = process.cwd();
 const DEFAULT_STAGE6_DIR = 'state/stage6-audit-source';
+const DEFAULT_STAGE3_DIR = 'state/stage3-audit-source';
+const DEFAULT_STAGE4_DIR = 'state/stage4-audit-source';
+const DEFAULT_STAGE5_DIR = 'state/stage5-audit-source';
 const OUT_JSON = 'state/stage3-5-quant-quality-audit.json';
 const OUT_MD = 'docs/STAGE3_5_QUANT_QUALITY_AUDIT.md';
 
@@ -57,6 +60,18 @@ function latestStage6Path() {
   return files[0].full;
 }
 
+function latestArtifactPath({ envPath, envDir, defaultDir, pattern }) {
+  if (process.env[envPath]) return { path: process.env[envPath], source: envPath };
+  const dir = resolveRepo(process.env[envDir] || defaultDir);
+  const files = fs.existsSync(dir)
+    ? fs.readdirSync(dir)
+      .filter((name) => pattern.test(name))
+      .map((name) => ({ name, full: path.join(dir, name), mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
+      .sort((a, b) => stage6Timestamp(b.name).localeCompare(stage6Timestamp(a.name)) || b.mtime - a.mtime || b.name.localeCompare(a.name))
+    : [];
+  return files.length ? { path: files[0].full, source: envDir } : { path: null, source: 'fallback_stage6_finalists' };
+}
+
 function num(value) {
   if (value == null || value === '' || typeof value === 'boolean') return null;
   const n = Number(value);
@@ -98,6 +113,32 @@ function rowsFromStage6(stage6) {
     }
   }
   return rows;
+}
+
+function rowsFromStageArtifact(payload, stage) {
+  const candidateKeys = {
+    Stage3: ['fundamental_universe', 'fundamentalUniverse', 'stage3', 'candidates', 'results', 'data'],
+    Stage4: ['technical_universe', 'technicalUniverse', 'stage4', 'technical_candidates', 'stage4_candidates', 'candidates', 'results', 'data'],
+    Stage5: ['ict_universe', 'ictUniverse', 'stage5', 'ict_candidates', 'elite_candidates', 'stage5_candidates', 'candidates', 'results', 'data']
+  }[stage] || [];
+  for (const key of candidateKeys) {
+    if (Array.isArray(payload?.[key])) return payload[key].filter((row) => normalizeSymbol(row));
+  }
+  if (Array.isArray(payload)) return payload.filter((row) => normalizeSymbol(row));
+  return [];
+}
+
+function loadStageRows({ stage, artifactPath, fallbackRows }) {
+  if (!artifactPath) return { rows: fallbackRows, mode: 'stage6_finalist_fallback', file: null, count: fallbackRows.length };
+  const payload = readJson(artifactPath);
+  const rows = rowsFromStageArtifact(payload, stage);
+  return {
+    rows: rows.length ? rows : fallbackRows,
+    mode: rows.length ? 'full_stage_artifact' : 'stage6_finalist_fallback_empty_artifact',
+    file: path.basename(artifactPath),
+    count: rows.length || fallbackRows.length,
+    hash: fileSha256(artifactPath)
+  };
 }
 
 function coverage(rows, fields) {
@@ -153,22 +194,22 @@ function extractStaticFormulaEvidence() {
       stage: 'Stage3',
       id: 'stage3_integrity_penalty',
       file: SOURCE_FILES.stage3,
-      pattern: /analysis\.fundamentalScore\s*-=\s*integrityPenalty/,
+      pattern: /analysis\.fundamentalScore\s*=\s*clampScore\(analysis\.fundamentalScore\s*-\s*integrityPenalty\)/,
       title: 'Cashflow/net-income integrity penalty is applied before Stage3 output.'
     },
     {
       stage: 'Stage3',
-      id: 'stage3_unbounded_sector_bonus',
+      id: 'stage3_sector_bonus_score_clamp',
       file: SOURCE_FILES.stage3,
-      pattern: /r\.fundamentalScore\s*\+=\s*\(sectorScore\s*\+\s*sectorRankBonus\)/,
-      title: 'Stage3 sector momentum bonus can increase fundamentalScore after base scoring.'
+      pattern: /fundamentalScoreRawAfterSectorBonus[\s\S]*r\.fundamentalScore\s*=\s*clampScore\(fundamentalScoreRawAfterSectorBonus\)/,
+      title: 'Stage3 sector momentum bonus is clamped back into the 0-100 score contract.'
     },
     {
       stage: 'Stage3',
       id: 'stage3_composite_formula',
       file: SOURCE_FILES.stage3,
-      pattern: /compositeAlpha\s*=\s*\(r\.qualityScore\s*\*\s*0\.3\)\s*\+\s*\(r\.fundamentalScore\s*\*\s*0\.7\)/,
-      title: 'Stage3 compositeAlpha uses 30% qualityScore and 70% fundamentalScore after sector bonus.'
+      pattern: /r\.compositeAlpha\s*=\s*clampScore\(\(clampScore\(r\.qualityScore\)\s*\*\s*0\.3\)\s*\+\s*\(r\.fundamentalScore\s*\*\s*0\.7\)\)/,
+      title: 'Stage3 compositeAlpha uses 30% qualityScore and 70% fundamentalScore after sector bonus with score-scale clamp.'
     },
     {
       stage: 'Stage4',
@@ -273,7 +314,7 @@ function stage3Audit(rows, findings) {
       outOfRange,
       'Clamp or re-normalize Stage3 fundamentalScore after sector/momentum bonuses, then update fixture expectations.',
       SOURCE_FILES.stage3,
-      lineOf(SOURCE_FILES.stage3, /r\.fundamentalScore\s*\+=/)
+      lineOf(SOURCE_FILES.stage3, /fundamentalScoreRawAfterSectorBonus/)
     );
   }
   const missingIntegrity = rows
@@ -578,7 +619,10 @@ function buildMarkdown(report) {
     `- GeneratedAt: ${report.generatedAt}`,
     `- Stage6: ${report.stage6.file}`,
     `- Hash: ${report.stage6.hash}`,
-    `- Rows audited: ${report.summary.rows}`,
+    `- Stage6 finalist rows audited: ${report.summary.rows}`,
+    `- Stage3 rows audited: ${report.summary.stage3Rows}`,
+    `- Stage4 rows audited: ${report.summary.stage4Rows}`,
+    `- Stage5 rows audited: ${report.summary.stage5Rows}`,
     `- Overall: **${report.overall}**`,
     `- Safety: report-only; no broker/state mutation.`,
     '',
@@ -589,6 +633,10 @@ function buildMarkdown(report) {
   ];
   for (const [stage, score] of Object.entries(report.stageScores)) {
     lines.push(`| ${esc(stage)} | ${score}/100 | ${esc(report.stageMainRisks[stage] || 'none')} |`);
+  }
+  lines.push('', '## Artifact Sources', '', '| Stage | Mode | File | Rows |', '| --- | --- | --- | ---: |');
+  for (const [stage, source] of Object.entries(report.artifactSources || {})) {
+    lines.push(`| ${esc(stage)} | ${esc(source.mode)} | ${esc(source.file || 'Stage6 finalist fallback')} | ${esc(source.count)} |`);
   }
   lines.push('', '## Findings', '', '| Severity | Stage | ID | Evidence | Recommendation | File | Line |', '| --- | --- | --- | --- | --- | --- | ---: |');
   if (!report.findings.length) {
@@ -616,7 +664,15 @@ function buildMarkdown(report) {
   for (const item of report.staticFormulaEvidence) {
     lines.push(`| ${esc(item.stage)} | ${item.present ? 'yes' : 'no'} | ${esc(item.id)} | ${esc(item.file)} | ${item.line || 0} |`);
   }
-  lines.push('', '## Interpretation', '', '- This audit is not a backtest and does not prove alpha performance.', '- It checks score-scale integrity, evidence coverage, formula guardrails, and Stage3->Stage5->Stage6 traceability.', '- Formula changes should be made only after this report identifies a bounded, testable defect.');
+  lines.push(
+    '',
+    '## Interpretation',
+    '',
+    '- This audit is not a backtest and does not prove alpha performance.',
+    '- It checks score-scale integrity, evidence coverage, formula guardrails, and Stage3->Stage5->Stage6 traceability.',
+    '- For full-stage coverage, provide `STAGE35_AUDIT_STAGE3_PATH`, `STAGE35_AUDIT_STAGE4_PATH`, and `STAGE35_AUDIT_STAGE5_PATH`, or place artifacts under `state/stage3-audit-source`, `state/stage4-audit-source`, and `state/stage5-audit-source`.',
+    '- Formula changes should be made only after this report identifies a bounded, testable defect.'
+  );
   return `${lines.join('\n')}\n`;
 }
 
@@ -636,6 +692,27 @@ function main() {
   const stage6Path = latestStage6Path();
   const stage6 = readJson(stage6Path);
   const rows = rowsFromStage6(stage6);
+  const stage3Artifact = latestArtifactPath({
+    envPath: 'STAGE35_AUDIT_STAGE3_PATH',
+    envDir: 'STAGE35_AUDIT_STAGE3_DIR',
+    defaultDir: DEFAULT_STAGE3_DIR,
+    pattern: /^STAGE3_.*\.json$/i
+  });
+  const stage4Artifact = latestArtifactPath({
+    envPath: 'STAGE35_AUDIT_STAGE4_PATH',
+    envDir: 'STAGE35_AUDIT_STAGE4_DIR',
+    defaultDir: DEFAULT_STAGE4_DIR,
+    pattern: /^STAGE4_.*\.json$/i
+  });
+  const stage5Artifact = latestArtifactPath({
+    envPath: 'STAGE35_AUDIT_STAGE5_PATH',
+    envDir: 'STAGE35_AUDIT_STAGE5_DIR',
+    defaultDir: DEFAULT_STAGE5_DIR,
+    pattern: /^STAGE5_.*\.json$/i
+  });
+  const stage3Rows = loadStageRows({ stage: 'Stage3', artifactPath: stage3Artifact.path, fallbackRows: rows });
+  const stage4Rows = loadStageRows({ stage: 'Stage4', artifactPath: stage4Artifact.path, fallbackRows: rows });
+  const stage5Rows = loadStageRows({ stage: 'Stage5', artifactPath: stage5Artifact.path, fallbackRows: rows });
   const findings = [];
   const staticFormulaEvidence = extractStaticFormulaEvidence();
   for (const item of staticFormulaEvidence) {
@@ -655,9 +732,9 @@ function main() {
   }
 
   const stageAudits = {
-    Stage3: stage3Audit(rows, findings),
-    Stage4: stage4Audit(rows, findings),
-    Stage5: stage5Audit(rows, findings),
+    Stage3: stage3Audit(stage3Rows.rows, findings),
+    Stage4: stage4Audit(stage4Rows.rows, findings),
+    Stage5: stage5Audit(stage5Rows.rows, findings),
     Stage5ToStage6: contractLinkAudit(stage6, rows, findings)
   };
   const stageScores = {};
@@ -689,8 +766,37 @@ function main() {
         sourceStage5Count: stage6?.manifest?.sourceStage5Count || null
       }
     },
+    artifactSources: {
+      Stage3: {
+        mode: stage3Rows.mode,
+        file: stage3Rows.file,
+        count: stage3Rows.count,
+        hash: stage3Rows.hash || null,
+        path: stage3Artifact.path,
+        source: stage3Artifact.source
+      },
+      Stage4: {
+        mode: stage4Rows.mode,
+        file: stage4Rows.file,
+        count: stage4Rows.count,
+        hash: stage4Rows.hash || null,
+        path: stage4Artifact.path,
+        source: stage4Artifact.source
+      },
+      Stage5: {
+        mode: stage5Rows.mode,
+        file: stage5Rows.file,
+        count: stage5Rows.count,
+        hash: stage5Rows.hash || null,
+        path: stage5Artifact.path,
+        source: stage5Artifact.source
+      }
+    },
     summary: {
       rows: rows.length,
+      stage3Rows: stage3Rows.count,
+      stage4Rows: stage4Rows.count,
+      stage5Rows: stage5Rows.count,
       findings: findings.length,
       critical: findings.filter((f) => f.severity === 'critical').length,
       high: findings.filter((f) => f.severity === 'high').length,

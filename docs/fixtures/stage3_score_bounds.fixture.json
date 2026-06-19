@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-06-19T00:00:00.000Z",
+  "source_stage": "stage3_fundamental_score_bounds_fixture",
+  "cases": [
+    {
+      "symbol": "CLAMP_HIGH",
+      "qualityScore": 98.3,
+      "fundamentalScoreBeforeSectorBonus": 99.2,
+      "sectorScore": 2,
+      "sectorRankBonus": 4,
+      "expectedFundamentalScore": 100,
+      "expectedClampApplied": true,
+      "expectedCompositeAlpha": 99.49
+    },
+    {
+      "symbol": "NO_CLAMP",
+      "qualityScore": 80,
+      "fundamentalScoreBeforeSectorBonus": 70,
+      "sectorScore": 2,
+      "sectorRankBonus": 4,
+      "expectedFundamentalScore": 76,
+      "expectedClampApplied": false,
+      "expectedCompositeAlpha": 77.2
+    },
+    {
+      "symbol": "CLAMP_LOW",
+      "qualityScore": 45,
+      "fundamentalScoreBeforeSectorBonus": -3,
+      "sectorScore": 0,
+      "sectorRankBonus": 0,
+      "expectedFundamentalScore": 0,
+      "expectedClampApplied": false,
+      "expectedCompositeAlpha": 13.5
+    }
+  ]
+}

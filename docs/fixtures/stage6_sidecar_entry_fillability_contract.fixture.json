@@ -19,7 +19,12 @@
     "zeroExecutableStructureRule": "structure waits require stronger producer proof; do not relax structure gates as the default zero-executable response",
     "targetRecalibrationPolicy": {
       "maxRequiredTargetGapPct": 20
-    }
+    },
+    "weakPillarGateEnabled": true,
+    "weakPillarExecutableWaiver": false,
+    "weakPillarMinFundamentalScore": 50,
+    "weakPillarMinTechnicalScore": 50,
+    "weakPillarMinIctScore": 60
   },
   "candidates": [
     {
@@ -584,6 +589,59 @@
       "riskGeometryTargetBufferOk": true,
       "riskGeometryRepairLane": "RISK_GEOMETRY_PROOF_INCOMPLETE",
       "riskGeometryProofConfirmed": false
+    },
+    {
+      "symbol": "WEAK_PILLAR_WAIT",
+      "aiVerdict": "BUY",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_weak_pillar_execution_gate",
+      "executionActionableVerdict": true,
+      "executionActionablePolicy": "BUY,STRONG_BUY,STRONGBUY",
+      "executionActionableWaiver": false,
+      "fundamentalScore": 96,
+      "technicalScore": 48.46,
+      "ictScore": 92.34,
+      "price": 100,
+      "entryExecPrice": 98,
+      "targetPrice": 130,
+      "stopPrice": 90,
+      "rrAtCurrentPrice": 2.2,
+      "entryDistancePct": 2,
+      "targetBufferFromCurrentPct": 30,
+      "executionFeasibilityAtCurrent": "PASS",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "executionFeasibilityAtCurrentReason": null,
+      "executionFeasibilityAtCurrentReasons": [],
+      "executionFeasibilityAtCurrentRr": 2.2,
+      "executionFeasibilityAtCurrentDistancePct": 2,
+      "executionFeasibilityAtCurrentMinRr": 1.8,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
+      "executionFeasibilityAtCurrentBasis": "ORIGINAL_STAGE6_STOP_AT_CURRENT",
+      "qualityGateLane": "weak_pillar_execution_gate",
+      "qualityGatePolicyVerdict": "QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT",
+      "qualityGateReasons": [
+        "quality_gate_lane:weak_pillar_execution_gate",
+        "decision_reason:wait_weak_pillar_execution_gate",
+        "ai_verdict_key:BUY"
+      ],
+      "qualityGateRecommendedAction": "Keep WAIT_PRICE unless a producer-side weak-pillar waiver is explicitly enabled and audited.",
+      "weakPillarGateEnabled": true,
+      "weakPillarGateVerdict": "WEAK_PILLAR_GATE_BLOCKED_EXECUTION",
+      "weakPillarGateReasons": [
+        "technical_score_below_min:48.46<50"
+      ],
+      "weakPillarGateWaiver": false,
+      "weakPillarGateMinFundamentalScore": 50,
+      "weakPillarGateMinTechnicalScore": 50,
+      "weakPillarGateMinIctScore": 60,
+      "zeroExecutableTuningLane": "QUALITY_GATE",
+      "zeroExecutableTuningVerdict": "QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT",
+      "zeroExecutablePrimaryTuningTarget": false,
+      "zeroExecutableTuningReasons": [
+        "weak_pillar_execution_gate"
+      ],
+      "zeroExecutableTuningRecommendedAction": "Repair Stage3/4/5 pillar evidence or require explicit waiver before execution."
     }
   ]
 }

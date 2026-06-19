@@ -55,6 +55,11 @@ const safeNum = (val: any) => {
     return isNaN(n) || !isFinite(n) ? 0 : n;
 };
 
+const clampScore = (val: any) => {
+    const n = safeNum(val);
+    return Math.max(0, Math.min(100, n));
+};
+
 const hasValue = (val: any) => !(val === undefined || val === null || val === '');
 
 const firstPresent = (...vals: any[]) => vals.find(hasValue);
@@ -1238,22 +1243,22 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     }
                     
                     // Apply Penalty
-                    analysis.fundamentalScore -= integrityPenalty;
+                    analysis.fundamentalScore = clampScore(analysis.fundamentalScore - integrityPenalty);
                     
-                    const qualityScore = safeNum(analysis.qualityScore);
+                    const qualityScore = clampScore(analysis.qualityScore);
                     
                     if (isImputed) {
                         analysis.dataConfidence = Math.min(analysis.dataConfidence, 60);
                     }
 
-                    const compositeAlpha = (qualityScore * 0.3) + (analysis.fundamentalScore * 0.7);
+                    const compositeAlpha = clampScore((qualityScore * 0.3) + (analysis.fundamentalScore * 0.7));
 
                     results.push({
                         ...item, // Strict Pass-through
                         ...analysis,
                         qualityScore,
-                        fundamentalScore: safeNum(analysis.fundamentalScore),
-                        compositeAlpha: safeNum(compositeAlpha),
+                        fundamentalScore: clampScore(analysis.fundamentalScore),
+                        compositeAlpha,
                         isHighGrowthQuality,
                         isCashFlowWarning,
                         fullHistory: fullHistory.slice(0, 4),
@@ -1337,12 +1342,18 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     if (topSectors.includes(r.sector)) sectorScore = hasCashflowRisk ? 1 : 2;
                     if (idx <= top20Index) sectorRankBonus = hasCashflowRisk ? 0 : 4;
 
+                    const fundamentalScoreBeforeSectorBonus = clampScore(r.fundamentalScore);
+                    const fundamentalScoreRawAfterSectorBonus = fundamentalScoreBeforeSectorBonus + sectorScore + sectorRankBonus;
+
                     r.sectorScore = sectorScore;
                     r.sectorRankBonus = sectorRankBonus;
-                    r.fundamentalScore += (sectorScore + sectorRankBonus);
+                    r.fundamentalScoreBeforeSectorBonus = fundamentalScoreBeforeSectorBonus;
+                    r.fundamentalScoreRawAfterSectorBonus = fundamentalScoreRawAfterSectorBonus;
+                    r.fundamentalScoreClampApplied = fundamentalScoreRawAfterSectorBonus !== clampScore(fundamentalScoreRawAfterSectorBonus);
+                    r.fundamentalScore = clampScore(fundamentalScoreRawAfterSectorBonus);
                     
                     // Recalculate Composite Alpha
-                    r.compositeAlpha = (r.qualityScore * 0.3) + (r.fundamentalScore * 0.7);
+                    r.compositeAlpha = clampScore((clampScore(r.qualityScore) * 0.3) + (r.fundamentalScore * 0.7));
                 });
             });
 

@@ -61,6 +61,7 @@ interface AlphaCandidate {
     | 'wait_current_rr_below_min'
     | 'wait_current_distance_above_adaptive'
     | 'wait_verdict_not_sidecar_actionable'
+    | 'wait_weak_pillar_execution_gate'
     | 'wait_earnings_data_missing'
     | 'wait_earnings_data_missing_quality_floor'
     | 'wait_insufficient_history'
@@ -221,6 +222,13 @@ interface AlphaCandidate {
   qualityGatePolicyVerdict?: string | null;
   qualityGateReasons?: string[] | null;
   qualityGateRecommendedAction?: string | null;
+  weakPillarGateEnabled?: boolean | null;
+  weakPillarGateVerdict?: string | null;
+  weakPillarGateReasons?: string[] | null;
+  weakPillarGateWaiver?: boolean | null;
+  weakPillarGateMinFundamentalScore?: number | null;
+  weakPillarGateMinTechnicalScore?: number | null;
+  weakPillarGateMinIctScore?: number | null;
   zeroExecutableTuningLane?: string | null;
   zeroExecutableTuningVerdict?: string | null;
   zeroExecutablePrimaryTuningTarget?: boolean | null;
@@ -1390,6 +1398,7 @@ const deriveQualityGatePolicy = (input: {
   const reason = String(input.decisionReason || '');
   const qualityReasons = new Set([
     'wait_verdict_not_sidecar_actionable',
+    'wait_weak_pillar_execution_gate',
     'wait_earnings_data_missing_quality_floor',
     'blocked_quality_missing_expected_return',
     'blocked_quality_conviction_floor',
@@ -1406,22 +1415,26 @@ const deriveQualityGatePolicy = (input: {
 
   const lane = reason === 'wait_verdict_not_sidecar_actionable'
     ? 'non_actionable_verdict'
-    : reason === 'wait_earnings_data_missing_quality_floor'
-      ? 'earnings_data_missing_quality_floor'
-      : reason === 'blocked_quality_missing_expected_return'
-        ? 'missing_expected_return'
-        : reason === 'blocked_quality_conviction_floor'
-          ? 'conviction_floor'
-          : 'verdict_unusable';
+    : reason === 'wait_weak_pillar_execution_gate'
+      ? 'weak_pillar_execution_gate'
+      : reason === 'wait_earnings_data_missing_quality_floor'
+        ? 'earnings_data_missing_quality_floor'
+        : reason === 'blocked_quality_missing_expected_return'
+          ? 'missing_expected_return'
+          : reason === 'blocked_quality_conviction_floor'
+            ? 'conviction_floor'
+            : 'verdict_unusable';
   const verdict = lane === 'non_actionable_verdict'
     ? 'QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT'
-    : lane === 'earnings_data_missing_quality_floor'
-      ? 'QUALITY_GATE_EARNINGS_DATA_COVERAGE_REQUIRED'
-      : lane === 'missing_expected_return'
-        ? 'QUALITY_GATE_EXPECTED_RETURN_MISSING'
-        : lane === 'conviction_floor'
-          ? 'QUALITY_GATE_CONVICTION_FLOOR_BLOCKED'
-          : 'QUALITY_GATE_VERDICT_UNUSABLE_BLOCKED';
+    : lane === 'weak_pillar_execution_gate'
+      ? 'QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT'
+      : lane === 'earnings_data_missing_quality_floor'
+        ? 'QUALITY_GATE_EARNINGS_DATA_COVERAGE_REQUIRED'
+        : lane === 'missing_expected_return'
+          ? 'QUALITY_GATE_EXPECTED_RETURN_MISSING'
+          : lane === 'conviction_floor'
+            ? 'QUALITY_GATE_CONVICTION_FLOOR_BLOCKED'
+            : 'QUALITY_GATE_VERDICT_UNUSABLE_BLOCKED';
   const reasons = [
     `quality_gate_lane:${lane}`,
     `decision_reason:${reason}`,
@@ -1437,7 +1450,9 @@ const deriveQualityGatePolicy = (input: {
     recommendedAction:
       lane === 'non_actionable_verdict'
         ? 'Keep WAIT_PRICE unless Stage6 emits BUY/STRONG_BUY or an explicit producer-side waiver.'
-        : 'Keep blocked/waiting and repair the analysis-side data or verdict source before execution review.'
+        : lane === 'weak_pillar_execution_gate'
+          ? 'Keep WAIT_PRICE unless a producer-side weak-pillar waiver is explicitly enabled and audited.'
+          : 'Keep blocked/waiting and repair the analysis-side data or verdict source before execution review.'
   };
 };
 
@@ -5481,6 +5496,33 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER ?? 'false'
       );
+      const STAGE6_WEAK_PILLAR_GATE_ENABLED = parseBooleanFlag(
+          (import.meta as any)?.env?.VITE_STAGE6_WEAK_PILLAR_GATE_ENABLED ?? 'true'
+      );
+      const STAGE6_WEAK_PILLAR_EXECUTABLE_WAIVER = parseBooleanFlag(
+          (import.meta as any)?.env?.VITE_STAGE6_WEAK_PILLAR_EXECUTABLE_WAIVER ?? 'false'
+      );
+      const stage6MinExecFundamentalScoreRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_MIN_EXEC_FUNDAMENTAL_SCORE ?? 50
+      );
+      const STAGE6_MIN_EXEC_FUNDAMENTAL_SCORE =
+          Number.isFinite(stage6MinExecFundamentalScoreRaw) && stage6MinExecFundamentalScoreRaw >= 0
+              ? stage6MinExecFundamentalScoreRaw
+              : 50;
+      const stage6MinExecTechnicalScoreRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_MIN_EXEC_TECHNICAL_SCORE ?? 50
+      );
+      const STAGE6_MIN_EXEC_TECHNICAL_SCORE =
+          Number.isFinite(stage6MinExecTechnicalScoreRaw) && stage6MinExecTechnicalScoreRaw >= 0
+              ? stage6MinExecTechnicalScoreRaw
+              : 50;
+      const stage6MinExecIctScoreRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_MIN_EXEC_ICT_SCORE ?? 60
+      );
+      const STAGE6_MIN_EXEC_ICT_SCORE =
+          Number.isFinite(stage6MinExecIctScoreRaw) && stage6MinExecIctScoreRaw >= 0
+              ? stage6MinExecIctScoreRaw
+              : 60;
       const stage6EarningsBlackoutDaysRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_BLACKOUT_DAYS ?? 5
       );
@@ -6757,6 +6799,50 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision = 'WAIT_PRICE';
               decisionReason = 'wait_verdict_not_sidecar_actionable';
           }
+          const weakPillarFundamentalScore = pickFinite(item?.fundamentalScore);
+          const weakPillarTechnicalScore = pickFinite(item?.technicalScore);
+          const weakPillarIctScore = pickFinite(item?.ictScore);
+          const weakPillarGateReasons = [
+              ...(weakPillarFundamentalScore == null
+                  ? ['fundamental_score_missing']
+                  : weakPillarFundamentalScore < STAGE6_MIN_EXEC_FUNDAMENTAL_SCORE
+                      ? [`fundamental_score_below_min:${weakPillarFundamentalScore}<${STAGE6_MIN_EXEC_FUNDAMENTAL_SCORE}`]
+                      : []),
+              ...(weakPillarTechnicalScore == null
+                  ? ['technical_score_missing']
+                  : weakPillarTechnicalScore < STAGE6_MIN_EXEC_TECHNICAL_SCORE
+                      ? [`technical_score_below_min:${weakPillarTechnicalScore}<${STAGE6_MIN_EXEC_TECHNICAL_SCORE}`]
+                      : []),
+              ...(weakPillarIctScore == null
+                  ? ['ict_score_missing']
+                  : weakPillarIctScore < STAGE6_MIN_EXEC_ICT_SCORE
+                      ? [`ict_score_below_min:${weakPillarIctScore}<${STAGE6_MIN_EXEC_ICT_SCORE}`]
+                      : [])
+          ];
+          const weakPillarGateTriggered = weakPillarGateReasons.length > 0;
+          const weakPillarGateWaiverApplied =
+              STAGE6_WEAK_PILLAR_GATE_ENABLED &&
+              STAGE6_WEAK_PILLAR_EXECUTABLE_WAIVER &&
+              weakPillarGateTriggered &&
+              finalDecision === 'EXECUTABLE_NOW';
+          if (
+              STAGE6_WEAK_PILLAR_GATE_ENABLED &&
+              weakPillarGateTriggered &&
+              finalDecision === 'EXECUTABLE_NOW' &&
+              !weakPillarGateWaiverApplied
+          ) {
+              finalDecision = 'WAIT_PRICE';
+              decisionReason = 'wait_weak_pillar_execution_gate';
+          }
+          const weakPillarGateVerdict = !STAGE6_WEAK_PILLAR_GATE_ENABLED
+              ? 'WEAK_PILLAR_GATE_DISABLED'
+              : !weakPillarGateTriggered
+                  ? 'WEAK_PILLAR_GATE_PASS'
+                  : weakPillarGateWaiverApplied
+                      ? 'WEAK_PILLAR_GATE_WAIVED'
+                      : finalDecision === 'EXECUTABLE_NOW'
+                          ? 'WEAK_PILLAR_GATE_UNRESOLVED'
+                          : 'WEAK_PILLAR_GATE_BLOCKED_EXECUTION';
           const executionBucket: AlphaCandidate["executionBucket"] =
               finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST';
           const useBreakoutRetestCurrentEntry =
@@ -7066,6 +7152,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityGatePolicyVerdict: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.verdict,
               qualityGateReasons: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.reasons,
               qualityGateRecommendedAction: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.recommendedAction,
+              weakPillarGateEnabled: STAGE6_WEAK_PILLAR_GATE_ENABLED,
+              weakPillarGateVerdict,
+              weakPillarGateReasons,
+              weakPillarGateWaiver: weakPillarGateWaiverApplied,
+              weakPillarGateMinFundamentalScore: STAGE6_MIN_EXEC_FUNDAMENTAL_SCORE,
+              weakPillarGateMinTechnicalScore: STAGE6_MIN_EXEC_TECHNICAL_SCORE,
+              weakPillarGateMinIctScore: STAGE6_MIN_EXEC_ICT_SCORE,
               zeroExecutableTuningLane: zeroExecutableTuningPolicy.lane,
               zeroExecutableTuningVerdict: zeroExecutableTuningPolicy.verdict,
               zeroExecutablePrimaryTuningTarget: zeroExecutableTuningPolicy.primaryTuningTarget,
@@ -7281,6 +7374,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityGatePolicyVerdict: executionContract.qualityGatePolicyVerdict,
               qualityGateReasons: executionContract.qualityGateReasons,
               qualityGateRecommendedAction: executionContract.qualityGateRecommendedAction,
+              weakPillarGateEnabled: executionContract.weakPillarGateEnabled,
+              weakPillarGateVerdict: executionContract.weakPillarGateVerdict,
+              weakPillarGateReasons: executionContract.weakPillarGateReasons,
+              weakPillarGateWaiver: executionContract.weakPillarGateWaiver,
+              weakPillarGateMinFundamentalScore: executionContract.weakPillarGateMinFundamentalScore,
+              weakPillarGateMinTechnicalScore: executionContract.weakPillarGateMinTechnicalScore,
+              weakPillarGateMinIctScore: executionContract.weakPillarGateMinIctScore,
               zeroExecutableTuningLane: executionContract.zeroExecutableTuningLane,
               zeroExecutableTuningVerdict: executionContract.zeroExecutableTuningVerdict,
               zeroExecutablePrimaryTuningTarget: executionContract.zeroExecutablePrimaryTuningTarget,
@@ -7786,6 +7886,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityGatePolicyVerdict: executionContract.qualityGatePolicyVerdict,
               qualityGateReasons: executionContract.qualityGateReasons,
               qualityGateRecommendedAction: executionContract.qualityGateRecommendedAction,
+              weakPillarGateEnabled: executionContract.weakPillarGateEnabled,
+              weakPillarGateVerdict: executionContract.weakPillarGateVerdict,
+              weakPillarGateReasons: executionContract.weakPillarGateReasons,
+              weakPillarGateWaiver: executionContract.weakPillarGateWaiver,
+              weakPillarGateMinFundamentalScore: executionContract.weakPillarGateMinFundamentalScore,
+              weakPillarGateMinTechnicalScore: executionContract.weakPillarGateMinTechnicalScore,
+              weakPillarGateMinIctScore: executionContract.weakPillarGateMinIctScore,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -8140,6 +8247,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityGatePolicyVerdict: normalizeOptionalText(item.qualityGatePolicyVerdict),
               qualityGateReasons: Array.isArray(item.qualityGateReasons) ? item.qualityGateReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               qualityGateRecommendedAction: normalizeOptionalText(item.qualityGateRecommendedAction),
+              weakPillarGateEnabled: item.weakPillarGateEnabled == null ? null : Boolean(item.weakPillarGateEnabled),
+              weakPillarGateVerdict: normalizeOptionalText(item.weakPillarGateVerdict),
+              weakPillarGateReasons: Array.isArray(item.weakPillarGateReasons) ? item.weakPillarGateReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              weakPillarGateWaiver: item.weakPillarGateWaiver == null ? null : Boolean(item.weakPillarGateWaiver),
+              weakPillarGateMinFundamentalScore: toOptionalFiniteNumber(item.weakPillarGateMinFundamentalScore),
+              weakPillarGateMinTechnicalScore: toOptionalFiniteNumber(item.weakPillarGateMinTechnicalScore),
+              weakPillarGateMinIctScore: toOptionalFiniteNumber(item.weakPillarGateMinIctScore),
               zeroExecutableTuningLane: normalizeOptionalText(item.zeroExecutableTuningLane),
               zeroExecutableTuningVerdict: normalizeOptionalText(item.zeroExecutableTuningVerdict),
               zeroExecutablePrimaryTuningTarget: Boolean(item.zeroExecutablePrimaryTuningTarget),
@@ -8329,6 +8443,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityGatePolicyVerdict: normalizeOptionalText(item?.qualityGatePolicyVerdict),
               qualityGateReasons: Array.isArray(item?.qualityGateReasons) ? item.qualityGateReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               qualityGateRecommendedAction: normalizeOptionalText(item?.qualityGateRecommendedAction),
+              weakPillarGateEnabled: item?.weakPillarGateEnabled == null ? null : Boolean(item.weakPillarGateEnabled),
+              weakPillarGateVerdict: normalizeOptionalText(item?.weakPillarGateVerdict),
+              weakPillarGateReasons: Array.isArray(item?.weakPillarGateReasons) ? item.weakPillarGateReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              weakPillarGateWaiver: item?.weakPillarGateWaiver == null ? null : Boolean(item.weakPillarGateWaiver),
+              weakPillarGateMinFundamentalScore: toOptionalFiniteNumber(item?.weakPillarGateMinFundamentalScore),
+              weakPillarGateMinTechnicalScore: toOptionalFiniteNumber(item?.weakPillarGateMinTechnicalScore),
+              weakPillarGateMinIctScore: toOptionalFiniteNumber(item?.weakPillarGateMinIctScore),
               zeroExecutableTuningLane: normalizeOptionalText(item?.zeroExecutableTuningLane),
               zeroExecutableTuningVerdict: normalizeOptionalText(item?.zeroExecutableTuningVerdict),
               zeroExecutablePrimaryTuningTarget: Boolean(item?.zeroExecutablePrimaryTuningTarget),
@@ -8495,6 +8616,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
               actionableVerdicts: Array.from(STAGE6_ACTIONABLE_VERDICTS),
               speculativeBuyExecutableWaiver: STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER,
+              weakPillarGateEnabled: STAGE6_WEAK_PILLAR_GATE_ENABLED,
+              weakPillarExecutableWaiver: STAGE6_WEAK_PILLAR_EXECUTABLE_WAIVER,
+              weakPillarMinFundamentalScore: STAGE6_MIN_EXEC_FUNDAMENTAL_SCORE,
+              weakPillarMinTechnicalScore: STAGE6_MIN_EXEC_TECHNICAL_SCORE,
+              weakPillarMinIctScore: STAGE6_MIN_EXEC_ICT_SCORE,
               entryFeasibilityMaxDistancePct: ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT,
               earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
               earningsMissingPolicy: STAGE6_EARNINGS_MISSING_POLICY,

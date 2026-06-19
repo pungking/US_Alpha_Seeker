@@ -12,6 +12,10 @@ const actionableVerdicts = new Set(
 const errors = [];
 const verdictKey = (value) => String(value || '').replace(/[^a-zA-Z0-9_]/g, '').toUpperCase().trim();
 const breakoutPromotionEnabled = data?.decisionGate?.breakoutRetestProofPromotionEnabled === true;
+const weakPillarGateEnabled = data?.decisionGate?.weakPillarGateEnabled === true;
+const weakPillarMinFundamentalScore = Number(data?.decisionGate?.weakPillarMinFundamentalScore ?? 50);
+const weakPillarMinTechnicalScore = Number(data?.decisionGate?.weakPillarMinTechnicalScore ?? 50);
+const weakPillarMinIctScore = Number(data?.decisionGate?.weakPillarMinIctScore ?? 60);
 const isTrue = (value) => value === true || String(value).toLowerCase() === 'true';
 const isBooleanLike = (value) => value === true || value === false || String(value).toLowerCase() === 'true' || String(value).toLowerCase() === 'false';
 const isFiniteNumber = (value) => value !== null && value !== '' && value !== undefined && !Number.isNaN(Number(value)) && Number.isFinite(Number(value));
@@ -38,6 +42,18 @@ for (const [idx, row] of candidates.entries()) {
     if (row.executionFeasibilityAtCurrent !== 'PASS') errors.push(`${label}: executable must have current feasibility PASS`);
     if (Number(row.executionFeasibilityAtCurrentRr) < Number(row.executionFeasibilityAtCurrentMinRr)) errors.push(`${label}: executable current RR below min`);
     if (Number(row.executionFeasibilityAtCurrentDistancePct) > Number(row.executionFeasibilityAtCurrentMaxDistancePct)) errors.push(`${label}: executable current distance above adaptive band`);
+    const hasWeakPillarScores = [row.fundamentalScore, row.technicalScore, row.ictScore].some(isFiniteNumber);
+    if (weakPillarGateEnabled && hasWeakPillarScores && !isTrue(row.weakPillarGateWaiver)) {
+      if (!isFiniteNumber(row.fundamentalScore) || Number(row.fundamentalScore) < weakPillarMinFundamentalScore) {
+        errors.push(`${label}: executable weak-pillar gate failed fundamentalScore`);
+      }
+      if (!isFiniteNumber(row.technicalScore) || Number(row.technicalScore) < weakPillarMinTechnicalScore) {
+        errors.push(`${label}: executable weak-pillar gate failed technicalScore`);
+      }
+      if (!isFiniteNumber(row.ictScore) || Number(row.ictScore) < weakPillarMinIctScore) {
+        errors.push(`${label}: executable weak-pillar gate failed ictScore`);
+      }
+    }
   }
   if (!actionableVerdict && row.finalDecision === 'WAIT_PRICE' && row.decisionReason === 'wait_verdict_not_sidecar_actionable' && row.executionActionableVerdict !== false) {
     errors.push(`${label}: non-actionable wait must declare executionActionableVerdict=false`);
@@ -50,6 +66,23 @@ for (const [idx, row] of candidates.entries()) {
       errors.push(`${label}: non-actionable wait must declare QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT`);
     }
     if (!Array.isArray(row.qualityGateReasons)) errors.push(`${label}: non-actionable wait missing qualityGateReasons array`);
+  }
+  if (row.finalDecision === 'WAIT_PRICE' && row.decisionReason === 'wait_weak_pillar_execution_gate') {
+    if (row.qualityGateLane !== 'weak_pillar_execution_gate') {
+      errors.push(`${label}: weak-pillar wait must declare qualityGateLane=weak_pillar_execution_gate`);
+    }
+    if (row.qualityGatePolicyVerdict !== 'QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT') {
+      errors.push(`${label}: weak-pillar wait must declare QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT`);
+    }
+    if (row.weakPillarGateVerdict !== 'WEAK_PILLAR_GATE_BLOCKED_EXECUTION') {
+      errors.push(`${label}: weak-pillar wait must declare WEAK_PILLAR_GATE_BLOCKED_EXECUTION`);
+    }
+    if (!Array.isArray(row.weakPillarGateReasons) || row.weakPillarGateReasons.length === 0) {
+      errors.push(`${label}: weak-pillar wait missing weakPillarGateReasons array`);
+    }
+    if (isTrue(row.weakPillarGateWaiver)) {
+      errors.push(`${label}: weak-pillar wait cannot have weakPillarGateWaiver=true`);
+    }
   }
   if (row.executionFeasibilityAtCurrent === 'BLOCKED' && !String(row.decisionReason || '').startsWith('wait_') && !String(row.decisionReason || '').startsWith('blocked_')) {
     errors.push(`${label}: blocked current feasibility needs wait_/blocked_ decisionReason`);
