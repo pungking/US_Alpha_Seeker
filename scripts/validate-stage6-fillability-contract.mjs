@@ -180,6 +180,14 @@ for (const [idx, row] of candidates.entries()) {
       if (!Array.isArray(row.breakoutRetestPromotionBlockedBy)) {
         errors.push(`${label}: proofConfirmed breakout must declare promotion blockers array`);
       }
+      if (row.breakoutRetestPromotionPolicyDecision === 'WAIT_CONSERVATIVE_DEFAULT') {
+        if (!isTrue(row.breakoutRetestPromotionReady)) {
+          errors.push(`${label}: proofConfirmed breakout with inputs ready but promotion disabled must keep breakoutRetestPromotionReady=true`);
+        }
+        if (!Array.isArray(row.breakoutRetestPromotionBlockedBy) || !row.breakoutRetestPromotionBlockedBy.includes('proof_confirmed_promotion_flag_disabled')) {
+          errors.push(`${label}: disabled proofConfirmed breakout must name proof_confirmed_promotion_flag_disabled`);
+        }
+      }
     }
   }
   if (row.decisionReason === 'wait_structure_confirmation_required') {

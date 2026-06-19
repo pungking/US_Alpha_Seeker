@@ -1318,7 +1318,7 @@ const deriveBreakoutRetestPromotion = (input: {
   if (input.currentFeasibilityStatus !== 'PASS') reasons.push('current_entry_feasibility_not_pass');
   if (!input.currentEntryStopDistanceOk) reasons.push('current_stop_distance_outside_policy');
   const eligible = input.proof.confirmed === true;
-  const ready =
+  const inputsReady =
     eligible &&
     input.executionActionableVerdict === true &&
     input.currentFeasibilityStatus === 'PASS' &&
@@ -1330,7 +1330,7 @@ const deriveBreakoutRetestPromotion = (input: {
     ...(input.currentEntryStopDistanceOk ? [] : ['current_stop_distance_outside_policy']),
     ...(input.promotionEnabled ? [] : ['proof_confirmed_promotion_flag_disabled'])
   ];
-  if (ready && input.promotionEnabled) {
+  if (inputsReady && input.promotionEnabled) {
     return {
       verdict: 'BREAKOUT_PROOF_CONFIRMED_PROMOTION_ENABLED',
       eligible: true,
@@ -1343,7 +1343,7 @@ const deriveBreakoutRetestPromotion = (input: {
       recommendedAction: 'Producer may emit EXECUTABLE_NOW only because proofConfirmed=true and promotion flag is enabled.'
     };
   }
-  if (eligible && !ready) {
+  if (eligible && !inputsReady) {
     return {
       verdict: 'BREAKOUT_PROOF_CONFIRMED_PROMOTION_INPUTS_BLOCKED',
       eligible: true,
@@ -1361,7 +1361,7 @@ const deriveBreakoutRetestPromotion = (input: {
       verdict: 'BREAKOUT_PROOF_CONFIRMED_PROMOTION_DISABLED',
       eligible: true,
       enabled: false,
-      ready: false,
+      ready: true,
       policyDecision: 'WAIT_CONSERVATIVE_DEFAULT',
       entryBasis,
       blockedBy,

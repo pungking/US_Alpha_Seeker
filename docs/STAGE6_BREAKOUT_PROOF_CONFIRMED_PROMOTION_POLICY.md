@@ -39,7 +39,7 @@ If promotion is explicitly enabled in a future producer policy, the row must sat
 
 Stage6 producer rows must keep these fields explicit:
 
-- `breakoutRetestPromotionReady`: true only when proof, current-entry feasibility, and current stop-distance policy all pass.
+- `breakoutRetestPromotionReady`: true only when proof, current-entry feasibility, and current stop-distance policy all pass. It may be true while the row remains `WAIT_PRICE` if the only remaining blocker is `proof_confirmed_promotion_flag_disabled`.
 - `breakoutRetestPromotionPolicyDecision`: one of the producer decision states such as `WAIT_CONSERVATIVE_DEFAULT`, `WAIT_INPUTS_BLOCKED`, or `PROMOTE_CURRENT_ENTRY`.
 - `breakoutRetestPromotionEntryBasis`: the entry contract the producer is authorizing; for this lane it must be `BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT`.
 - `breakoutRetestPromotionBlockedBy`: cumulative blockers including `proof_confirmed_promotion_flag_disabled`, `current_entry_feasibility_not_pass`, or `current_stop_distance_outside_policy`.
@@ -47,7 +47,14 @@ Stage6 producer rows must keep these fields explicit:
 
 ## Current Runtime Interpretation
 
-For the fresh Stage6 hash `72375137d616a85901310237aef79eeba3435cc2c401eaaa20eab0432f16a5d4`, CRMD reached proof-confirmed continuation status, but promotion remains disabled. Therefore `WAIT_PRICE` is correct and safe.
+For current runtime interpretation, a proof-confirmed continuation row can be classified as policy-ready but still conservative-wait when `VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED=false`. In that case:
+
+- `breakoutRetestPromotionReady=true`
+- `breakoutRetestPromotionPolicyDecision=WAIT_CONSERVATIVE_DEFAULT`
+- `breakoutRetestPromotionBlockedBy` includes `proof_confirmed_promotion_flag_disabled`
+- `finalDecision` remains `WAIT_PRICE`
+
+This separates "producer inputs are ready" from "producer policy is allowed to promote." Sidecar must still treat the row as non-executable until the producer emits `EXECUTABLE_NOW`.
 
 ## Done-When
 
