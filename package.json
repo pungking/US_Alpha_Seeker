@@ -55,7 +55,8 @@
     "ops:stage6:flag-parity:assert": "node scripts/assert-stage6-flag-parity.mjs",
     "ops:safety:client-secret-exposure": "node scripts/check-client-secret-exposure.mjs",
     "ops:stage6:fresh-focus:audit": "node scripts/build-stage6-fresh-focus-audit.mjs",
-    "ops:stage6:holiday-safety": "node scripts/check-stage6-holiday-safety.mjs"
+    "ops:stage6:holiday-safety": "node scripts/check-stage6-holiday-safety.mjs",
+    "ops:stage3-5:quant:audit": "node scripts/build-stage3-5-quant-quality-audit.mjs"
   },
   "dependencies": {
     "@sentry/node": "^10.17.0",
