@@ -270,6 +270,26 @@ jobs:
         if: success()
         run: npm run ops:stage3-5:methodology:audit
 
+      - name: 7.031 Stage3-5 quant quality audit
+        if: success()
+        run: npm run ops:stage3-5:quant:audit
+
+      - name: 7.032 Stage6 execution gate audit
+        if: success()
+        run: npm run ops:stage6:exec:audit
+
+      - name: 7.033 Stage6 blocker root-cause audit
+        if: success()
+        run: npm run ops:stage6:blocker-root-cause:audit
+
+      - name: 7.034 Stage6 fresh focus audit
+        if: success()
+        run: npm run ops:stage6:fresh-focus:audit
+
+      - name: 7.035 Stage6 policy lane audit
+        if: success()
+        run: npm run ops:stage6:policy-lane:audit
+
       - name: 7.04 Stage6 holiday safety audit
         id: stage6_holiday_safety
         if: success()
@@ -555,6 +575,16 @@ jobs:
             state/stage-artifact-export-audit.md
             state/stage3-5-methodology-audit.json
             docs/STAGE3_5_METHODOLOGY_AUDIT.md
+            state/stage3-5-quant-quality-audit.json
+            docs/STAGE3_5_QUANT_QUALITY_AUDIT.md
+            state/stage6-execution-gate-audit.json
+            docs/STAGE6_EXECUTION_GATE_AUDIT_2026-05-09.md
+            state/stage6-blocker-root-cause-audit.json
+            docs/STAGE6_BLOCKER_ROOT_CAUSE_AUDIT.md
+            state/stage6-fresh-focus-audit.json
+            docs/STAGE6_FRESH_FOCUS_AUDIT.md
+            state/stage6-policy-lane-audit.json
+            docs/STAGE6_POLICY_LANE_AUDIT_2026-05-29.md
             state/stage3-audit-source/*.json
             state/stage4-audit-source/*.json
             state/stage5-audit-source/*.json
