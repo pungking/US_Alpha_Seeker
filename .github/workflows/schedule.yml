@@ -262,6 +262,14 @@ jobs:
       - name: 7. 자동화 스크립트 실행 (Puppeteer)
         run: npm run automate
 
+      - name: 7.02 Export Stage3-6 artifacts for audit evidence
+        if: success()
+        run: npm run ops:stage-artifacts:export
+
+      - name: 7.03 Stage3-5 methodology audit
+        if: success()
+        run: npm run ops:stage3-5:methodology:audit
+
       - name: 7.04 Stage6 holiday safety audit
         id: stage6_holiday_safety
         if: success()
@@ -543,6 +551,14 @@ jobs:
             state/stage6-flag-parity-assertion.json
             state/stage6-holiday-safety-audit.json
             state/stage6-holiday-safety-audit.md
+            state/stage-artifact-export-audit.json
+            state/stage-artifact-export-audit.md
+            state/stage3-5-methodology-audit.json
+            docs/STAGE3_5_METHODOLOGY_AUDIT.md
+            state/stage3-audit-source/*.json
+            state/stage4-audit-source/*.json
+            state/stage5-audit-source/*.json
+            state/stage6-audit-source/*.json
             state/notion-pipeline-sync.json
           retention-days: 3
 
