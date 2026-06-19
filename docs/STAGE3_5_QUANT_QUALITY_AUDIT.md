@@ -1,21 +1,21 @@
 # Stage3-5 Quant Quality Audit
 
-- GeneratedAt: 2026-06-19T17:03:55.767Z
+- GeneratedAt: 2026-06-19T23:35:46.762Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json
 - Hash: 2ea6fd5b26acbe89c2334543e1a94c10f9629c2b9e7904e353cfebfc0342d207
 - Stage6 finalist rows audited: 3
 - Stage3 rows audited: 300
 - Stage4 rows audited: 300
 - Stage5 rows audited: 50
-- Overall: **review_required_medium**
+- Overall: **pass_report_only**
 - Safety: report-only; no broker/state mutation.
 
 ## Summary
 
 | Stage | Score | Main Risk |
 | --- | ---: | --- |
-| Stage3 | 92/100 | qualityScore and fundamentalScore diverge materially; this may be valid, but the score semantics need a data dictionary. |
-| Stage4 | 92/100 | Some technical rows carry fewer than 80 priceHistory bars. |
+| Stage3 | 100/100 | none |
+| Stage4 | 97/100 | Short technical history was observed, but it did not reach Stage6 executable rows. |
 | Stage5 | 100/100 | none |
 | Stage5ToStage6 | 100/100 | none |
 
@@ -31,8 +31,7 @@
 
 | Severity | Stage | ID | Evidence | Recommendation | File | Line |
 | --- | --- | --- | --- | --- | --- | ---: |
-| medium | Stage3 | stage3_score_semantics_ambiguous | [{"symbol":"SCZM","fundamentalScore":99.40106640462962,"qualityScore":78.89207944859601,"delta":20.51},{"symbol":"AMSC","fundamentalScore":99.7776258098489,"qualityScore":73.85033446751383,"delta":25.93},{"symbol":"BVN","fundamentalScore":99.74000000000001,"qualityScore":60,"delta":39.74},{"symbol":"SD","fundamentalScore":95.22745193582841,"qualityScore":68.89651233147517,"delta":26.33},{"symbol":"IMPP","fundamentalS | Document qualityScore vs fundamentalScore semantics and add a fixture proving expected post-sector-bonus behavior. | N/A | 0 |
-| medium | Stage4 | stage4_price_history_short | [{"symbol":"PAYP","bars":69}] | Downgrade ICT/structure confidence when Stage4 evidence has short history. | N/A | 0 |
+| low | Stage4 | stage4_short_history_non_executable_observation | [{"symbol":"PAYP","bars":69}] | Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable. | N/A | 0 |
 
 ## Latest Row Score Table
 
@@ -49,6 +48,7 @@
 | Metric | Value |
 | --- | --- |
 | scoreStats | {"count":300,"min":4.51,"max":100,"avg":59.4} |
+| scoreSemanticsContract | {"dataDictionaryPresent":true,"boundsFixturePresent":true,"status":"documented_expected_divergence"} |
 | dataQualityCounts | HIGH:300 |
 
 ### Stage4
@@ -56,6 +56,7 @@
 | Metric | Value |
 | --- | --- |
 | scoreStats | {"count":300,"min":1,"max":99,"avg":53.68} |
+| shortHistoryPolicy | {"policyPresent":true,"shortHistoryRows":1,"shortHistoryExecutableRows":0,"status":"short_history_non_executable_observation"} |
 | dataSourceCounts | DRIVE:300 |
 | techDataQualityCounts | NORMAL:226, THIN:74 |
 
@@ -87,7 +88,7 @@
 | Stage5 | yes | stage5_risk_on_weights | components/IctAnalysis.tsx | 991 |
 | Stage5 | yes | stage5_data_quality_multiplier | components/IctAnalysis.tsx | 1040 |
 | Stage5 | yes | stage5_geometry_fallback_counter | components/IctAnalysis.tsx | 1138 |
-| Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 5397 |
+| Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 5404 |
 
 ## Interpretation
 

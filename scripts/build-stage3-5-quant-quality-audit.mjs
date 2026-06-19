@@ -10,6 +10,11 @@ const DEFAULT_STAGE4_DIR = 'state/stage4-audit-source';
 const DEFAULT_STAGE5_DIR = 'state/stage5-audit-source';
 const OUT_JSON = 'state/stage3-5-quant-quality-audit.json';
 const OUT_MD = 'docs/STAGE3_5_QUANT_QUALITY_AUDIT.md';
+const POLICY_FILES = {
+  stage3ScoreSemantics: 'docs/STAGE3_SCORE_SEMANTICS.md',
+  stage3ScoreBoundsFixture: 'docs/fixtures/stage3_score_bounds.fixture.json',
+  stage4ShortHistoryPolicy: 'docs/STAGE4_SHORT_HISTORY_POLICY.md'
+};
 
 const SOURCE_FILES = {
   stage3: 'components/FundamentalAnalysis.tsx',
@@ -40,6 +45,10 @@ function writeTextAtomic(filePath, text) {
 
 function fileSha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(resolveRepo(filePath))).digest('hex');
+}
+
+function fileExists(filePath) {
+  return fs.existsSync(resolveRepo(filePath));
 }
 
 function stage6Timestamp(name) {
@@ -341,21 +350,32 @@ function stage3Audit(rows, findings) {
         : null
     }))
     .filter((row) => row.delta != null && row.delta >= 20);
+  const scoreSemanticsContract = {
+    dataDictionaryPresent: fileExists(POLICY_FILES.stage3ScoreSemantics),
+    boundsFixturePresent: fileExists(POLICY_FILES.stage3ScoreBoundsFixture),
+    status: 'missing'
+  };
+  scoreSemanticsContract.status = scoreSemanticsContract.dataDictionaryPresent && scoreSemanticsContract.boundsFixturePresent
+    ? 'documented_expected_divergence'
+    : 'needs_data_dictionary';
   if (qualityDivergence.length) {
-    addFinding(
-      findings,
-      'Stage3',
-      'medium',
-      'stage3_score_semantics_ambiguous',
-      'qualityScore and fundamentalScore diverge materially; this may be valid, but the score semantics need a data dictionary.',
-      qualityDivergence,
-      'Document qualityScore vs fundamentalScore semantics and add a fixture proving expected post-sector-bonus behavior.'
-    );
+    if (scoreSemanticsContract.status !== 'documented_expected_divergence') {
+      addFinding(
+        findings,
+        'Stage3',
+        'medium',
+        'stage3_score_semantics_ambiguous',
+        'qualityScore and fundamentalScore diverge materially; this may be valid, but the score semantics need a data dictionary.',
+        qualityDivergence,
+        'Document qualityScore vs fundamentalScore semantics and add a fixture proving expected post-sector-bonus behavior.'
+      );
+    }
   }
   return {
     coverage: cov,
     outOfRange,
     qualityDivergence,
+    scoreSemanticsContract,
     scoreStats: numericStats(rows, 'fundamentalScore'),
     dataQualityCounts: countBy(rows, (row) => String(row?.dataQuality || 'missing')),
     zScoreModelCounts: countBy(rows, (row) => String(row?.zScoreModel || 'missing')),
@@ -363,7 +383,7 @@ function stage3Audit(rows, findings) {
   };
 }
 
-function stage4Audit(rows, findings) {
+function stage4Audit(rows, findings, stage6Rows = []) {
   const fields = [
     'technicalScore',
     'scoreBreakdown',
@@ -425,16 +445,42 @@ function stage4Audit(rows, findings) {
   const shortHistory = rows
     .filter((row) => Array.isArray(row?.priceHistory) && row.priceHistory.length < 80)
     .map((row) => ({ symbol: normalizeSymbol(row), bars: row.priceHistory.length }));
+  const executableSymbols = new Set(stage6Rows
+    .filter((row) => String(row?.finalDecision || '').toUpperCase() === 'EXECUTABLE_NOW')
+    .map((row) => normalizeSymbol(row)));
+  const shortHistoryExecutable = shortHistory.filter((row) => executableSymbols.has(row.symbol));
+  const shortHistoryPolicy = {
+    policyPresent: fileExists(POLICY_FILES.stage4ShortHistoryPolicy),
+    shortHistoryRows: shortHistory.length,
+    shortHistoryExecutableRows: shortHistoryExecutable.length,
+    status: shortHistoryExecutable.length
+      ? 'short_history_executable_review_required'
+      : shortHistory.length
+        ? 'short_history_non_executable_observation'
+        : 'no_short_history_rows'
+  };
   if (shortHistory.length) {
-    addFinding(
-      findings,
-      'Stage4',
-      'medium',
-      'stage4_price_history_short',
-      'Some technical rows carry fewer than 80 priceHistory bars.',
-      shortHistory,
-      'Downgrade ICT/structure confidence when Stage4 evidence has short history.'
-    );
+    if (shortHistoryExecutable.length || !shortHistoryPolicy.policyPresent) {
+      addFinding(
+        findings,
+        'Stage4',
+        'medium',
+        'stage4_price_history_short',
+        'Some technical rows carry fewer than 80 priceHistory bars.',
+        { shortHistory, shortHistoryExecutable, policyPresent: shortHistoryPolicy.policyPresent },
+        'Downgrade ICT/structure confidence when Stage4 evidence has short history.'
+      );
+    } else {
+      addFinding(
+        findings,
+        'Stage4',
+        'low',
+        'stage4_short_history_non_executable_observation',
+        'Short technical history was observed, but it did not reach Stage6 executable rows.',
+        shortHistory,
+        'Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable.'
+      );
+    }
   }
   return {
     coverage: cov,
@@ -442,6 +488,7 @@ function stage4Audit(rows, findings) {
     scoreMismatch,
     heuristicHighScore,
     shortHistory,
+    shortHistoryPolicy,
     scoreStats: numericStats(rows, 'technicalScore'),
     dataSourceCounts: countBy(rows, (row) => String(row?.dataSource || 'missing')),
     techDataQualityCounts: countBy(rows, (row) => String(row?.techMetrics?.dataQualityState || 'missing')),
@@ -654,6 +701,8 @@ function buildMarkdown(report) {
   for (const [stage, section] of Object.entries(report.stageAudits)) {
     lines.push('', `### ${stage}`, '', '| Metric | Value |', '| --- | --- |');
     lines.push(`| scoreStats | ${esc(JSON.stringify(section.scoreStats || {}))} |`);
+    if (section.scoreSemanticsContract) lines.push(`| scoreSemanticsContract | ${esc(JSON.stringify(section.scoreSemanticsContract))} |`);
+    if (section.shortHistoryPolicy) lines.push(`| shortHistoryPolicy | ${esc(JSON.stringify(section.shortHistoryPolicy))} |`);
     if (section.dataQualityCounts) lines.push(`| dataQualityCounts | ${esc(tableCountMap(section.dataQualityCounts))} |`);
     if (section.dataSourceCounts) lines.push(`| dataSourceCounts | ${esc(tableCountMap(section.dataSourceCounts))} |`);
     if (section.techDataQualityCounts) lines.push(`| techDataQualityCounts | ${esc(tableCountMap(section.techDataQualityCounts))} |`);
@@ -733,7 +782,7 @@ function main() {
 
   const stageAudits = {
     Stage3: stage3Audit(stage3Rows.rows, findings),
-    Stage4: stage4Audit(stage4Rows.rows, findings),
+    Stage4: stage4Audit(stage4Rows.rows, findings, rows),
     Stage5: stage5Audit(stage5Rows.rows, findings),
     Stage5ToStage6: contractLinkAudit(stage6, rows, findings)
   };

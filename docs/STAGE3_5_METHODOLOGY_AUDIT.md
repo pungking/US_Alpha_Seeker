@@ -1,6 +1,6 @@
 # Stage3-5 Methodology Audit
 
-- GeneratedAt: 2026-06-19T17:03:54.384Z
+- GeneratedAt: 2026-06-19T23:35:48.451Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json
 - Stage6Hash: 2ea6fd5b26acbe89c2334543e1a94c10f9629c2b9e7904e353cfebfc0342d207
 - Overall: **pass_full_artifact_methodology_review**
@@ -11,7 +11,7 @@
 | Stage | Score | Artifact Mode | Main Risk |
 | --- | ---: | --- | --- |
 | Stage3 | 100/100 | full_stage_artifact | none |
-| Stage4 | 93/100 | full_stage_artifact | Some Stage4 rows have fewer than 80 bars. |
+| Stage4 | 97/100 | full_stage_artifact | Short technical history was observed, but it did not reach Stage6 executable rows. |
 | Stage5 | 100/100 | full_stage_artifact | none |
 | InterStage | 92/100 | stage6_contract | none |
 
@@ -28,7 +28,7 @@
 
 | Severity | Stage | ID | Evidence | Recommendation |
 | --- | --- | --- | --- | --- |
-| medium | Stage4 | stage4_short_price_history | [{"symbol":"PAYP","bars":69}] | Downgrade structure/ICT confidence or block execution promotion when history is short. |
+| low | Stage4 | stage4_short_history_non_executable_observation | [{"symbol":"PAYP","bars":69}] | Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable. |
 
 ## Static Method Checks
 
@@ -67,6 +67,7 @@
 | --- | --- |
 | rows | 300 |
 | scoreStats | {"count":300,"min":1,"max":99,"avg":53.68} |
+| shortHistoryPolicy | {"policyPresent":true,"shortHistoryRows":1,"shortHistoryExecutableRows":0,"status":"short_history_non_executable_observation"} |
 | dataSourceCounts | {"DRIVE":300} |
 
 ### Stage5

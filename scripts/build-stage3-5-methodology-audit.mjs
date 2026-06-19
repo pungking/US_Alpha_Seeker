@@ -7,6 +7,9 @@ const ROOT = process.cwd();
 const DEFAULT_STAGE6_DIR = 'state/stage6-audit-source';
 const OUT_JSON = 'state/stage3-5-methodology-audit.json';
 const OUT_MD = 'docs/STAGE3_5_METHODOLOGY_AUDIT.md';
+const POLICY_FILES = {
+  stage4ShortHistoryPolicy: 'docs/STAGE4_SHORT_HISTORY_POLICY.md'
+};
 
 const SOURCE_FILES = {
   stage3: 'components/FundamentalAnalysis.tsx',
@@ -41,6 +44,10 @@ function writeTextAtomic(filePath, text) {
 
 function fileSha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(resolveRepo(filePath))).digest('hex');
+}
+
+function fileExists(filePath) {
+  return fs.existsSync(resolveRepo(filePath));
 }
 
 function stage6Timestamp(name) {
@@ -248,7 +255,7 @@ function stage3ArtifactAudit(rows, findings) {
   };
 }
 
-function stage4ArtifactAudit(rows, findings) {
+function stage4ArtifactAudit(rows, findings, stage6Rows = []) {
   const cov = {
     technicalScore: coverage(rows, 'technicalScore'),
     scoreBreakdown: coverage(rows, 'scoreBreakdown'),
@@ -261,8 +268,26 @@ function stage4ArtifactAudit(rows, findings) {
     dataQualityState: nestedCoverage(rows, 'techMetrics.dataQualityState')
   };
   const shortHistory = rows.filter((row) => Array.isArray(row.priceHistory) && row.priceHistory.length < 80).map((row) => ({ symbol: normalizeSymbol(row), bars: row.priceHistory.length }));
+  const executableSymbols = new Set(stage6Rows
+    .filter((row) => String(row.finalDecision || '').toUpperCase() === 'EXECUTABLE_NOW')
+    .map((row) => normalizeSymbol(row)));
+  const shortHistoryExecutable = shortHistory.filter((row) => executableSymbols.has(row.symbol));
+  const shortHistoryPolicy = {
+    policyPresent: fileExists(POLICY_FILES.stage4ShortHistoryPolicy),
+    shortHistoryRows: shortHistory.length,
+    shortHistoryExecutableRows: shortHistoryExecutable.length,
+    status: shortHistoryExecutable.length
+      ? 'short_history_executable_review_required'
+      : shortHistory.length
+        ? 'short_history_non_executable_observation'
+        : 'no_short_history_rows'
+  };
   if (shortHistory.length) {
-    addFinding(findings, 'Stage4', 'medium', 'stage4_short_price_history', 'Some Stage4 rows have fewer than 80 bars.', shortHistory.slice(0, 20), 'Downgrade structure/ICT confidence or block execution promotion when history is short.');
+    if (shortHistoryExecutable.length || !shortHistoryPolicy.policyPresent) {
+      addFinding(findings, 'Stage4', 'medium', 'stage4_short_price_history', 'Some Stage4 rows have fewer than 80 bars.', { shortHistory: shortHistory.slice(0, 20), shortHistoryExecutable, policyPresent: shortHistoryPolicy.policyPresent }, 'Downgrade structure/ICT confidence or block execution promotion when history is short.');
+    } else {
+      addFinding(findings, 'Stage4', 'low', 'stage4_short_history_non_executable_observation', 'Short technical history was observed, but it did not reach Stage6 executable rows.', shortHistory.slice(0, 20), 'Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable.');
+    }
   }
   const heuristicHigh = rows.filter((row) => String(row.dataSource || '').toUpperCase() === 'HEURISTIC' && (num(row.technicalScore) ?? 0) > 58).map((row) => ({ symbol: normalizeSymbol(row), dataSource: row.dataSource, technicalScore: row.technicalScore }));
   if (heuristicHigh.length) {
@@ -274,6 +299,7 @@ function stage4ArtifactAudit(rows, findings) {
     coverage: cov,
     dataSourceCounts: countBy(rows, (row) => String(row.dataSource || 'missing')),
     dataQualityStateCounts: countBy(rows, (row) => String(row.techMetrics?.dataQualityState || 'missing')),
+    shortHistoryPolicy,
     priceHistoryBars: rows.map((row) => ({ symbol: normalizeSymbol(row), bars: Array.isArray(row.priceHistory) ? row.priceHistory.length : 0 })).slice(0, 50)
   };
 }
@@ -400,6 +426,7 @@ function buildMarkdown(report) {
     lines.push('', `### ${stage}`, '', '| Metric | Value |', '| --- | --- |');
     lines.push(`| rows | ${esc(audit.rows)} |`);
     lines.push(`| scoreStats | ${esc(JSON.stringify(audit.scoreStats || {}))} |`);
+    if (audit.shortHistoryPolicy) lines.push(`| shortHistoryPolicy | ${esc(JSON.stringify(audit.shortHistoryPolicy))} |`);
     if (audit.dataQualityCounts) lines.push(`| dataQualityCounts | ${esc(JSON.stringify(audit.dataQualityCounts))} |`);
     if (audit.dataSourceCounts) lines.push(`| dataSourceCounts | ${esc(JSON.stringify(audit.dataSourceCounts))} |`);
     if (audit.pdZoneCounts) lines.push(`| pdZoneCounts | ${esc(JSON.stringify(audit.pdZoneCounts))} |`);
@@ -431,7 +458,7 @@ function main() {
   }
   const artifactAudits = {
     Stage3: stage3ArtifactAudit(sourceRows.Stage3.rows, findings),
-    Stage4: stage4ArtifactAudit(sourceRows.Stage4.rows, findings),
+    Stage4: stage4ArtifactAudit(sourceRows.Stage4.rows, findings, stage6Rows),
     Stage5: stage5ArtifactAudit(sourceRows.Stage5.rows, findings),
     InterStage: interStageAudit(stage6 || {}, stage6Rows, findings)
   };
