@@ -1293,6 +1293,7 @@ const deriveStructurePolicyReview = (input: {
 const deriveBreakoutRetestPromotion = (input: {
   decisionReason: string | null;
   proof: BreakoutRetestProofPayload;
+  executionActionableVerdict: boolean;
   currentFeasibilityStatus: string | null;
   currentEntryStopDistanceOk: boolean;
   promotionEnabled: boolean;
@@ -1313,12 +1314,18 @@ const deriveBreakoutRetestPromotion = (input: {
   }
   const reasons = [...input.proof.reasons];
   if (!input.proof.confirmed) reasons.push('proof_not_confirmed');
+  if (!input.executionActionableVerdict) reasons.push('non_actionable_verdict');
   if (input.currentFeasibilityStatus !== 'PASS') reasons.push('current_entry_feasibility_not_pass');
   if (!input.currentEntryStopDistanceOk) reasons.push('current_stop_distance_outside_policy');
   const eligible = input.proof.confirmed === true;
-  const ready = eligible && input.currentFeasibilityStatus === 'PASS' && input.currentEntryStopDistanceOk;
+  const ready =
+    eligible &&
+    input.executionActionableVerdict === true &&
+    input.currentFeasibilityStatus === 'PASS' &&
+    input.currentEntryStopDistanceOk;
   const blockedBy = [
     ...(eligible ? [] : ['proof_not_confirmed']),
+    ...(input.executionActionableVerdict ? [] : ['non_actionable_verdict']),
     ...(input.currentFeasibilityStatus === 'PASS' ? [] : ['current_entry_feasibility_not_pass']),
     ...(input.currentEntryStopDistanceOk ? [] : ['current_stop_distance_outside_policy']),
     ...(input.promotionEnabled ? [] : ['proof_confirmed_promotion_flag_disabled'])
@@ -6935,6 +6942,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const breakoutRetestPromotion = deriveBreakoutRetestPromotion({
               decisionReason,
               proof: breakoutRetestProof,
+              executionActionableVerdict,
               currentFeasibilityStatus: breakoutRetestCurrentEntryFeasibility.status,
               currentEntryStopDistanceOk: breakoutRetestCurrentStopDistanceOk,
               promotionEnabled: STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED

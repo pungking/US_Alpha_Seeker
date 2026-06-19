@@ -158,6 +158,9 @@ for (const [idx, row] of candidates.entries()) {
     if (isTrue(row.breakoutRetestProofConfirmed) && !retestConfirmed && !continuationConfirmed) {
       errors.push(`${label}: proofConfirmed=true requires either retest proof or continuation proof`);
     }
+    if (isTrue(row.breakoutRetestPromotionReady) && row.executionActionableVerdict !== true) {
+      errors.push(`${label}: breakout promotion ready requires executionActionableVerdict=true`);
+    }
     if (isTrue(row.breakoutRetestProofConfirmed) && !isTrue(row.breakoutRetestPromotionEnabled)) {
       if (
         !String(row.breakoutRetestPromotionVerdict || '').includes('PROMOTION_DISABLED') &&
