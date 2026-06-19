@@ -301,6 +301,41 @@ for (const [idx, row] of candidates.entries()) {
       if (!row.riskGeometryRequiredTargetSource) errors.push(`${label}: recalculated stop candidate missing riskGeometryRequiredTargetSource`);
       if (!row.riskGeometryRepairLane) errors.push(`${label}: recalculated stop candidate missing riskGeometryRepairLane`);
       if (!isBooleanLike(row.riskGeometryProofConfirmed)) errors.push(`${label}: recalculated stop candidate missing riskGeometryProofConfirmed`);
+      for (const field of [
+        'riskGeometryTargetAboveCurrent',
+        'riskGeometryRequiredStopValid',
+        'riskGeometryRequiredStopDistanceValid',
+        'riskGeometryRecalculatedStopRrOk',
+        'riskGeometryTargetBufferOk',
+        'riskGeometryTargetRecalibrationCandidate'
+      ]) {
+        if (!isBooleanLike(row[field])) errors.push(`${label}: recalculated stop candidate missing boolean ${field}`);
+      }
+      if (row.riskGeometryRequiredTargetSource === 'expected_return' && !isFiniteNumber(row.riskGeometryRequiredTargetByExpectedReturnPrice)) {
+        errors.push(`${label}: expected-return target source requires riskGeometryRequiredTargetByExpectedReturnPrice`);
+      }
+      if (isTrue(row.riskGeometryTargetRecalibrationCandidate)) {
+        if (row.riskGeometryRepairLane !== 'TARGET_RECALIBRATION') {
+          errors.push(`${label}: target recalibration candidate must declare riskGeometryRepairLane=TARGET_RECALIBRATION`);
+        }
+        if (isTrue(row.riskGeometryProofConfirmed)) {
+          errors.push(`${label}: target recalibration candidate cannot also declare riskGeometryProofConfirmed=true`);
+        }
+        if (!(Number(row.riskGeometryTargetGapPct) < 0) || !(Number(row.riskGeometryTargetShortfallPct) > 0)) {
+          errors.push(`${label}: target recalibration candidate must expose negative target gap and positive shortfall`);
+        }
+        if (tuningLane(row) !== 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION') {
+          errors.push(`${label}: target recalibration candidate from risk geometry must route to STOP_TARGET_RISK_GEOMETRY_RECALCULATION`);
+        }
+      }
+      if (isTrue(row.riskGeometryProofConfirmed)) {
+        if (row.riskGeometryRepairLane !== 'RECALCULATED_STOP_PROOF_CONFIRMED') {
+          errors.push(`${label}: confirmed recalculated-stop proof must declare RECALCULATED_STOP_PROOF_CONFIRMED repair lane`);
+        }
+        if (isTrue(row.riskGeometryTargetRecalibrationCandidate)) {
+          errors.push(`${label}: confirmed recalculated-stop proof cannot require target recalibration`);
+        }
+      }
     }
     if (isTrue(row.riskGeometryRecalibrationRequired) || isTrue(row.riskGeometryTargetRecalibrationCandidate)) {
       for (const field of ['riskGeometryTargetGapPct', 'riskGeometryTargetShortfallPct']) {

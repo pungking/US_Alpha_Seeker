@@ -47,9 +47,36 @@ A structure overblock-review row must expose:
    - This cannot be a recalibration candidate.
    - The row must expose `targetNoTradeConfirmed=true` and `targetRecalibrationViabilityVerdict=TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT`.
 
+## Stop / Target Risk Geometry Policy
+
+Risk-geometry rows are separate from sidecar fillability. If Stage6 can
+recalculate a current-entry stop but the resulting RR or required target is
+still insufficient, the row must remain non-executable and expose the repair
+lane explicitly.
+
+1. `RECALCULATED_STOP_PROOF_CONFIRMED`
+   - Recalculated stop is valid.
+   - Stop distance is inside policy.
+   - Target is above current price.
+   - RR and target buffer pass.
+   - `riskGeometryTargetRecalibrationCandidate=false`.
+
+2. `TARGET_RECALIBRATION`
+   - Recalculated stop is structurally valid, but the current target is below
+     the target required by stop risk, target buffer, or expected return.
+   - The row must expose a negative `riskGeometryTargetGapPct`, positive
+     `riskGeometryTargetShortfallPct`, and `riskGeometryTargetRecalibrationCandidate=true`.
+   - This is producer-side target recalibration, not a sidecar chase/reprice.
+
+3. `RISK_GEOMETRY_PROOF_INCOMPLETE`
+   - Recalculated stop, structure proof, target, or distance evidence is
+     incomplete.
+   - Keep `WAIT_PRICE` or `BLOCKED_RISK`.
+
 ## Done-When
 
-- Contract fixture includes structure justified, structure overblock-review, target recalibration candidate, target gap no-trade, and target already reached no-trade rows.
+- Contract fixture includes structure justified, structure overblock-review, target recalibration candidate, target gap no-trade, target already reached no-trade, and stop/target risk-geometry target recalibration rows.
 - Validator fails if structure overblock rows are promoted or marked as primary relaxation targets.
 - Validator fails if target-at/below-current rows are not no-trade confirmed.
+- Validator fails if a recalculated-stop target shortfall is marked proof-confirmed instead of target-recalibration required.
 - No broker mutation or sidecar execution policy change occurs.
