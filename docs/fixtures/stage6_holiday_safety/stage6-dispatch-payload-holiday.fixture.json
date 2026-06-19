@@ -1,0 +1,16 @@
+{
+  "stage6File": "STAGE6_ALPHA_FINAL_2026-06-19_22-40-48.json",
+  "stage6Hash": "bc5b6cafebe8f657fc7a402cb34cd7e0a1291c5591fa062d600ab8ff41773cb6",
+  "stage6HashAlgo": "sha256",
+  "sourceRunId": "2026-06-19_22-40-46",
+  "sourceRepo": "pungking/US_Alpha_Seeker",
+  "sourceWorkflow": "US Alpha Seeker Auto-Scheduler",
+  "sourceSha": "139ee05f1d4e5c65f76732a63be6dea7d0e6a416",
+  "generatedAt": "2026-06-19T13:40:50.502Z",
+  "decisionGate": {
+    "actionableVerdicts": "BUY,STRONG_BUY,STRONGBUY"
+  },
+  "flagPropagationAudit": {
+    "overall": "pass"
+  }
+}

@@ -12,6 +12,15 @@ This checklist is the bounded RTH verification path after a fresh Stage6 hash is
 
 Confirm the latest Auto-Scheduler run is at or after the expected head, then inspect the Stage6 dispatch artifact and final row payload.
 
+Before any sidecar handoff, check the dispatch artifact holiday guard:
+
+- `holidayGeneratedStage6Safety.status`
+- `holidayGeneratedStage6Safety.marketClosed`
+- `holidayGeneratedStage6Safety.analysisOnly`
+- `holidayGeneratedStage6Safety.sidecarDispatchAllowed`
+
+If the Stage6 hash was generated on a weekend or NYSE full-day holiday, it is analysis-only evidence. Do not treat it as execution-ready, and do not trigger/continue sidecar submit, reprice, or replace paths from that hash. The Auto-Scheduler may still produce the analysis artifact, but `sidecarDispatchAllowed=false` must suppress the sidecar dispatch path.
+
 Run the focused audit after downloading the fresh Stage6 artifact:
 
 ```bash

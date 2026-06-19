@@ -1,12 +1,12 @@
 # Stage6 Fresh Focus Audit
 
-- GeneratedAt: 2026-06-16T23:21:01.847Z
-- Stage6: STAGE6_ALPHA_FINAL_2026-06-16_23-59-28.json
-- Hash: 191e5e5231619841e5c83cc9b20142a333ce57c0dd235e214849eff553e985c7
-- Overall: **pass_zero_executable_focus_fields_ok**
-- Rows: 6
-- Executable Rows: 0
-- Contract Executable Picks: 0
+- GeneratedAt: 2026-06-19T13:55:34.058Z
+- Stage6: STAGE6_ALPHA_FINAL_2026-06-19_22-40-48.json
+- Hash: bc5b6cafebe8f657fc7a402cb34cd7e0a1291c5591fa062d600ab8ff41773cb6
+- Overall: **pass_executable_present_focus_fields_ok**
+- Rows: 9
+- Executable Rows: 5
+- Contract Executable Picks: 5
 - Raw Model Executable Downgraded: 0
 - Safety: report-only; no broker/state mutation.
 
@@ -14,66 +14,69 @@
 
 | Metric | Value |
 | --- | --- |
-| latestQualityGateLaneCounts | {"non_actionable_verdict":1} |
-| zeroExecutableTuningLaneCounts | {"STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION":4,"NO_ZERO_EXECUTABLE_TUNING_ACTION":1,"TARGET_RECALIBRATION":1} |
-| breakoutRetestProofConfirmedCounts | {"false":6} |
-| breakoutContinuationConfirmedCounts | {"false":6} |
-| targetRecalibrationViabilityVerdictCounts | {"TARGET_VIABILITY_NOT_APPLICABLE":5,"TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT":1} |
-| targetRecalibrationRequiredTargetSourceCounts | {"actual_stop_risk":5,"expected_return_and_actual_stop_risk":1} |
-| riskGeometryTargetRecalibrationCandidateCounts | {"missing":5,"false":1} |
-| blockerCategoryCounts | {"structure":4,"quality_gate":1,"target_recalibration":1} |
+| latestQualityGateLaneCounts | {} |
+| zeroExecutableTuningLaneCounts | {"NO_ZERO_EXECUTABLE_TUNING_ACTION":5,"STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION":1,"TARGET_RECALIBRATION":1,"BREAKOUT_PROOF_CONFIRMED_GENERATION":2} |
+| breakoutRetestProofConfirmedCounts | {"false":6,"true":3} |
+| breakoutContinuationConfirmedCounts | {"false":8,"true":1} |
+| targetRecalibrationViabilityVerdictCounts | {"TARGET_VIABILITY_NOT_APPLICABLE":8,"TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT":1} |
+| targetRecalibrationRequiredTargetSourceCounts | {"expected_return_and_actual_stop_risk":7,"actual_stop_risk":2} |
+| riskGeometryTargetRecalibrationCandidateCounts | {"false":9} |
+| blockerCategoryCounts | {"risk_geometry":4,"entry_distance":2,"structure":1,"breakout":2} |
 | rawExecutableDowngrades | [] |
 
 ## Field Coverage
 
 | Field | Present / Total |
 | --- | ---: |
-| zeroExecutableTuningLane | 6/6 |
-| breakoutRetestProofConfirmed | 6/6 |
-| breakoutRetestProofContinuationConfirmed | 6/6 |
-| breakoutRetestPromotionPolicyDecision | 6/6 |
-| breakoutRetestPromotionBlockedBy | 6/6 |
-| targetRecalibrationViabilityVerdict | 6/6 |
-| targetRecalibrationRequiredTargetByBufferPrice | 6/6 |
-| targetRecalibrationRequiredTargetByRrPrice | 6/6 |
-| targetRecalibrationRequiredTargetByExpectedReturnPrice | 6/6 |
-| targetRecalibrationSourcePrice | 6/6 |
-| targetRecalibrationSourceStopPrice | 6/6 |
-| targetRecalibrationStopDistanceAtCurrent | 6/6 |
-| targetRecalibrationRequiredTargetSource | 6/6 |
-| structurePolicyBlockerLane | 0/6 |
-| structurePolicyCurrentRrOk | 0/6 |
-| structurePolicyTargetBufferOk | 0/6 |
-| structurePolicyDistanceWithinReviewBand | 0/6 |
-| riskGeometryRequiredTargetByStopPrice | 0/6 |
-| riskGeometryRequiredTargetByBufferPrice | 0/6 |
-| riskGeometryRequiredTargetByExpectedReturnPrice | 0/6 |
-| riskGeometryRequiredTargetSource | 0/6 |
-| riskGeometryTargetGapPct | 6/6 |
-| riskGeometryTargetShortfallPct | 0/6 |
-| riskGeometryTargetAboveCurrent | 6/6 |
-| riskGeometryRequiredStopValid | 6/6 |
-| riskGeometryRequiredStopDistanceValid | 6/6 |
-| riskGeometryRecalculatedStopRrOk | 6/6 |
-| riskGeometryTargetBufferOk | 6/6 |
-| riskGeometryRepairLane | 0/6 |
-| riskGeometryProofConfirmed | 0/6 |
-| qualityGateLane | 0/6 |
-| qualityGatePolicyVerdict | 0/6 |
-| currentEntryStructureSupportReference | 6/6 |
-| currentEntryStructureSupportGapAtr | 6/6 |
-| currentEntryStructureStopAlignedSupportGapAtr | 6/6 |
+| zeroExecutableTuningLane | 9/9 |
+| breakoutRetestProofConfirmed | 9/9 |
+| breakoutRetestProofContinuationConfirmed | 9/9 |
+| breakoutRetestPromotionPolicyDecision | 9/9 |
+| breakoutRetestPromotionBlockedBy | 9/9 |
+| targetRecalibrationViabilityVerdict | 9/9 |
+| targetRecalibrationRequiredTargetByBufferPrice | 9/9 |
+| targetRecalibrationRequiredTargetByRrPrice | 9/9 |
+| targetRecalibrationRequiredTargetByExpectedReturnPrice | 9/9 |
+| targetRecalibrationSourcePrice | 9/9 |
+| targetRecalibrationSourceStopPrice | 9/9 |
+| targetRecalibrationStopDistanceAtCurrent | 9/9 |
+| targetRecalibrationRequiredTargetSource | 9/9 |
+| structurePolicyBlockerLane | 9/9 |
+| structurePolicyCurrentRrOk | 9/9 |
+| structurePolicyTargetBufferOk | 9/9 |
+| structurePolicyDistanceWithinReviewBand | 9/9 |
+| riskGeometryRequiredTargetByStopPrice | 9/9 |
+| riskGeometryRequiredTargetByBufferPrice | 9/9 |
+| riskGeometryRequiredTargetByExpectedReturnPrice | 9/9 |
+| riskGeometryRequiredTargetSource | 9/9 |
+| riskGeometryTargetGapPct | 9/9 |
+| riskGeometryTargetShortfallPct | 9/9 |
+| riskGeometryTargetAboveCurrent | 9/9 |
+| riskGeometryRequiredStopValid | 9/9 |
+| riskGeometryRequiredStopDistanceValid | 9/9 |
+| riskGeometryRecalculatedStopRrOk | 9/9 |
+| riskGeometryTargetBufferOk | 9/9 |
+| riskGeometryRepairLane | 9/9 |
+| riskGeometryProofConfirmed | 9/9 |
+| qualityGateLane | 9/9 |
+| qualityGatePolicyVerdict | 9/9 |
+| currentEntryStructureSupportReference | 9/9 |
+| currentEntryStructureSupportGapAtr | 9/9 |
+| currentEntryStructureStopAlignedSupportGapAtr | 9/9 |
 
 ## Row Focus
 
 | Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| AUPH | STRONG_BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | N/A | rr=null,buf=null,dist=null | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 16.5315 | 19.291 | 18.4575 | N/A | N/A | N/A | target=null,stop=null,dist=null,rr=null,buf=null | N/A | N/A | 0.59 | 8.31 | 5.92 |
-| LTM | STRONG_BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | N/A | rr=null,buf=null,dist=null | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 57.2474 | 79.284 | 78.3678 | N/A | N/A | N/A | target=null,stop=null,dist=null,rr=null,buf=null | N/A | N/A | 1.27 | 12.41 | 27.1 |
-| ZVRA | SPECULATIVE_BUY | WAIT_PRICE/wait_verdict_not_sidecar_actionable | quality_gate | non_actionable_verdict | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | N/A | rr=null,buf=null,dist=null | false | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 12.9265 | 19.119 | 29.618 | N/A | N/A | N/A | target=null,stop=null,dist=null,rr=null,buf=null | N/A | N/A | 4.67 | 17.53 | 122.22 |
-| MLI | BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | N/A | rr=null,buf=null,dist=null | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 144.9107 | 190.8495 | 178.6763 | N/A | N/A | N/A | target=null,stop=null,dist=null,rr=null,buf=null | N/A | N/A | 0.33 | 16.57 | 5.91 |
-| DAVE | BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | N/A | rr=null,buf=null,dist=null | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 317.6005 | 517.905 | 468.692 | N/A | N/A | N/A | target=null,stop=null,dist=null,rr=null,buf=null | N/A | N/A | 0.26 | 32.37 | 8.88 |
-| VIRT | STRONG_BUY | WAIT_PRICE/wait_target_near_current | target_recalibration | N/A | N/A | TARGET_RECALIBRATION | N/A | rr=null,buf=null,dist=null | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | 60.2241 | 86.0732 | 66.6558 | N/A | N/A | N/A | target=false,stop=false,dist=false,rr=false,buf=false | -12.94 | N/A | N/A | 22.44 | -10.33 |
+| LIF | STRONG_BUY | EXECUTABLE_NOW/executable_current_recalculated_stop | risk_geometry | N/A | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 50.5112 | 60.7944 | 71.108 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 2 | 0 | 23.97 |
+| IDCC | STRONG_BUY | EXECUTABLE_NOW/executable_pullback | entry_distance | N/A | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | not_applicable | rr=false,buf=false,dist=false | true | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 304.9624 | 412.436 | 461.8848 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 2.86 | 2.69 | 56.26 |
+| ANET | BUY | EXECUTABLE_NOW/executable_current_recalculated_stop | risk_geometry | N/A | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 174.791 | 190.0882 | 234.186 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 2 | 0 | 12.01 |
+| ACAD | STRONG_BUY | EXECUTABLE_NOW/executable_pullback | entry_distance | N/A | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | not_applicable | rr=false,buf=false,dist=false | true | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 22.2892 | 25.355 | 32.46 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 5.39 | 2.42 | 46.26 |
+| GNTX | BUY | EXECUTABLE_NOW/executable_current_recalculated_stop | risk_geometry | N/A | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 26.7491 | 29.3334 | 33.761 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 2 | 0 | 12.95 |
+| AUPH | BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | STRUCTURE_CURRENT_RR_WEAK | rr=false,buf=true,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 16.9744 | 20.535 | 18.952 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 0.26 | 10.71 | 3.16 |
+| DUOL | BUY | BLOCKED_RISK/blocked_rr_below_min | risk_geometry | N/A | N/A | TARGET_RECALIBRATION | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | 129.3577 | 184.724 | 130.6136 | expected_return | TARGET_NO_TRADE | false | target=false,stop=false,dist=false,rr=false,buf=false | -18.6 | 18.6 | N/A | 19.66 | -15.35 |
+| ZVRA | STRONG_BUY | WAIT_PRICE/wait_breakout_retest_required | breakout | N/A | N/A | BREAKOUT_PROOF_CONFIRMED_GENERATION | not_applicable | rr=false,buf=false,dist=false | false | WAIT_REVIEW_READY_ONLY | proof_not_confirmed, current_stop_distance_outside_policy, proof_confirmed_promotion_flag_disabled | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 13.3076 | 20.221 | 30.4912 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 4.1 | 19.89 | 115.86 |
+| CRMD | STRONG_BUY | WAIT_PRICE/wait_breakout_retest_required | breakout | N/A | N/A | BREAKOUT_PROOF_CONFIRMED_GENERATION | not_applicable | rr=false,buf=false,dist=false | true | WAIT_CONSERVATIVE_DEFAULT | proof_confirmed_promotion_flag_disabled | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 8.9507 | 11.7598 | 18.1621 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 4.24 | 16.41 | 74.91 |
 
 ## Track Separation
 

@@ -27,6 +27,13 @@ jobs:
         run: npm run ops:safety:client-secret-exposure
       - name: Stage6 fillability contract fixture
         run: npm run ops:stage6:fillability-contract:validate
+      - name: Stage6 holiday analysis-only fixture
+        env:
+          STAGE6_HOLIDAY_SAFETY_PAYLOAD: docs/fixtures/stage6_holiday_safety/stage6-dispatch-payload-holiday.fixture.json
+          STAGE6_HOLIDAY_SAFETY_MARKET_DATE: "2026-06-19"
+          STAGE6_HOLIDAY_SAFETY_EXPECT_ANALYSIS_ONLY: "true"
+          STAGE6_HOLIDAY_SAFETY_WRITE_PAYLOAD: "false"
+        run: npm run ops:stage6:holiday-safety
       - name: Stage6 quality trend audit
         run: npm run ops:stage6:quality-trend:audit
       - name: Stage6 earnings coverage audit
@@ -47,6 +54,7 @@ jobs:
             state/analysis-repo-safety-boundary.*
             state/telegram-routing-policy-audit.*
             state/client-secret-exposure-audit.*
+            state/stage6-holiday-safety-audit.*
             state/stage6-quality-trend-audit.*
             state/stage6-earnings-coverage-audit.*
             state/auto-scheduler-reliability-audit.*

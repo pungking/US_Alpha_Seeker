@@ -262,6 +262,11 @@ jobs:
       - name: 7. 자동화 스크립트 실행 (Puppeteer)
         run: npm run automate
 
+      - name: 7.04 Stage6 holiday safety audit
+        id: stage6_holiday_safety
+        if: success()
+        run: npm run ops:stage6:holiday-safety
+
       - name: 7.05 Stage6 flag parity assertion
         if: success()
         run: npm run ops:stage6:flag-parity:assert
@@ -285,7 +290,8 @@ jobs:
               payload = {
                 stage6File: String(parsed?.stage6File || ""),
                 stage6Hash: String(parsed?.stage6Hash || ""),
-                sourceRunId: String(parsed?.sourceRunId || fallback.sourceRunId)
+                sourceRunId: String(parsed?.sourceRunId || fallback.sourceRunId),
+                holidayGeneratedStage6Safety: parsed?.holidayGeneratedStage6Safety || null
               };
             } catch (error) {
               console.log(`[WARN] stage6-dispatch-payload.json parse failed: ${error?.message || error}`);
@@ -293,14 +299,19 @@ jobs:
           } else {
             console.log("[WARN] stage6-dispatch-payload.json not found; using fallback payload");
           }
+          const safety = payload.holidayGeneratedStage6Safety || {};
+          const sidecarDispatchAllowed = safety.sidecarDispatchAllowed !== false;
           fs.appendFileSync(outputPath, `stage6_file=${payload.stage6File}\n`);
           fs.appendFileSync(outputPath, `stage6_hash=${payload.stage6Hash}\n`);
           fs.appendFileSync(outputPath, `source_run_id=${payload.sourceRunId}\n`);
-          console.log(`[DISPATCH_PREP] file=${payload.stage6File || "N/A"} hash=${(payload.stage6Hash || "N/A").slice(0, 12)} sourceRun=${payload.sourceRunId || "N/A"}`);
+          fs.appendFileSync(outputPath, `sidecar_dispatch_allowed=${sidecarDispatchAllowed ? "true" : "false"}\n`);
+          fs.appendFileSync(outputPath, `holiday_safety_status=${String(safety.status || "unknown")}\n`);
+          fs.appendFileSync(outputPath, `market_date=${String(safety.marketDate || "")}\n`);
+          console.log(`[DISPATCH_PREP] file=${payload.stage6File || "N/A"} hash=${(payload.stage6Hash || "N/A").slice(0, 12)} sourceRun=${payload.sourceRunId || "N/A"} sidecarDispatchAllowed=${sidecarDispatchAllowed} holidaySafety=${safety.status || "unknown"} marketDate=${safety.marketDate || "N/A"}`);
           NODE
 
       - name: 7.2 Sidecar Dry-Run 트리거 (repository_dispatch)
-        if: success()
+        if: success() && steps.stage6_dispatch_meta.outputs.sidecar_dispatch_allowed == 'true'
         env:
           SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
           STAGE6_FILE: ${{ steps.stage6_dispatch_meta.outputs.stage6_file }}
@@ -412,7 +423,7 @@ jobs:
         run: node scripts/sync-pipeline-notion.mjs
 
       - name: 7.26 Seed bridge watchdog loop (self-healing)
-        if: always()
+        if: always() && steps.stage6_dispatch_meta.outputs.sidecar_dispatch_allowed == 'true'
         env:
           SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
           BRIDGE_AUTOSTART_ENABLED: ${{ vars.SIDECAR_BRIDGE_AUTOSTART_ENABLED || 'true' }}
@@ -530,6 +541,8 @@ jobs:
             state/symbol-agnostic-runtime-check.md
             state/gemini-env-smoke.json
             state/stage6-flag-parity-assertion.json
+            state/stage6-holiday-safety-audit.json
+            state/stage6-holiday-safety-audit.md
             state/notion-pipeline-sync.json
           retention-days: 3
 
