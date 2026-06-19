@@ -201,6 +201,22 @@ for (const [idx, row] of candidates.entries()) {
     if (String(row.currentEntryStructureVerdict || '').startsWith('STRUCTURE_REJECT') && row.finalDecision !== 'WAIT_PRICE') {
       errors.push(`${label}: explicit structure reject must remain WAIT_PRICE`);
     }
+    if (
+      String(row.currentEntryStructureVerdict || '').startsWith('STRUCTURE_REJECT') &&
+      isTrue(row.structurePolicyCurrentRrOk) &&
+      isTrue(row.structurePolicyTargetBufferOk) &&
+      isTrue(row.structurePolicyDistanceWithinReviewBand)
+    ) {
+      if (!isTrue(row.structurePolicyReviewReady)) {
+        errors.push(`${label}: explicit structure reject with current RR/buffer/distance ok must be review-ready`);
+      }
+      if (!String(row.structurePolicyVerdict || '').includes('OVERBLOCK_REVIEW_READY')) {
+        errors.push(`${label}: structure overblock review-ready row must declare OVERBLOCK_REVIEW_READY verdict`);
+      }
+      if (isTrue(row.zeroExecutablePrimaryTuningTarget)) {
+        errors.push(`${label}: structure overblock review is not a primary zero-executable tuning target`);
+      }
+    }
   }
   if (row.decisionReason === 'wait_target_near_current') {
     if (!isTrue(row.targetNoChaseRequired)) errors.push(`${label}: target-near-current row must declare targetNoChaseRequired=true`);
@@ -235,6 +251,24 @@ for (const [idx, row] of candidates.entries()) {
     }
     if (isTrue(row.targetNoTradeConfirmed) && !String(row.targetRecalibrationViabilityVerdict || '').includes('NO_TRADE')) {
       errors.push(`${label}: target no-trade row must use a NO_TRADE viability verdict`);
+    }
+    if (
+      isFiniteNumber(row.targetRecalibrationCurrentTargetPrice) &&
+      isFiniteNumber(row.targetRecalibrationSourcePrice) &&
+      Number(row.targetRecalibrationCurrentTargetPrice) <= Number(row.targetRecalibrationSourcePrice)
+    ) {
+      if (row.targetRecalibrationVerdict !== 'TARGET_ALREADY_REACHED_NO_TRADE') {
+        errors.push(`${label}: target at/below current must use TARGET_ALREADY_REACHED_NO_TRADE`);
+      }
+      if (!isTrue(row.targetNoTradeConfirmed)) {
+        errors.push(`${label}: target at/below current must be no-trade confirmed`);
+      }
+      if (isTrue(row.targetRecalibrationCandidate)) {
+        errors.push(`${label}: target at/below current cannot be a recalibration candidate`);
+      }
+      if (row.targetRecalibrationViabilityVerdict !== 'TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT') {
+        errors.push(`${label}: target at/below current must use TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT`);
+      }
     }
   }
   if (riskGeometryReasons.has(row.decisionReason)) {
