@@ -291,6 +291,7 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Track Separation');
   lines.push('');
+  lines.push('- `warn_formula_bottleneck_fields_missing` means the Stage6 artifact predates the formula-bottleneck contract or the producer failed to emit it. Treat that as a fresh-hash verification gap, not a sidecar problem.');
   lines.push('- Stage6 zero-executable tuning belongs to the analysis producer track, not sidecar submit/reprice.');
   lines.push('- `ops-health-report=fail` belongs to the alpha-exec-engine protection/guard metadata track and must not be used to tune Stage6 entry policy.');
   lines.push('- If zero-executable repeats with clear focus metrics, move to producer tuning: breakout proofConfirmed criteria, target recalibration formula, and risk-geometry recalculation evidence.');
@@ -310,6 +311,12 @@ function main() {
     'zeroExecutableTuningLane',
     'breakoutRetestProofConfirmed',
     'targetRecalibrationViabilityVerdict'
+  ];
+  const requiredFormulaFields = [
+    'zeroExecutableFormulaBottleneck',
+    'zeroExecutableFormulaSeverity',
+    'zeroExecutableBreakoutProofGapCount',
+    'zeroExecutableStructureProofGapCount'
   ];
   const fieldCoverage = {
     zeroExecutableTuningLane: requiredFieldCoverage(rows, 'zeroExecutableTuningLane'),
@@ -358,11 +365,17 @@ function main() {
     const coverage = fieldCoverage[field];
     return coverage?.total > 0 && coverage.present === coverage.total;
   });
+  const formulaCoveragePass = requiredFormulaFields.every((field) => {
+    const coverage = fieldCoverage[field];
+    return coverage?.total > 0 && coverage.present === coverage.total;
+  });
   const hasOpaqueOtherOnly = rows.length > 0 && Object.keys(countBy(rows, blockerCategory)).length === 1 && countBy(rows, blockerCategory).other === rows.length;
   const overall = rows.length === 0
     ? 'fail_no_rows'
     : !requiredCoveragePass
       ? 'fail_required_focus_fields_missing'
+      : !formulaCoveragePass
+        ? 'warn_formula_bottleneck_fields_missing'
       : hasOpaqueOtherOnly
         ? 'warn_opaque_blocker_categories'
         : executableRows.length > 0
@@ -395,6 +408,7 @@ function main() {
     },
     fieldCoverage,
     requiredFocusFields,
+    requiredFormulaFields,
     rawExecutableDowngrades: rawExecutableDowngradeRows,
     trackSeparation: {
       stage6ProducerTuning: ['breakout_proofConfirmed_criteria', 'target_recalibration_formula', 'risk_geometry_recalculation_evidence'],
