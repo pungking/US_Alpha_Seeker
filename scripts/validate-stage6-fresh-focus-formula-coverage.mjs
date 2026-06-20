@@ -61,6 +61,11 @@ function validateProducerSourceContract() {
     throw new Error('producer source missing deriveZeroExecutableFormulaProfile contract block');
   }
   const block = source.slice(start, end);
+  for (const token of ['STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT', 'zeroExecutableFormulaContract']) {
+    if (!source.includes(token)) {
+      throw new Error(`producer formula manifest contract missing token: ${token}`);
+    }
+  }
   for (const token of [
     'preferredFormulaBottleneck',
     'primary_formula_bottleneck',

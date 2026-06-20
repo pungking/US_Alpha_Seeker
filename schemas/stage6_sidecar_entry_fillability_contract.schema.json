@@ -12,7 +12,17 @@
       "properties": {
         "currentEntryMinRr": { "type": "number", "exclusiveMinimum": 0 },
         "currentEntryMaxAdaptiveDistancePct": { "type": "number", "minimum": 0 },
-        "currentEntryMinTargetBufferPct": { "type": "number", "minimum": 0 }
+        "currentEntryMinTargetBufferPct": { "type": "number", "minimum": 0 },
+        "zeroExecutableFormulaContract": {
+          "type": "object",
+          "properties": {
+            "version": { "type": "string" },
+            "requiredRowFields": { "type": "array", "items": { "type": "string" } },
+            "laneToBottleneck": { "type": "object", "additionalProperties": { "type": "string" } },
+            "evidenceRules": { "type": "object", "additionalProperties": { "type": "string" } }
+          },
+          "additionalProperties": true
+        }
       },
       "additionalProperties": true
     },

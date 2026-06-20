@@ -5,6 +5,24 @@ const schemaPath = process.env.STAGE6_FILLABILITY_CONTRACT_SCHEMA || 'schemas/st
 const data = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
 const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+const REQUIRED_FORMULA_FIELDS = [
+  'zeroExecutableFormulaBottleneck',
+  'zeroExecutableFormulaSeverity',
+  'zeroExecutableTargetShortfallPct',
+  'zeroExecutableRiskTargetShortfallPct',
+  'zeroExecutableBreakoutProofGapCount',
+  'zeroExecutableStructureProofGapCount',
+  'zeroExecutableFormulaReasons',
+  'zeroExecutableFormulaRecommendedAction'
+];
+const EXPECTED_LANE_TO_BOTTLENECK = {
+  TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
+  STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
+  RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
+  BREAKOUT_PROOF_CONFIRMED_GENERATION: 'BREAKOUT_PROOF_FORMULA',
+  STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'STRUCTURE_PROOF_FORMULA',
+  NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
+};
 const actionableVerdicts = new Set(
   String(data?.decisionGate?.actionableVerdicts || 'BUY,STRONG_BUY,STRONGBUY')
     .split(',')
@@ -31,14 +49,7 @@ const requiredSchemaFields = [
   'zeroExecutableTuningLane',
   'zeroExecutableTuningVerdict',
   'zeroExecutablePrimaryTuningTarget',
-  'zeroExecutableFormulaBottleneck',
-  'zeroExecutableFormulaSeverity',
-  'zeroExecutableTargetShortfallPct',
-  'zeroExecutableRiskTargetShortfallPct',
-  'zeroExecutableBreakoutProofGapCount',
-  'zeroExecutableStructureProofGapCount',
-  'zeroExecutableFormulaReasons',
-  'zeroExecutableFormulaRecommendedAction',
+  ...REQUIRED_FORMULA_FIELDS,
   'targetRecalibrationRequired',
   'targetNoChaseRequired',
   'targetRecalibrationRequiredTargetByBufferPrice',
@@ -76,6 +87,28 @@ const requiredSchemaFields = [
 for (const field of requiredSchemaFields) {
   if (!Object.prototype.hasOwnProperty.call(schemaCandidateProperties, field)) {
     errors.push(`schema missing Stage6 fillability contract field: ${field}`);
+  }
+}
+const formulaContract = data?.decisionGate?.zeroExecutableFormulaContract || null;
+if (!formulaContract || typeof formulaContract !== 'object') {
+  errors.push('decisionGate missing zeroExecutableFormulaContract');
+} else {
+  if (formulaContract.version !== 'zero_executable_formula_v1') {
+    errors.push(`zeroExecutableFormulaContract.version mismatch: ${formulaContract.version || 'missing'}`);
+  }
+  const contractFields = new Set(Array.isArray(formulaContract.requiredRowFields) ? formulaContract.requiredRowFields : []);
+  for (const field of REQUIRED_FORMULA_FIELDS) {
+    if (!contractFields.has(field)) errors.push(`zeroExecutableFormulaContract.requiredRowFields missing ${field}`);
+  }
+  const laneMap = formulaContract.laneToBottleneck || {};
+  for (const [lane, bottleneck] of Object.entries(EXPECTED_LANE_TO_BOTTLENECK)) {
+    if (laneMap[lane] !== bottleneck) {
+      errors.push(`zeroExecutableFormulaContract.laneToBottleneck mismatch ${lane}: expected ${bottleneck}, got ${laneMap[lane] || 'missing'}`);
+    }
+  }
+  const evidenceRules = formulaContract.evidenceRules || {};
+  for (const lane of Object.keys(EXPECTED_LANE_TO_BOTTLENECK)) {
+    if (!String(evidenceRules[lane] || '').trim()) errors.push(`zeroExecutableFormulaContract.evidenceRules missing ${lane}`);
   }
 }
 const riskGeometryReasons = new Set([

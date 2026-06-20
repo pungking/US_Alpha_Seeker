@@ -832,6 +832,36 @@ const TARGET_RECALIBRATION_POLICY = {
   maxRequiredTargetGapPct: 20.0
 };
 
+const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
+  version: 'zero_executable_formula_v1',
+  requiredRowFields: [
+    'zeroExecutableFormulaBottleneck',
+    'zeroExecutableFormulaSeverity',
+    'zeroExecutableTargetShortfallPct',
+    'zeroExecutableRiskTargetShortfallPct',
+    'zeroExecutableBreakoutProofGapCount',
+    'zeroExecutableStructureProofGapCount',
+    'zeroExecutableFormulaReasons',
+    'zeroExecutableFormulaRecommendedAction'
+  ],
+  laneToBottleneck: {
+    TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
+    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
+    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
+    BREAKOUT_PROOF_CONFIRMED_GENERATION: 'BREAKOUT_PROOF_FORMULA',
+    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'STRUCTURE_PROOF_FORMULA',
+    NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
+  },
+  evidenceRules: {
+    TARGET_RECALIBRATION: 'zeroExecutableTargetShortfallPct must be positive',
+    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence',
+    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence',
+    BREAKOUT_PROOF_CONFIRMED_GENERATION: 'zeroExecutableBreakoutProofGapCount must be positive',
+    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'zeroExecutableStructureProofGapCount must be positive',
+    NO_ZERO_EXECUTABLE_TUNING_ACTION: 'neutral bottleneck, zero severity, and no positive formula gaps'
+  }
+};
+
 const roundOrNull = (value: number | null, digits: number): number | null => {
   if (value == null || !Number.isFinite(value)) return null;
   return Number(value.toFixed(digits));
@@ -8792,6 +8822,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   "BREAKOUT_PROOF_CONFIRMED_GENERATION"
               ],
               zeroExecutableStructureRule: "structure waits require stronger producer proof; do not relax structure gates as the default zero-executable response",
+              zeroExecutableFormulaContract: STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT,
               structurePolicyReview: CURRENT_ENTRY_STRUCTURE_POLICY,
               stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,
               stateConflictStates: Array.from(STAGE6_STATE_CONFLICT_STATES),
