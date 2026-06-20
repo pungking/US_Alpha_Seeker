@@ -17,6 +17,10 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaDeltaValue',
   'zeroExecutableFormulaUnit',
   'zeroExecutableFormulaEvidenceBasis',
+  'zeroExecutableFormulaAdjustmentKnob',
+  'zeroExecutableFormulaAdjustmentDirection',
+  'zeroExecutableFormulaAdjustmentMagnitude',
+  'zeroExecutableFormulaAdjustmentRationale',
   'zeroExecutableFormulaReasons',
   'zeroExecutableFormulaRecommendedAction'
 ];
@@ -98,7 +102,7 @@ const formulaContract = data?.decisionGate?.zeroExecutableFormulaContract || nul
 if (!formulaContract || typeof formulaContract !== 'object') {
   errors.push('decisionGate missing zeroExecutableFormulaContract');
 } else {
-  if (formulaContract.version !== 'zero_executable_formula_v2') {
+  if (formulaContract.version !== 'zero_executable_formula_v3') {
     errors.push(`zeroExecutableFormulaContract.version mismatch: ${formulaContract.version || 'missing'}`);
   }
   const contractFields = new Set(Array.isArray(formulaContract.requiredRowFields) ? formulaContract.requiredRowFields : []);
@@ -192,6 +196,10 @@ for (const [idx, row] of candidates.entries()) {
   if (!isFiniteNumber(row.zeroExecutableFormulaDeltaValue)) errors.push(`${label}: missing numeric zeroExecutableFormulaDeltaValue`);
   if (!String(row.zeroExecutableFormulaUnit || '').trim()) errors.push(`${label}: missing zeroExecutableFormulaUnit`);
   if (!String(row.zeroExecutableFormulaEvidenceBasis || '').trim()) errors.push(`${label}: missing zeroExecutableFormulaEvidenceBasis`);
+  if (!String(row.zeroExecutableFormulaAdjustmentKnob || '').trim()) errors.push(`${label}: missing zeroExecutableFormulaAdjustmentKnob`);
+  if (!String(row.zeroExecutableFormulaAdjustmentDirection || '').trim()) errors.push(`${label}: missing zeroExecutableFormulaAdjustmentDirection`);
+  if (!isFiniteNumber(row.zeroExecutableFormulaAdjustmentMagnitude)) errors.push(`${label}: missing numeric zeroExecutableFormulaAdjustmentMagnitude`);
+  if (!String(row.zeroExecutableFormulaAdjustmentRationale || '').trim()) errors.push(`${label}: missing zeroExecutableFormulaAdjustmentRationale`);
   if (!Array.isArray(row.zeroExecutableFormulaReasons)) errors.push(`${label}: missing zeroExecutableFormulaReasons array`);
   if (!stringArray(row.zeroExecutableFormulaReasons).length) errors.push(`${label}: zeroExecutableFormulaReasons must contain formula evidence`);
   if (!String(row.zeroExecutableFormulaRecommendedAction || '').trim()) errors.push(`${label}: missing zeroExecutableFormulaRecommendedAction`);
@@ -202,6 +210,9 @@ for (const [idx, row] of candidates.entries()) {
     if (!positiveNumber(row.zeroExecutableFormulaObservedValue) || !positiveNumber(row.zeroExecutableFormulaDeltaValue)) {
       errors.push(`${label}: target lane must expose positive observed/delta formula evidence`);
     }
+    if (!String(row.zeroExecutableFormulaAdjustmentKnob || '').includes('TARGET_RECALIBRATION')) {
+      errors.push(`${label}: target lane must name target recalibration adjustment knob`);
+    }
   }
   if (['STOP_TARGET_RISK_GEOMETRY_RECALCULATION', 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'].includes(tuningLane(row))) {
     if (formulaBottleneck(row) !== 'RISK_GEOMETRY_RECALCULATION_FORMULA') errors.push(`${label}: risk lane must expose RISK_GEOMETRY_RECALCULATION_FORMULA bottleneck`);
@@ -209,6 +220,9 @@ for (const [idx, row] of candidates.entries()) {
     if (Number(row.zeroExecutableFormulaSeverity) <= 0) errors.push(`${label}: risk lane must expose positive formula severity`);
     if (!positiveNumber(row.zeroExecutableFormulaObservedValue) || !positiveNumber(row.zeroExecutableFormulaDeltaValue)) {
       errors.push(`${label}: risk lane must expose positive observed/delta formula evidence`);
+    }
+    if (!/RISK_GEOMETRY|CURRENT_ENTRY_RECALCULATED_STOP/.test(String(row.zeroExecutableFormulaAdjustmentKnob || ''))) {
+      errors.push(`${label}: risk lane must name risk geometry or recalculated stop adjustment knob`);
     }
     if (!stringArray(row.zeroExecutableFormulaReasons).some((reason) => riskFormulaReasonPattern.test(reason))) {
       errors.push(`${label}: risk lane formula reasons must name risk/stop/target geometry evidence`);
@@ -220,6 +234,9 @@ for (const [idx, row] of candidates.entries()) {
     if (!positiveNumber(row.zeroExecutableFormulaObservedValue) || !positiveNumber(row.zeroExecutableFormulaDeltaValue)) {
       errors.push(`${label}: breakout lane must expose positive observed/delta formula evidence`);
     }
+    if (!String(row.zeroExecutableFormulaAdjustmentKnob || '').includes('BREAKOUT')) {
+      errors.push(`${label}: breakout lane must name breakout adjustment knob`);
+    }
   }
   if (tuningLane(row) === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
     if (formulaBottleneck(row) !== 'STRUCTURE_PROOF_FORMULA') errors.push(`${label}: structure lane must expose STRUCTURE_PROOF_FORMULA bottleneck`);
@@ -227,12 +244,18 @@ for (const [idx, row] of candidates.entries()) {
     if (!positiveNumber(row.zeroExecutableFormulaObservedValue) || !positiveNumber(row.zeroExecutableFormulaDeltaValue)) {
       errors.push(`${label}: structure lane must expose positive observed/delta formula evidence`);
     }
+    if (!String(row.zeroExecutableFormulaAdjustmentKnob || '').includes('STRUCTURE')) {
+      errors.push(`${label}: structure lane must name structure adjustment knob`);
+    }
   }
   if (tuningLane(row) === 'NO_ZERO_EXECUTABLE_TUNING_ACTION') {
     if (formulaBottleneck(row) !== 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK') errors.push(`${label}: no-action lane must expose neutral formula bottleneck`);
     if (Number(row.zeroExecutableFormulaSeverity) !== 0) errors.push(`${label}: no-action lane must expose zero formula severity`);
     if (Number(row.zeroExecutableFormulaObservedValue) !== 0 || Number(row.zeroExecutableFormulaDeltaValue) !== 0) {
       errors.push(`${label}: no-action lane must expose zero observed/delta formula evidence`);
+    }
+    if (String(row.zeroExecutableFormulaAdjustmentKnob || '') !== 'NONE') {
+      errors.push(`${label}: no-action lane must expose zero adjustment knob NONE`);
     }
     if (positiveNumber(row.zeroExecutableTargetShortfallPct) || positiveNumber(row.zeroExecutableRiskTargetShortfallPct) || positiveNumber(row.zeroExecutableBreakoutProofGapCount) || positiveNumber(row.zeroExecutableStructureProofGapCount)) {
       errors.push(`${label}: no-action lane cannot expose positive formula gaps`);

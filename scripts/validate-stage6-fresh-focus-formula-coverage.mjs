@@ -67,6 +67,10 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaDeltaValue',
   'zeroExecutableFormulaUnit',
   'zeroExecutableFormulaEvidenceBasis',
+  'zeroExecutableFormulaAdjustmentKnob',
+  'zeroExecutableFormulaAdjustmentDirection',
+  'zeroExecutableFormulaAdjustmentMagnitude',
+  'zeroExecutableFormulaAdjustmentRationale',
   'zeroExecutableFormulaReasons',
   'zeroExecutableFormulaRecommendedAction'
 ];
@@ -95,7 +99,10 @@ function validateProducerSourceContract() {
     'formulaEvidence',
     'formula_observed',
     'formula_threshold',
-    'formula_delta'
+    'formula_delta',
+    'formulaAdjustment',
+    'formula_adjustment_knob',
+    'formula_adjustment_direction'
   ]) {
     if (!block.includes(token)) {
       throw new Error(`producer formula contract missing token: ${token}`);

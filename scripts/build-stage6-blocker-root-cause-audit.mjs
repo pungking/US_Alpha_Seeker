@@ -85,6 +85,10 @@ function formulaProfile(row) {
     deltaValue: round(row?.zeroExecutableFormulaDeltaValue),
     unit: text(row?.zeroExecutableFormulaUnit),
     evidenceBasis: text(row?.zeroExecutableFormulaEvidenceBasis),
+    adjustmentKnob: text(row?.zeroExecutableFormulaAdjustmentKnob),
+    adjustmentDirection: text(row?.zeroExecutableFormulaAdjustmentDirection),
+    adjustmentMagnitude: round(row?.zeroExecutableFormulaAdjustmentMagnitude),
+    adjustmentRationale: text(row?.zeroExecutableFormulaAdjustmentRationale),
     reasons: arr(row?.zeroExecutableFormulaReasons),
     recommendedAction: text(row?.zeroExecutableFormulaRecommendedAction)
   };

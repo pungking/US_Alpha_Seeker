@@ -245,6 +245,10 @@ interface AlphaCandidate {
   zeroExecutableFormulaDeltaValue?: number | null;
   zeroExecutableFormulaUnit?: string | null;
   zeroExecutableFormulaEvidenceBasis?: string | null;
+  zeroExecutableFormulaAdjustmentKnob?: string | null;
+  zeroExecutableFormulaAdjustmentDirection?: string | null;
+  zeroExecutableFormulaAdjustmentMagnitude?: number | null;
+  zeroExecutableFormulaAdjustmentRationale?: string | null;
   zeroExecutableFormulaReasons?: string[] | null;
   zeroExecutableFormulaRecommendedAction?: string | null;
   tradePlanDecision?: string | null;
@@ -812,6 +816,10 @@ type Stage6ZeroExecutableFormulaProfilePayload = {
   deltaValue: number;
   unit: string;
   evidenceBasis: string;
+  adjustmentKnob: string;
+  adjustmentDirection: string;
+  adjustmentMagnitude: number;
+  adjustmentRationale: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -843,7 +851,7 @@ const TARGET_RECALIBRATION_POLICY = {
 };
 
 const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
-  version: 'zero_executable_formula_v2',
+  version: 'zero_executable_formula_v3',
   requiredRowFields: [
     'zeroExecutableFormulaBottleneck',
     'zeroExecutableFormulaSeverity',
@@ -856,6 +864,10 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
     'zeroExecutableFormulaDeltaValue',
     'zeroExecutableFormulaUnit',
     'zeroExecutableFormulaEvidenceBasis',
+    'zeroExecutableFormulaAdjustmentKnob',
+    'zeroExecutableFormulaAdjustmentDirection',
+    'zeroExecutableFormulaAdjustmentMagnitude',
+    'zeroExecutableFormulaAdjustmentRationale',
     'zeroExecutableFormulaReasons',
     'zeroExecutableFormulaRecommendedAction'
   ],
@@ -868,12 +880,12 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
     NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
   },
   evidenceRules: {
-    TARGET_RECALIBRATION: 'zeroExecutableTargetShortfallPct and formula observed/delta values must be positive',
-    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence',
-    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence',
-    BREAKOUT_PROOF_CONFIRMED_GENERATION: 'zeroExecutableBreakoutProofGapCount and formula observed/delta values must be positive',
-    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'zeroExecutableStructureProofGapCount and formula observed/delta values must be positive',
-    NO_ZERO_EXECUTABLE_TUNING_ACTION: 'neutral bottleneck, zero severity, zero observed/delta, and no positive formula gaps'
+    TARGET_RECALIBRATION: 'zeroExecutableTargetShortfallPct and formula observed/delta values must be positive; adjustment must name target recalibration knob',
+    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence; adjustment must name risk geometry knob',
+    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence; adjustment must name risk geometry knob',
+    BREAKOUT_PROOF_CONFIRMED_GENERATION: 'zeroExecutableBreakoutProofGapCount and formula observed/delta values must be positive; adjustment must name breakout proof knob',
+    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'zeroExecutableStructureProofGapCount and formula observed/delta values must be positive; adjustment must name structure proof knob',
+    NO_ZERO_EXECUTABLE_TUNING_ACTION: 'neutral bottleneck, zero severity, zero observed/delta, no positive formula gaps, and no adjustment knob'
   }
 };
 
@@ -2258,6 +2270,60 @@ const deriveZeroExecutableFormulaProfile = (input: {
       evidenceBasis: 'no_zero_executable_formula_bottleneck'
     };
   })();
+  const formulaAdjustment = (() => {
+    if (winner.key === 'TARGET_RECALIBRATION_FORMULA') {
+      const noTrade = input.targetPolicy.noTradeConfirmed;
+      return {
+        knob: noTrade ? 'TARGET_RECALIBRATION_SOURCE_REFRESH' : 'TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE',
+        direction: noTrade ? 'NO_TRADE_UNTIL_FRESH_TARGET_SOURCE' : 'RECALIBRATE_TARGET_WITH_FRESH_THESIS',
+        magnitude: formulaEvidence.deltaValue,
+        rationale: noTrade
+          ? 'Current target shortfall is not safely repairable by execution-side chase; require fresh target source/thesis.'
+          : 'Current target is below the producer-required target; tune target recalibration evidence before promotion.'
+      };
+    }
+    if (winner.key === 'RISK_GEOMETRY_RECALCULATION_FORMULA') {
+      const targetGap = (riskTargetShortfallPct ?? 0) > 0;
+      return {
+        knob: targetGap ? 'RISK_GEOMETRY_REQUIRED_TARGET_PRICE' : 'CURRENT_ENTRY_RECALCULATED_STOP_PROOF',
+        direction: targetGap ? 'RECALIBRATE_TARGET_OR_KEEP_NO_TRADE' : 'COMPLETE_STOP_RR_TARGET_BUFFER_PROOF',
+        magnitude: formulaEvidence.deltaValue,
+        rationale: targetGap
+          ? 'Recalculated stop still requires a higher target; producer must refresh target/stop geometry before promotion.'
+          : 'Recalculated stop path lacks enough stop/RR/target-buffer proof; do not relax sidecar gates.'
+      };
+    }
+    if (winner.key === 'BREAKOUT_PROOF_FORMULA') {
+      const proofReasons = [...input.breakoutPromotion.blockedBy, ...input.breakoutPromotion.reasons].join('|');
+      const knob = proofReasons.includes('retest_stale')
+        ? 'BREAKOUT_RETEST_FRESHNESS_WINDOW'
+        : proofReasons.includes('extension')
+          ? 'BREAKOUT_EXTENSION_POLICY'
+          : proofReasons.includes('touch') || proofReasons.includes('retest')
+            ? 'BREAKOUT_RETEST_TOUCH_DETECTION'
+            : 'BREAKOUT_PROOF_CONFIRMED_GENERATION';
+      return {
+        knob,
+        direction: 'IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION',
+        magnitude: formulaEvidence.deltaValue,
+        rationale: 'Review-ready breakout is not enough; only proofConfirmed rows may become executable.'
+      };
+    }
+    if (winner.key === 'STRUCTURE_PROOF_FORMULA') {
+      return {
+        knob: 'CURRENT_ENTRY_STRUCTURE_SUPPORT_PROOF',
+        direction: 'IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE',
+        magnitude: formulaEvidence.deltaValue,
+        rationale: 'Structure wait requires stronger support/RR/distance proof; blind structure relaxation remains blocked.'
+      };
+    }
+    return {
+      knob: 'NONE',
+      direction: 'NO_ADJUSTMENT_REQUIRED',
+      magnitude: 0,
+      rationale: 'No zero-executable formula bottleneck detected for this row.'
+    };
+  })();
   const reasons = [
     `tuning_lane:${input.tuningPolicy.lane}`,
     ...(preferredFormulaBottleneck ? [`primary_formula_bottleneck:${preferredFormulaBottleneck}`] : []),
@@ -2265,6 +2331,8 @@ const deriveZeroExecutableFormulaProfile = (input: {
     `formula_observed:${formulaEvidence.observedValue}`,
     `formula_threshold:${formulaEvidence.thresholdValue}`,
     `formula_delta:${formulaEvidence.deltaValue}`,
+    `formula_adjustment_knob:${formulaAdjustment.knob}`,
+    `formula_adjustment_direction:${formulaAdjustment.direction}`,
     ...(targetSeverity > 0 ? [`target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`] : []),
     ...(riskSeverity > 0 ? [`risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`] : []),
     ...(breakoutSeverity > 0 ? [`breakout_proof_gap_count:${breakoutProofGaps.size}`] : []),
@@ -2282,6 +2350,10 @@ const deriveZeroExecutableFormulaProfile = (input: {
     deltaValue: formulaEvidence.deltaValue,
     unit: formulaEvidence.unit,
     evidenceBasis: formulaEvidence.evidenceBasis,
+    adjustmentKnob: formulaAdjustment.knob,
+    adjustmentDirection: formulaAdjustment.direction,
+    adjustmentMagnitude: roundOrNull(formulaAdjustment.magnitude, 2) ?? 0,
+    adjustmentRationale: formulaAdjustment.rationale,
     reasons,
     recommendedAction:
       winner.key === 'TARGET_RECALIBRATION_FORMULA'
@@ -7415,6 +7487,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               zeroExecutableFormulaDeltaValue: zeroExecutableFormulaProfile.deltaValue,
               zeroExecutableFormulaUnit: zeroExecutableFormulaProfile.unit,
               zeroExecutableFormulaEvidenceBasis: zeroExecutableFormulaProfile.evidenceBasis,
+              zeroExecutableFormulaAdjustmentKnob: zeroExecutableFormulaProfile.adjustmentKnob,
+              zeroExecutableFormulaAdjustmentDirection: zeroExecutableFormulaProfile.adjustmentDirection,
+              zeroExecutableFormulaAdjustmentMagnitude: zeroExecutableFormulaProfile.adjustmentMagnitude,
+              zeroExecutableFormulaAdjustmentRationale: zeroExecutableFormulaProfile.adjustmentRationale,
               zeroExecutableFormulaReasons: zeroExecutableFormulaProfile.reasons,
               zeroExecutableFormulaRecommendedAction: zeroExecutableFormulaProfile.recommendedAction,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,

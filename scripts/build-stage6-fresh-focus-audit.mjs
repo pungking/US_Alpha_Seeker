@@ -19,11 +19,15 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaDeltaValue',
   'zeroExecutableFormulaUnit',
   'zeroExecutableFormulaEvidenceBasis',
+  'zeroExecutableFormulaAdjustmentKnob',
+  'zeroExecutableFormulaAdjustmentDirection',
+  'zeroExecutableFormulaAdjustmentMagnitude',
+  'zeroExecutableFormulaAdjustmentRationale',
   'zeroExecutableFormulaReasons',
   'zeroExecutableFormulaRecommendedAction'
 ];
 const EXPECTED_FORMULA_CONTRACT = {
-  version: 'zero_executable_formula_v2',
+  version: 'zero_executable_formula_v3',
   laneToBottleneck: {
     TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
@@ -225,6 +229,10 @@ function formulaEvidenceQualityIssue(row) {
   const deltaValue = numberOrNull(row?.zeroExecutableFormulaDeltaValue);
   const unit = String(row?.zeroExecutableFormulaUnit || '').trim();
   const evidenceBasis = String(row?.zeroExecutableFormulaEvidenceBasis || '').trim();
+  const adjustmentKnob = String(row?.zeroExecutableFormulaAdjustmentKnob || '').trim();
+  const adjustmentDirection = String(row?.zeroExecutableFormulaAdjustmentDirection || '').trim();
+  const adjustmentMagnitude = numberOrNull(row?.zeroExecutableFormulaAdjustmentMagnitude);
+  const adjustmentRationale = String(row?.zeroExecutableFormulaAdjustmentRationale || '').trim();
   const reasons = stringArray(row?.zeroExecutableFormulaReasons);
   const action = String(row?.zeroExecutableFormulaRecommendedAction || '').trim();
   const issueReasons = [];
@@ -235,6 +243,10 @@ function formulaEvidenceQualityIssue(row) {
   if (!Number.isFinite(deltaValue)) issueReasons.push('formula_delta_value_missing');
   if (!unit) issueReasons.push('formula_unit_missing');
   if (!evidenceBasis) issueReasons.push('formula_evidence_basis_missing');
+  if (!adjustmentKnob) issueReasons.push('formula_adjustment_knob_missing');
+  if (!adjustmentDirection) issueReasons.push('formula_adjustment_direction_missing');
+  if (!Number.isFinite(adjustmentMagnitude)) issueReasons.push('formula_adjustment_magnitude_missing');
+  if (!adjustmentRationale) issueReasons.push('formula_adjustment_rationale_missing');
   if (reasons.length === 0) issueReasons.push('formula_reasons_missing');
   if (!action) issueReasons.push('formula_recommended_action_missing');
 
@@ -243,6 +255,9 @@ function formulaEvidenceQualityIssue(row) {
   }
   if (lane === 'TARGET_RECALIBRATION' && !(observedValue != null && observedValue > 0 && deltaValue != null && deltaValue > 0)) {
     issueReasons.push('target_observed_delta_not_positive');
+  }
+  if (lane === 'TARGET_RECALIBRATION' && !adjustmentKnob.includes('TARGET_RECALIBRATION')) {
+    issueReasons.push('target_adjustment_knob_missing');
   }
   if (
     (lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' || lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') &&
@@ -256,11 +271,20 @@ function formulaEvidenceQualityIssue(row) {
   ) {
     issueReasons.push('risk_geometry_observed_delta_not_positive');
   }
+  if (
+    (lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' || lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') &&
+    !/RISK_GEOMETRY|CURRENT_ENTRY_RECALCULATED_STOP/.test(adjustmentKnob)
+  ) {
+    issueReasons.push('risk_geometry_adjustment_knob_missing');
+  }
   if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION' && !(breakoutGaps != null && breakoutGaps > 0)) {
     issueReasons.push('breakout_proof_gap_count_not_positive');
   }
   if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION' && !(observedValue != null && observedValue > 0 && deltaValue != null && deltaValue > 0)) {
     issueReasons.push('breakout_observed_delta_not_positive');
+  }
+  if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION' && !adjustmentKnob.includes('BREAKOUT')) {
+    issueReasons.push('breakout_adjustment_knob_missing');
   }
   if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION' && !(structureGaps != null && structureGaps > 0)) {
     issueReasons.push('structure_proof_gap_count_not_positive');
@@ -268,10 +292,14 @@ function formulaEvidenceQualityIssue(row) {
   if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION' && !(observedValue != null && observedValue > 0 && deltaValue != null && deltaValue > 0)) {
     issueReasons.push('structure_observed_delta_not_positive');
   }
+  if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION' && !adjustmentKnob.includes('STRUCTURE')) {
+    issueReasons.push('structure_adjustment_knob_missing');
+  }
   if (lane === 'NO_ZERO_EXECUTABLE_TUNING_ACTION') {
     if (bottleneck !== 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK') issueReasons.push('no_action_bottleneck_not_neutral');
     if (severity !== 0) issueReasons.push('no_action_severity_not_zero');
     if (observedValue !== 0 || deltaValue !== 0) issueReasons.push('no_action_observed_delta_not_zero');
+    if (adjustmentKnob !== 'NONE') issueReasons.push('no_action_adjustment_knob_not_none');
     if ((targetShortfall != null && targetShortfall > 0) || (riskShortfall != null && riskShortfall > 0) || (breakoutGaps != null && breakoutGaps > 0) || (structureGaps != null && structureGaps > 0)) {
       issueReasons.push('no_action_has_positive_formula_gap');
     }
@@ -287,6 +315,10 @@ function formulaEvidenceQualityIssue(row) {
     zeroExecutableFormulaDeltaValue: deltaValue,
     zeroExecutableFormulaUnit: unit || null,
     zeroExecutableFormulaEvidenceBasis: evidenceBasis || null,
+    zeroExecutableFormulaAdjustmentKnob: adjustmentKnob || null,
+    zeroExecutableFormulaAdjustmentDirection: adjustmentDirection || null,
+    zeroExecutableFormulaAdjustmentMagnitude: adjustmentMagnitude,
+    zeroExecutableFormulaAdjustmentRationale: adjustmentRationale || null,
     issueReasons,
     finalDecision: decisionOf(row),
     decisionReason: reasonOf(row)
@@ -361,6 +393,10 @@ function compactRow(row) {
     zeroExecutableFormulaDeltaValue: numberOrNull(row?.zeroExecutableFormulaDeltaValue),
     zeroExecutableFormulaUnit: row?.zeroExecutableFormulaUnit || null,
     zeroExecutableFormulaEvidenceBasis: row?.zeroExecutableFormulaEvidenceBasis || null,
+    zeroExecutableFormulaAdjustmentKnob: row?.zeroExecutableFormulaAdjustmentKnob || null,
+    zeroExecutableFormulaAdjustmentDirection: row?.zeroExecutableFormulaAdjustmentDirection || null,
+    zeroExecutableFormulaAdjustmentMagnitude: numberOrNull(row?.zeroExecutableFormulaAdjustmentMagnitude),
+    zeroExecutableFormulaAdjustmentRationale: row?.zeroExecutableFormulaAdjustmentRationale || null,
     breakoutRetestProofConfirmed: row?.breakoutRetestProofConfirmed ?? null,
     breakoutRetestProofReviewReady: row?.breakoutRetestProofReviewReady ?? null,
     breakoutRetestProofContinuationConfirmed: row?.breakoutRetestProofContinuationConfirmed ?? null,
@@ -472,7 +508,7 @@ function buildMarkdown(report) {
       `buf=${row.structurePolicyTargetBufferOk}`,
       `dist=${row.structurePolicyDistanceWithinReviewBand}`
     ].join(',');
-    const formulaEvidence = `${row.zeroExecutableFormulaEvidenceBasis || 'missing'}:${row.zeroExecutableFormulaObservedValue ?? 'N/A'}>${row.zeroExecutableFormulaThresholdValue ?? 'N/A'} delta=${row.zeroExecutableFormulaDeltaValue ?? 'N/A'} ${row.zeroExecutableFormulaUnit || ''}`;
+    const formulaEvidence = `${row.zeroExecutableFormulaEvidenceBasis || 'missing'}:${row.zeroExecutableFormulaObservedValue ?? 'N/A'}>${row.zeroExecutableFormulaThresholdValue ?? 'N/A'} delta=${row.zeroExecutableFormulaDeltaValue ?? 'N/A'} ${row.zeroExecutableFormulaUnit || ''}; knob=${row.zeroExecutableFormulaAdjustmentKnob || 'missing'} direction=${row.zeroExecutableFormulaAdjustmentDirection || 'missing'}`;
     lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(formulaEvidence)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
@@ -547,6 +583,10 @@ function main() {
     zeroExecutableFormulaDeltaValue: requiredFieldCoverage(rows, 'zeroExecutableFormulaDeltaValue'),
     zeroExecutableFormulaUnit: requiredFieldCoverage(rows, 'zeroExecutableFormulaUnit'),
     zeroExecutableFormulaEvidenceBasis: requiredFieldCoverage(rows, 'zeroExecutableFormulaEvidenceBasis'),
+    zeroExecutableFormulaAdjustmentKnob: requiredFieldCoverage(rows, 'zeroExecutableFormulaAdjustmentKnob'),
+    zeroExecutableFormulaAdjustmentDirection: requiredFieldCoverage(rows, 'zeroExecutableFormulaAdjustmentDirection'),
+    zeroExecutableFormulaAdjustmentMagnitude: requiredFieldCoverage(rows, 'zeroExecutableFormulaAdjustmentMagnitude'),
+    zeroExecutableFormulaAdjustmentRationale: requiredFieldCoverage(rows, 'zeroExecutableFormulaAdjustmentRationale'),
     zeroExecutableFormulaReasons: requiredFieldCoverage(rows, 'zeroExecutableFormulaReasons'),
     zeroExecutableFormulaRecommendedAction: requiredFieldCoverage(rows, 'zeroExecutableFormulaRecommendedAction'),
     currentEntryStructureSupportReference: requiredFieldCoverage(rows, 'currentEntryStructureSupportReference'),

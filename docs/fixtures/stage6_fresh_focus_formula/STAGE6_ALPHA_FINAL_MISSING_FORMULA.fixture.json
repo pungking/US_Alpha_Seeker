@@ -12,7 +12,7 @@
       "currentEntryMinRr": 2,
       "currentEntryMinTargetBufferPct": 3,
       "zeroExecutableFormulaContract": {
-        "version": "zero_executable_formula_v2",
+        "version": "zero_executable_formula_v3",
         "requiredRowFields": [
           "zeroExecutableFormulaBottleneck",
           "zeroExecutableFormulaSeverity",
@@ -25,6 +25,10 @@
           "zeroExecutableFormulaDeltaValue",
           "zeroExecutableFormulaUnit",
           "zeroExecutableFormulaEvidenceBasis",
+          "zeroExecutableFormulaAdjustmentKnob",
+          "zeroExecutableFormulaAdjustmentDirection",
+          "zeroExecutableFormulaAdjustmentMagnitude",
+          "zeroExecutableFormulaAdjustmentRationale",
           "zeroExecutableFormulaReasons",
           "zeroExecutableFormulaRecommendedAction"
         ],
@@ -37,12 +41,12 @@
           "NO_ZERO_EXECUTABLE_TUNING_ACTION": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK"
         },
         "evidenceRules": {
-          "TARGET_RECALIBRATION": "zeroExecutableTargetShortfallPct and formula observed/delta values must be positive",
-          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": "zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence",
-          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": "zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence",
-          "BREAKOUT_PROOF_CONFIRMED_GENERATION": "zeroExecutableBreakoutProofGapCount and formula observed/delta values must be positive",
-          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "zeroExecutableStructureProofGapCount and formula observed/delta values must be positive",
-          "NO_ZERO_EXECUTABLE_TUNING_ACTION": "neutral bottleneck, zero severity, zero observed/delta, and no positive formula gaps"
+          "TARGET_RECALIBRATION": "zeroExecutableTargetShortfallPct and formula observed/delta values must be positive; adjustment must name target recalibration knob",
+          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": "zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence; adjustment must name risk geometry knob",
+          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": "zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence; adjustment must name risk geometry knob",
+          "BREAKOUT_PROOF_CONFIRMED_GENERATION": "zeroExecutableBreakoutProofGapCount and formula observed/delta values must be positive; adjustment must name breakout proof knob",
+          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "zeroExecutableStructureProofGapCount and formula observed/delta values must be positive; adjustment must name structure proof knob",
+          "NO_ZERO_EXECUTABLE_TUNING_ACTION": "neutral bottleneck, zero severity, zero observed/delta, no positive formula gaps, and no adjustment knob"
         }
       }
     }

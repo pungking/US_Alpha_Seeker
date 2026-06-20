@@ -18,14 +18,20 @@
         "formula_evidence_basis:no_zero_executable_formula_bottleneck",
         "formula_observed:0",
         "formula_threshold:0",
-        "formula_delta:0"
+        "formula_delta:0",
+        "formula_adjustment_knob:NONE",
+        "formula_adjustment_direction:NO_ADJUSTMENT_REQUIRED"
       ],
       "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row.",
       "zeroExecutableFormulaObservedValue": 0,
       "zeroExecutableFormulaThresholdValue": 0,
       "zeroExecutableFormulaDeltaValue": 0,
       "zeroExecutableFormulaUnit": "none",
-      "zeroExecutableFormulaEvidenceBasis": "no_zero_executable_formula_bottleneck"
+      "zeroExecutableFormulaEvidenceBasis": "no_zero_executable_formula_bottleneck",
+      "zeroExecutableFormulaAdjustmentKnob": "NONE",
+      "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
+      "zeroExecutableFormulaAdjustmentMagnitude": 0,
+      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
     }
   ]
 }
