@@ -159,7 +159,9 @@
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
           "target_shortfall_pct:7.5",
-          "formula_evidence_basis:target_recalibration_shortfall",
+          "target_formula_basis:target_required_actual_stop_risk_shortfall_pct",
+          "target_formula_delta:7.5",
+          "formula_evidence_basis:target_required_actual_stop_risk_shortfall_pct",
           "formula_observed:7.5",
           "formula_threshold:0",
           "formula_delta:7.5",
@@ -171,11 +173,16 @@
         "zeroExecutableFormulaThresholdValue": 0,
         "zeroExecutableFormulaDeltaValue": 7.5,
         "zeroExecutableFormulaUnit": "pct_shortfall",
-        "zeroExecutableFormulaEvidenceBasis": "target_recalibration_shortfall",
+        "zeroExecutableFormulaEvidenceBasis": "target_required_actual_stop_risk_shortfall_pct",
         "zeroExecutableFormulaAdjustmentKnob": "TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE",
         "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_WITH_FRESH_THESIS",
         "zeroExecutableFormulaAdjustmentMagnitude": 7.5,
-        "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion."
+        "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion.",
+        "targetRecalibrationFormulaEvidenceBasis": "target_required_actual_stop_risk_shortfall_pct",
+        "targetRecalibrationFormulaObservedValue": 7.5,
+        "targetRecalibrationFormulaThresholdValue": 0,
+        "targetRecalibrationFormulaDeltaValue": 7.5,
+        "targetRecalibrationFormulaUnit": "pct_shortfall"
       },
       {
         "symbol": "FORMRISK",
@@ -194,7 +201,9 @@
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
           "risk_target_shortfall_pct:13.6",
-          "formula_evidence_basis:risk_geometry_target_shortfall",
+          "risk_formula_basis:risk_geometry_expected_return_target_shortfall_pct",
+          "risk_formula_delta:13.6",
+          "formula_evidence_basis:risk_geometry_expected_return_target_shortfall_pct",
           "formula_observed:13.6",
           "formula_threshold:0",
           "formula_delta:13.6",
@@ -206,11 +215,16 @@
         "zeroExecutableFormulaThresholdValue": 0,
         "zeroExecutableFormulaDeltaValue": 13.6,
         "zeroExecutableFormulaUnit": "pct_shortfall",
-        "zeroExecutableFormulaEvidenceBasis": "risk_geometry_target_shortfall",
+        "zeroExecutableFormulaEvidenceBasis": "risk_geometry_expected_return_target_shortfall_pct",
         "zeroExecutableFormulaAdjustmentKnob": "RISK_GEOMETRY_REQUIRED_TARGET_PRICE",
         "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_OR_KEEP_NO_TRADE",
         "zeroExecutableFormulaAdjustmentMagnitude": 13.6,
-        "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop still requires a higher target; producer must refresh target/stop geometry before promotion."
+        "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop still requires a higher target; producer must refresh target/stop geometry before promotion.",
+        "riskGeometryFormulaEvidenceBasis": "risk_geometry_expected_return_target_shortfall_pct",
+        "riskGeometryFormulaObservedValue": 13.6,
+        "riskGeometryFormulaThresholdValue": 0,
+        "riskGeometryFormulaDeltaValue": 13.6,
+        "riskGeometryFormulaUnit": "pct_shortfall"
       },
       {
         "symbol": "FORMRISK_NO_TRADE",
@@ -228,23 +242,22 @@
         "zeroExecutableBreakoutProofGapCount": 0,
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
-          "tuning_lane:RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION",
-          "primary_formula_bottleneck:RISK_GEOMETRY_RECALCULATION_FORMULA",
-          "formula_evidence_basis:risk_geometry_target_shortfall",
+          "risk_target_shortfall_pct:24.29",
+          "risk_formula_basis:risk_geometry_expected_return_target_shortfall_pct",
+          "risk_formula_delta:24.29",
+          "formula_evidence_basis:risk_geometry_expected_return_target_shortfall_pct",
           "formula_observed:24.29",
           "formula_threshold:0",
           "formula_delta:24.29",
           "formula_adjustment_knob:RISK_GEOMETRY_REQUIRED_TARGET_PRICE",
-          "formula_adjustment_direction:RECALIBRATE_TARGET_OR_KEEP_NO_TRADE",
-          "risk_target_shortfall_pct:24.29",
-          "risk_geometry_target_no_trade_confirmed"
+          "formula_adjustment_direction:RECALIBRATE_TARGET_OR_KEEP_NO_TRADE"
         ],
         "zeroExecutableFormulaRecommendedAction": "Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion.",
         "zeroExecutableFormulaObservedValue": 24.29,
         "zeroExecutableFormulaThresholdValue": 0,
         "zeroExecutableFormulaDeltaValue": 24.29,
         "zeroExecutableFormulaUnit": "pct_shortfall",
-        "zeroExecutableFormulaEvidenceBasis": "risk_geometry_target_shortfall",
+        "zeroExecutableFormulaEvidenceBasis": "risk_geometry_expected_return_target_shortfall_pct",
         "zeroExecutableFormulaAdjustmentKnob": "RISK_GEOMETRY_REQUIRED_TARGET_PRICE",
         "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_OR_KEEP_NO_TRADE",
         "zeroExecutableFormulaAdjustmentMagnitude": 24.29,
@@ -255,7 +268,12 @@
         "riskGeometryTargetRecalibrationCandidate": false,
         "riskGeometryTargetNoTradeConfirmed": true,
         "riskGeometryTargetRecalibrationGapPolicyPct": 20,
-        "riskGeometryRepairLane": "TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE"
+        "riskGeometryRepairLane": "TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE",
+        "riskGeometryFormulaEvidenceBasis": "risk_geometry_expected_return_target_shortfall_pct",
+        "riskGeometryFormulaObservedValue": 24.29,
+        "riskGeometryFormulaThresholdValue": 0,
+        "riskGeometryFormulaDeltaValue": 24.29,
+        "riskGeometryFormulaUnit": "pct_shortfall"
       },
       {
         "symbol": "FORMNO",

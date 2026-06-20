@@ -207,6 +207,11 @@ interface AlphaCandidate {
   targetRecalibrationViabilityVerdict?: string | null;
   targetRecalibrationViabilityReasons?: string[] | null;
   targetRecalibrationGapPolicyPct?: number | null;
+  targetRecalibrationFormulaEvidenceBasis?: string | null;
+  targetRecalibrationFormulaObservedValue?: number | null;
+  targetRecalibrationFormulaThresholdValue?: number | null;
+  targetRecalibrationFormulaDeltaValue?: number | null;
+  targetRecalibrationFormulaUnit?: string | null;
   targetRecalibrationReasons?: string[] | null;
   targetRecalibrationRecommendedAction?: string | null;
   riskGeometryPolicyVerdict?: string | null;
@@ -237,6 +242,11 @@ interface AlphaCandidate {
   riskGeometryRepairLane?: string | null;
   riskGeometryProofConfirmed?: boolean | null;
   riskGeometryProofReasons?: string[] | null;
+  riskGeometryFormulaEvidenceBasis?: string | null;
+  riskGeometryFormulaObservedValue?: number | null;
+  riskGeometryFormulaThresholdValue?: number | null;
+  riskGeometryFormulaDeltaValue?: number | null;
+  riskGeometryFormulaUnit?: string | null;
   riskGeometryReasons?: string[] | null;
   riskGeometryRecommendedAction?: string | null;
   qualityGateLane?: string | null;
@@ -810,6 +820,11 @@ type Stage6TargetPolicyPayload = {
   viabilityVerdict: string;
   viabilityReasons: string[];
   gapPolicyPct: number;
+  formulaEvidenceBasis: string;
+  formulaObservedValue: number;
+  formulaThresholdValue: number;
+  formulaDeltaValue: number;
+  formulaUnit: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -843,6 +858,11 @@ type Stage6RiskGeometryPolicyPayload = {
   repairLane: string;
   proofConfirmed: boolean;
   proofReasons: string[];
+  formulaEvidenceBasis: string;
+  formulaObservedValue: number;
+  formulaThresholdValue: number;
+  formulaDeltaValue: number;
+  formulaUnit: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -1914,6 +1934,15 @@ const deriveTargetRecalibrationPolicy = (input: {
     currentTargetGapPct != null && Number.isFinite(currentTargetGapPct) && currentTargetGapPct < 0
       ? Math.abs(currentTargetGapPct)
       : 0;
+  const targetAlreadyReachedGapPct =
+    targetAlreadyReached &&
+    input.price != null &&
+    input.target != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.target) &&
+    input.target > 0
+      ? ((input.price - input.target) / input.target) * 100
+      : 0;
   const targetInputsValid =
     input.price != null &&
     input.target != null &&
@@ -1954,6 +1983,48 @@ const deriveTargetRecalibrationPolicy = (input: {
           ? 'TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_GAP_TOO_WIDE'
           : 'TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_EVIDENCE_INCOMPLETE'
       : 'TARGET_VIABILITY_NOT_APPLICABLE';
+  const targetFormulaEvidence = (() => {
+    const sourceKey = String(requiredTargetSource || 'unknown')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'unknown';
+    if (targetAlreadyReached) {
+      const observed = roundOrNull(Math.max(currentTargetShortfallPct, targetAlreadyReachedGapPct), 2) ?? 0;
+      return {
+        basis: 'target_already_reached_required_target_shortfall_pct',
+        observed,
+        threshold: 0,
+        delta: observed,
+        unit: 'pct_shortfall'
+      };
+    }
+    if (currentTargetShortfallPct > 0) {
+      const observed = roundOrNull(currentTargetShortfallPct, 2) ?? 0;
+      return {
+        basis: `target_required_${sourceKey}_shortfall_pct`,
+        observed,
+        threshold: 0,
+        delta: observed,
+        unit: 'pct_shortfall'
+      };
+    }
+    if (!targetInputsValid && targetGeometryRequiresAction) {
+      return {
+        basis: 'target_recalibration_input_gap',
+        observed: 1,
+        threshold: 0,
+        delta: 1,
+        unit: 'proof_gap_count'
+      };
+    }
+    return {
+      basis: 'target_recalibration_not_required',
+      observed: 0,
+      threshold: 0,
+      delta: 0,
+      unit: 'none'
+    };
+  })();
   const targetEvidence = {
     currentTargetPrice: roundOrNull(input.target, 4),
     requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
@@ -1973,7 +2044,12 @@ const deriveTargetRecalibrationPolicy = (input: {
     noTradeConfirmed: targetNoTradeConfirmed,
     viabilityVerdict,
     viabilityReasons: viabilityReasons.length ? viabilityReasons : ['target_viability_not_applicable'],
-    gapPolicyPct: roundOrNull(targetRecalibrationGapPolicyPct, 2) ?? targetRecalibrationGapPolicyPct
+    gapPolicyPct: roundOrNull(targetRecalibrationGapPolicyPct, 2) ?? targetRecalibrationGapPolicyPct,
+    formulaEvidenceBasis: targetFormulaEvidence.basis,
+    formulaObservedValue: targetFormulaEvidence.observed,
+    formulaThresholdValue: targetFormulaEvidence.threshold,
+    formulaDeltaValue: targetFormulaEvidence.delta,
+    formulaUnit: targetFormulaEvidence.unit
   };
   if (input.decisionReason !== 'wait_target_near_current' && !targetGeometryRequiresAction) {
     return {
@@ -2098,6 +2174,11 @@ const deriveRiskGeometryPolicy = (input: {
       repairLane: 'not_applicable',
       proofConfirmed: false,
       proofReasons: ['not_risk_geometry_blocker'],
+      formulaEvidenceBasis: 'risk_geometry_not_applicable',
+      formulaObservedValue: 0,
+      formulaThresholdValue: 0,
+      formulaDeltaValue: 0,
+      formulaUnit: 'none',
       reasons: ['not_risk_geometry_blocker'],
       recommendedAction: 'No risk-geometry policy action required.'
     };
@@ -2267,6 +2348,89 @@ const deriveRiskGeometryPolicy = (input: {
     : recalculatedStopCandidate
       ? 'RECALCULATED_STOP_PROOF_RR_OR_TARGET_BUFFER_WEAK'
       : 'RECALCULATED_STOP_PROOF_INCOMPLETE';
+  const riskFormulaEvidence = (() => {
+    const sourceKey = String(requiredTargetSource || 'unknown')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'unknown';
+    if (targetShortfallPct != null && targetShortfallPct > 0) {
+      const observed = roundOrNull(targetShortfallPct, 2) ?? 0;
+      return {
+        basis: `risk_geometry_${sourceKey}_target_shortfall_pct`,
+        observed,
+        threshold: 0,
+        delta: observed,
+        unit: 'pct_shortfall'
+      };
+    }
+    const stopDistanceBelowMin =
+      input.currentEntryRequiredStopDistancePct != null && Number.isFinite(input.currentEntryRequiredStopDistancePct)
+        ? Math.max(0, input.minStopDistancePct - input.currentEntryRequiredStopDistancePct)
+        : 0;
+    const stopDistanceAboveMax =
+      input.currentEntryRequiredStopDistancePct != null && Number.isFinite(input.currentEntryRequiredStopDistancePct)
+        ? Math.max(0, input.currentEntryRequiredStopDistancePct - input.maxStopDistancePct)
+        : 0;
+    const targetNotAboveGapPct =
+      input.price != null &&
+      input.target != null &&
+      Number.isFinite(input.price) &&
+      Number.isFinite(input.target) &&
+      input.price > 0 &&
+      input.target <= input.price
+        ? ((input.price - input.target) / input.price) * 100
+        : 0;
+    const formulaCandidates = [
+      {
+        basis: 'risk_geometry_stop_distance_below_min_pct',
+        observed: roundOrNull(input.currentEntryRequiredStopDistancePct, 2) ?? 0,
+        threshold: roundOrNull(input.minStopDistancePct, 2) ?? input.minStopDistancePct,
+        delta: roundOrNull(stopDistanceBelowMin, 2) ?? 0,
+        unit: 'pct'
+      },
+      {
+        basis: 'risk_geometry_stop_distance_above_max_pct',
+        observed: roundOrNull(input.currentEntryRequiredStopDistancePct, 2) ?? 0,
+        threshold: roundOrNull(input.maxStopDistancePct, 2) ?? input.maxStopDistancePct,
+        delta: roundOrNull(stopDistanceAboveMax, 2) ?? 0,
+        unit: 'pct'
+      },
+      {
+        basis: 'risk_geometry_recalculated_stop_rr_shortfall',
+        observed: roundOrNull(rrAtRecalculatedStop, 2) ?? 0,
+        threshold: roundOrNull(input.minRr, 2) ?? input.minRr,
+        delta: roundOrNull(rrAtRecalculatedStop != null ? Math.max(0, input.minRr - rrAtRecalculatedStop) : 0, 2) ?? 0,
+        unit: 'rr'
+      },
+      {
+        basis: 'risk_geometry_target_buffer_shortfall_pct',
+        observed: roundOrNull(input.targetBufferFromCurrentPct, 2) ?? 0,
+        threshold: roundOrNull(input.minTargetBufferPct, 2) ?? input.minTargetBufferPct,
+        delta: roundOrNull(
+          input.targetBufferFromCurrentPct != null ? Math.max(0, input.minTargetBufferPct - input.targetBufferFromCurrentPct) : 0,
+          2
+        ) ?? 0,
+        unit: 'pct'
+      },
+      {
+        basis: 'risk_geometry_target_not_above_current_gap_pct',
+        observed: roundOrNull(input.target, 4) ?? 0,
+        threshold: roundOrNull(input.price, 4) ?? 0,
+        delta: roundOrNull(targetNotAboveGapPct, 2) ?? 0,
+        unit: 'pct'
+      }
+    ].sort((a, b) => b.delta - a.delta);
+    const topFormulaEvidence = formulaCandidates[0];
+    if (topFormulaEvidence && topFormulaEvidence.delta > 0) return topFormulaEvidence;
+    const proofGapCount = proofReasons.filter((item) => item !== `risk_geometry_repair_lane:${repairLane}`).length;
+    return {
+      basis: 'risk_geometry_proof_gap_count',
+      observed: Math.max(1, proofGapCount),
+      threshold: 0,
+      delta: Math.max(1, proofGapCount),
+      unit: 'proof_gap_count'
+    };
+  })();
   const proofEvidence = {
     proofVerdict,
     recalculatedStopPrice: roundOrNull(input.currentEntryRequiredStopPrice, 4),
@@ -2291,7 +2455,12 @@ const deriveRiskGeometryPolicy = (input: {
     targetBufferOk,
     repairLane,
     proofConfirmed: recalculatedStopProofConfirmed,
-    proofReasons
+    proofReasons,
+    formulaEvidenceBasis: riskFormulaEvidence.basis,
+    formulaObservedValue: riskFormulaEvidence.observed,
+    formulaThresholdValue: riskFormulaEvidence.threshold,
+    formulaDeltaValue: riskFormulaEvidence.delta,
+    formulaUnit: riskFormulaEvidence.unit
   };
   const reasons = [
     ...(targetAboveCurrent ? [] : ['target_not_above_current']),
@@ -2487,7 +2656,7 @@ const deriveZeroExecutableFormulaProfile = (input: {
   }
   const targetSeverity = input.targetPolicy.recalibrationRequired ? Math.max(1, targetShortfallPct ?? 1) : 0;
   const riskSeverity = input.riskGeometryPolicy.recalibrationRequired || input.riskGeometryPolicy.recalculatedStopCandidate
-    ? Math.max(1, riskTargetShortfallPct ?? 0, input.riskGeometryPolicy.proofConfirmed ? 0 : 1)
+    ? Math.max(1, riskTargetShortfallPct ?? 0, input.riskGeometryPolicy.formulaDeltaValue, input.riskGeometryPolicy.proofConfirmed ? 0 : 1)
     : 0;
   const breakoutSeverity = input.tuningPolicy.lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION'
     ? Math.max(1, breakoutProofGaps.size)
@@ -2522,28 +2691,21 @@ const deriveZeroExecutableFormulaProfile = (input: {
     { key: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK', severity: 0 };
   const formulaEvidence = (() => {
     if (winner.key === 'TARGET_RECALIBRATION_FORMULA') {
-      const observedValue = roundOrNull(targetShortfallPct, 2) ?? 0;
       return {
-        observedValue,
-        thresholdValue: 0,
-        deltaValue: observedValue,
-        unit: 'pct_shortfall',
-        evidenceBasis: 'target_recalibration_shortfall'
+        observedValue: input.targetPolicy.formulaObservedValue,
+        thresholdValue: input.targetPolicy.formulaThresholdValue,
+        deltaValue: input.targetPolicy.formulaDeltaValue,
+        unit: input.targetPolicy.formulaUnit,
+        evidenceBasis: input.targetPolicy.formulaEvidenceBasis
       };
     }
     if (winner.key === 'RISK_GEOMETRY_RECALCULATION_FORMULA') {
-      const observedValue = roundOrNull(
-        riskTargetShortfallPct != null && riskTargetShortfallPct > 0 ? riskTargetShortfallPct : riskSeverity,
-        2
-      ) ?? 0;
       return {
-        observedValue,
-        thresholdValue: 0,
-        deltaValue: observedValue,
-        unit: riskTargetShortfallPct != null && riskTargetShortfallPct > 0 ? 'pct_shortfall' : 'proof_gap_count',
-        evidenceBasis: riskTargetShortfallPct != null && riskTargetShortfallPct > 0
-          ? 'risk_geometry_target_shortfall'
-          : 'risk_geometry_proof_gap_count'
+        observedValue: input.riskGeometryPolicy.formulaObservedValue,
+        thresholdValue: input.riskGeometryPolicy.formulaThresholdValue,
+        deltaValue: input.riskGeometryPolicy.formulaDeltaValue,
+        unit: input.riskGeometryPolicy.formulaUnit,
+        evidenceBasis: input.riskGeometryPolicy.formulaEvidenceBasis
       };
     }
     if (winner.key === 'BREAKOUT_PROOF_FORMULA') {
@@ -2575,8 +2737,13 @@ const deriveZeroExecutableFormulaProfile = (input: {
   const formulaAdjustment = (() => {
     if (winner.key === 'TARGET_RECALIBRATION_FORMULA') {
       const noTrade = input.targetPolicy.noTradeConfirmed;
+      const basis = input.targetPolicy.formulaEvidenceBasis;
       return {
-        knob: noTrade ? 'TARGET_RECALIBRATION_SOURCE_REFRESH' : 'TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE',
+        knob: basis.includes('input_gap')
+          ? 'TARGET_RECALIBRATION_INPUT_COVERAGE'
+          : noTrade
+            ? 'TARGET_RECALIBRATION_SOURCE_REFRESH'
+            : 'TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE',
         direction: noTrade ? 'NO_TRADE_UNTIL_FRESH_TARGET_SOURCE' : 'RECALIBRATE_TARGET_WITH_FRESH_THESIS',
         magnitude: formulaEvidence.deltaValue,
         rationale: noTrade
@@ -2585,9 +2752,19 @@ const deriveZeroExecutableFormulaProfile = (input: {
       };
     }
     if (winner.key === 'RISK_GEOMETRY_RECALCULATION_FORMULA') {
-      const targetGap = (riskTargetShortfallPct ?? 0) > 0;
+      const basis = input.riskGeometryPolicy.formulaEvidenceBasis;
+      const targetGap = basis.includes('target_shortfall') || (riskTargetShortfallPct ?? 0) > 0;
+      const knob = targetGap
+        ? 'RISK_GEOMETRY_REQUIRED_TARGET_PRICE'
+        : basis.includes('stop_distance') || basis.includes('recalculated_stop_rr')
+          ? 'CURRENT_ENTRY_RECALCULATED_STOP_PROOF'
+          : basis.includes('target_buffer')
+            ? 'RISK_GEOMETRY_TARGET_BUFFER_POLICY'
+            : basis.includes('target_not_above')
+              ? 'RISK_GEOMETRY_TARGET_REFRESH'
+              : 'CURRENT_ENTRY_RECALCULATED_STOP_PROOF';
       return {
-        knob: targetGap ? 'RISK_GEOMETRY_REQUIRED_TARGET_PRICE' : 'CURRENT_ENTRY_RECALCULATED_STOP_PROOF',
+        knob,
         direction: targetGap ? 'RECALIBRATE_TARGET_OR_KEEP_NO_TRADE' : 'COMPLETE_STOP_RR_TARGET_BUFFER_PROOF',
         magnitude: formulaEvidence.deltaValue,
         rationale: targetGap
@@ -2650,8 +2827,16 @@ const deriveZeroExecutableFormulaProfile = (input: {
     `formula_delta:${formulaEvidence.deltaValue}`,
     `formula_adjustment_knob:${formulaAdjustment.knob}`,
     `formula_adjustment_direction:${formulaAdjustment.direction}`,
-    ...(targetSeverity > 0 ? [`target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`] : []),
-    ...(riskSeverity > 0 ? [`risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`] : []),
+    ...(targetSeverity > 0 ? [
+      `target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`,
+      `target_formula_basis:${input.targetPolicy.formulaEvidenceBasis}`,
+      `target_formula_delta:${input.targetPolicy.formulaDeltaValue}`
+    ] : []),
+    ...(riskSeverity > 0 ? [
+      `risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`,
+      `risk_formula_basis:${input.riskGeometryPolicy.formulaEvidenceBasis}`,
+      `risk_formula_delta:${input.riskGeometryPolicy.formulaDeltaValue}`
+    ] : []),
     ...(breakoutSeverity > 0 ? [
       `breakout_proof_gap_count:${breakoutProofGaps.size}`,
       `breakout_formula_basis:${input.breakoutPromotion.formulaEvidenceBasis}`,
@@ -7774,6 +7959,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationViabilityVerdict: targetRecalibrationPolicy.viabilityVerdict,
               targetRecalibrationViabilityReasons: targetRecalibrationPolicy.viabilityReasons,
               targetRecalibrationGapPolicyPct: targetRecalibrationPolicy.gapPolicyPct,
+              targetRecalibrationFormulaEvidenceBasis: targetRecalibrationPolicy.formulaEvidenceBasis,
+              targetRecalibrationFormulaObservedValue: targetRecalibrationPolicy.formulaObservedValue,
+              targetRecalibrationFormulaThresholdValue: targetRecalibrationPolicy.formulaThresholdValue,
+              targetRecalibrationFormulaDeltaValue: targetRecalibrationPolicy.formulaDeltaValue,
+              targetRecalibrationFormulaUnit: targetRecalibrationPolicy.formulaUnit,
               targetRecalibrationReasons: targetRecalibrationPolicy.reasons,
               targetRecalibrationRecommendedAction: targetRecalibrationPolicy.recommendedAction,
               riskGeometryPolicyVerdict: riskGeometryPolicy.verdict,
@@ -7804,6 +7994,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRepairLane: riskGeometryPolicy.repairLane,
               riskGeometryProofConfirmed: riskGeometryPolicy.proofConfirmed,
               riskGeometryProofReasons: riskGeometryPolicy.proofReasons,
+              riskGeometryFormulaEvidenceBasis: riskGeometryPolicy.formulaEvidenceBasis,
+              riskGeometryFormulaObservedValue: riskGeometryPolicy.formulaObservedValue,
+              riskGeometryFormulaThresholdValue: riskGeometryPolicy.formulaThresholdValue,
+              riskGeometryFormulaDeltaValue: riskGeometryPolicy.formulaDeltaValue,
+              riskGeometryFormulaUnit: riskGeometryPolicy.formulaUnit,
               riskGeometryReasons: riskGeometryPolicy.reasons,
               riskGeometryRecommendedAction: riskGeometryPolicy.recommendedAction,
               qualityGateLane: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.lane,
@@ -8034,6 +8229,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationViabilityVerdict: executionContract.targetRecalibrationViabilityVerdict,
               targetRecalibrationViabilityReasons: executionContract.targetRecalibrationViabilityReasons,
               targetRecalibrationGapPolicyPct: executionContract.targetRecalibrationGapPolicyPct,
+              targetRecalibrationFormulaEvidenceBasis: executionContract.targetRecalibrationFormulaEvidenceBasis,
+              targetRecalibrationFormulaObservedValue: executionContract.targetRecalibrationFormulaObservedValue,
+              targetRecalibrationFormulaThresholdValue: executionContract.targetRecalibrationFormulaThresholdValue,
+              targetRecalibrationFormulaDeltaValue: executionContract.targetRecalibrationFormulaDeltaValue,
+              targetRecalibrationFormulaUnit: executionContract.targetRecalibrationFormulaUnit,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
@@ -8064,6 +8264,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRepairLane: executionContract.riskGeometryRepairLane,
               riskGeometryProofConfirmed: executionContract.riskGeometryProofConfirmed,
               riskGeometryProofReasons: executionContract.riskGeometryProofReasons,
+              riskGeometryFormulaEvidenceBasis: executionContract.riskGeometryFormulaEvidenceBasis,
+              riskGeometryFormulaObservedValue: executionContract.riskGeometryFormulaObservedValue,
+              riskGeometryFormulaThresholdValue: executionContract.riskGeometryFormulaThresholdValue,
+              riskGeometryFormulaDeltaValue: executionContract.riskGeometryFormulaDeltaValue,
+              riskGeometryFormulaUnit: executionContract.riskGeometryFormulaUnit,
               riskGeometryReasons: executionContract.riskGeometryReasons,
               riskGeometryRecommendedAction: executionContract.riskGeometryRecommendedAction,
               qualityGateLane: executionContract.qualityGateLane,
@@ -8567,6 +8772,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationViabilityVerdict: executionContract.targetRecalibrationViabilityVerdict,
               targetRecalibrationViabilityReasons: executionContract.targetRecalibrationViabilityReasons,
               targetRecalibrationGapPolicyPct: executionContract.targetRecalibrationGapPolicyPct,
+              targetRecalibrationFormulaEvidenceBasis: executionContract.targetRecalibrationFormulaEvidenceBasis,
+              targetRecalibrationFormulaObservedValue: executionContract.targetRecalibrationFormulaObservedValue,
+              targetRecalibrationFormulaThresholdValue: executionContract.targetRecalibrationFormulaThresholdValue,
+              targetRecalibrationFormulaDeltaValue: executionContract.targetRecalibrationFormulaDeltaValue,
+              targetRecalibrationFormulaUnit: executionContract.targetRecalibrationFormulaUnit,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
@@ -8597,6 +8807,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRepairLane: executionContract.riskGeometryRepairLane,
               riskGeometryProofConfirmed: executionContract.riskGeometryProofConfirmed,
               riskGeometryProofReasons: executionContract.riskGeometryProofReasons,
+              riskGeometryFormulaEvidenceBasis: executionContract.riskGeometryFormulaEvidenceBasis,
+              riskGeometryFormulaObservedValue: executionContract.riskGeometryFormulaObservedValue,
+              riskGeometryFormulaThresholdValue: executionContract.riskGeometryFormulaThresholdValue,
+              riskGeometryFormulaDeltaValue: executionContract.riskGeometryFormulaDeltaValue,
+              riskGeometryFormulaUnit: executionContract.riskGeometryFormulaUnit,
               riskGeometryReasons: executionContract.riskGeometryReasons,
               riskGeometryRecommendedAction: executionContract.riskGeometryRecommendedAction,
               qualityGateLane: executionContract.qualityGateLane,
@@ -8949,6 +9164,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationViabilityVerdict: normalizeOptionalText(item.targetRecalibrationViabilityVerdict),
               targetRecalibrationViabilityReasons: Array.isArray(item.targetRecalibrationViabilityReasons) ? item.targetRecalibrationViabilityReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationGapPolicyPct: toOptionalFiniteNumber(item.targetRecalibrationGapPolicyPct),
+              targetRecalibrationFormulaEvidenceBasis: normalizeOptionalText(item.targetRecalibrationFormulaEvidenceBasis),
+              targetRecalibrationFormulaObservedValue: toOptionalFiniteNumber(item.targetRecalibrationFormulaObservedValue),
+              targetRecalibrationFormulaThresholdValue: toOptionalFiniteNumber(item.targetRecalibrationFormulaThresholdValue),
+              targetRecalibrationFormulaDeltaValue: toOptionalFiniteNumber(item.targetRecalibrationFormulaDeltaValue),
+              targetRecalibrationFormulaUnit: normalizeOptionalText(item.targetRecalibrationFormulaUnit),
               targetRecalibrationReasons: Array.isArray(item.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item.riskGeometryPolicyVerdict),
@@ -8979,6 +9199,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRepairLane: normalizeOptionalText(item.riskGeometryRepairLane),
               riskGeometryProofConfirmed: item.riskGeometryProofConfirmed == null ? null : Boolean(item.riskGeometryProofConfirmed),
               riskGeometryProofReasons: Array.isArray(item.riskGeometryProofReasons) ? item.riskGeometryProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              riskGeometryFormulaEvidenceBasis: normalizeOptionalText(item.riskGeometryFormulaEvidenceBasis),
+              riskGeometryFormulaObservedValue: toOptionalFiniteNumber(item.riskGeometryFormulaObservedValue),
+              riskGeometryFormulaThresholdValue: toOptionalFiniteNumber(item.riskGeometryFormulaThresholdValue),
+              riskGeometryFormulaDeltaValue: toOptionalFiniteNumber(item.riskGeometryFormulaDeltaValue),
+              riskGeometryFormulaUnit: normalizeOptionalText(item.riskGeometryFormulaUnit),
               riskGeometryReasons: Array.isArray(item.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryRecommendedAction: normalizeOptionalText(item.riskGeometryRecommendedAction),
               qualityGateLane: normalizeOptionalText(item.qualityGateLane),
@@ -9166,6 +9391,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationViabilityVerdict: normalizeOptionalText(item?.targetRecalibrationViabilityVerdict),
               targetRecalibrationViabilityReasons: Array.isArray(item?.targetRecalibrationViabilityReasons) ? item.targetRecalibrationViabilityReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationGapPolicyPct: toOptionalFiniteNumber(item?.targetRecalibrationGapPolicyPct),
+              targetRecalibrationFormulaEvidenceBasis: normalizeOptionalText(item?.targetRecalibrationFormulaEvidenceBasis),
+              targetRecalibrationFormulaObservedValue: toOptionalFiniteNumber(item?.targetRecalibrationFormulaObservedValue),
+              targetRecalibrationFormulaThresholdValue: toOptionalFiniteNumber(item?.targetRecalibrationFormulaThresholdValue),
+              targetRecalibrationFormulaDeltaValue: toOptionalFiniteNumber(item?.targetRecalibrationFormulaDeltaValue),
+              targetRecalibrationFormulaUnit: normalizeOptionalText(item?.targetRecalibrationFormulaUnit),
               targetRecalibrationReasons: Array.isArray(item?.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item?.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item?.riskGeometryPolicyVerdict),
@@ -9196,6 +9426,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRepairLane: normalizeOptionalText(item?.riskGeometryRepairLane),
               riskGeometryProofConfirmed: item?.riskGeometryProofConfirmed == null ? null : Boolean(item.riskGeometryProofConfirmed),
               riskGeometryProofReasons: Array.isArray(item?.riskGeometryProofReasons) ? item.riskGeometryProofReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
+              riskGeometryFormulaEvidenceBasis: normalizeOptionalText(item?.riskGeometryFormulaEvidenceBasis),
+              riskGeometryFormulaObservedValue: toOptionalFiniteNumber(item?.riskGeometryFormulaObservedValue),
+              riskGeometryFormulaThresholdValue: toOptionalFiniteNumber(item?.riskGeometryFormulaThresholdValue),
+              riskGeometryFormulaDeltaValue: toOptionalFiniteNumber(item?.riskGeometryFormulaDeltaValue),
+              riskGeometryFormulaUnit: normalizeOptionalText(item?.riskGeometryFormulaUnit),
               riskGeometryReasons: Array.isArray(item?.riskGeometryReasons) ? item.riskGeometryReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               riskGeometryRecommendedAction: normalizeOptionalText(item?.riskGeometryRecommendedAction),
               qualityGateLane: normalizeOptionalText(item?.qualityGateLane),

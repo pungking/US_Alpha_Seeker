@@ -67,6 +67,11 @@ const requiredSchemaFields = [
   'targetRecalibrationSourceStopPrice',
   'targetRecalibrationStopDistanceAtCurrent',
   'targetRecalibrationRequiredTargetSource',
+  'targetRecalibrationFormulaEvidenceBasis',
+  'targetRecalibrationFormulaObservedValue',
+  'targetRecalibrationFormulaThresholdValue',
+  'targetRecalibrationFormulaDeltaValue',
+  'targetRecalibrationFormulaUnit',
   'riskGeometryPolicyVerdict',
   'riskGeometryRecalibrationRequired',
   'riskGeometryNoTradeRequired',
@@ -75,6 +80,11 @@ const requiredSchemaFields = [
   'riskGeometryTargetRecalibrationCandidate',
   'riskGeometryTargetRecalibrationGapPolicyPct',
   'riskGeometryTargetNoTradeConfirmed',
+  'riskGeometryFormulaEvidenceBasis',
+  'riskGeometryFormulaObservedValue',
+  'riskGeometryFormulaThresholdValue',
+  'riskGeometryFormulaDeltaValue',
+  'riskGeometryFormulaUnit',
   'breakoutRetestProofConfirmed',
   'breakoutRetestProofReviewReady',
   'breakoutRetestProofContinuationConfirmed',
@@ -508,9 +518,21 @@ for (const [idx, row] of candidates.entries()) {
       'targetRecalibrationSourcePrice',
       'targetRecalibrationSourceStopPrice',
       'targetRecalibrationStopDistanceAtCurrent',
-      'targetRecalibrationGapPolicyPct'
+      'targetRecalibrationGapPolicyPct',
+      'targetRecalibrationFormulaObservedValue',
+      'targetRecalibrationFormulaThresholdValue',
+      'targetRecalibrationFormulaDeltaValue'
     ]) {
       if (!isFiniteNumber(row[field])) errors.push(`${label}: target recalibration missing numeric ${field}`);
+    }
+    if (!String(row.targetRecalibrationFormulaEvidenceBasis || '').trim()) {
+      errors.push(`${label}: target recalibration missing targetRecalibrationFormulaEvidenceBasis`);
+    }
+    if (!String(row.targetRecalibrationFormulaUnit || '').trim()) {
+      errors.push(`${label}: target recalibration missing targetRecalibrationFormulaUnit`);
+    }
+    if (String(row.zeroExecutableFormulaEvidenceBasis || '') !== String(row.targetRecalibrationFormulaEvidenceBasis || '')) {
+      errors.push(`${label}: target formula evidence basis must match targetRecalibrationFormulaEvidenceBasis`);
     }
     for (const field of ['targetRecalibrationCandidate', 'targetNoTradeConfirmed']) {
       if (!isBooleanLike(row[field])) errors.push(`${label}: target recalibration missing boolean ${field}`);
@@ -549,6 +571,21 @@ for (const [idx, row] of candidates.entries()) {
     if (!row.riskGeometryPolicyVerdict) errors.push(`${label}: risk geometry row missing riskGeometryPolicyVerdict`);
     if (!row.riskGeometryProofVerdict) errors.push(`${label}: risk geometry row missing riskGeometryProofVerdict`);
     if (!Array.isArray(row.riskGeometryProofReasons)) errors.push(`${label}: risk geometry row missing riskGeometryProofReasons array`);
+    if (!String(row.riskGeometryFormulaEvidenceBasis || '').trim()) {
+      errors.push(`${label}: risk geometry row missing riskGeometryFormulaEvidenceBasis`);
+    }
+    if (!String(row.riskGeometryFormulaUnit || '').trim()) {
+      errors.push(`${label}: risk geometry row missing riskGeometryFormulaUnit`);
+    }
+    for (const field of ['riskGeometryFormulaObservedValue', 'riskGeometryFormulaThresholdValue', 'riskGeometryFormulaDeltaValue']) {
+      if (!isFiniteNumber(row[field])) errors.push(`${label}: risk geometry row missing numeric ${field}`);
+    }
+    if (
+      ['STOP_TARGET_RISK_GEOMETRY_RECALCULATION', 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'].includes(tuningLane(row)) &&
+      String(row.zeroExecutableFormulaEvidenceBasis || '') !== String(row.riskGeometryFormulaEvidenceBasis || '')
+    ) {
+      errors.push(`${label}: risk geometry formula evidence basis must match riskGeometryFormulaEvidenceBasis`);
+    }
     if ((row.decisionReason === 'wait_target_near_current' || row.decisionReason === 'blocked_target_too_close') && !isTrue(row.riskGeometryNoTradeRequired)) {
       errors.push(`${label}: target geometry row must declare riskGeometryNoTradeRequired=true`);
     }
