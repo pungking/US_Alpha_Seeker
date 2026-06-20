@@ -10,7 +10,36 @@
         "STRONGBUY"
       ],
       "currentEntryMinRr": 2,
-      "currentEntryMinTargetBufferPct": 3
+      "currentEntryMinTargetBufferPct": 3,
+      "zeroExecutableFormulaContract": {
+        "version": "zero_executable_formula_v1",
+        "requiredRowFields": [
+          "zeroExecutableFormulaBottleneck",
+          "zeroExecutableFormulaSeverity",
+          "zeroExecutableTargetShortfallPct",
+          "zeroExecutableRiskTargetShortfallPct",
+          "zeroExecutableBreakoutProofGapCount",
+          "zeroExecutableStructureProofGapCount",
+          "zeroExecutableFormulaReasons",
+          "zeroExecutableFormulaRecommendedAction"
+        ],
+        "laneToBottleneck": {
+          "TARGET_RECALIBRATION": "TARGET_RECALIBRATION_FORMULA",
+          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": "RISK_GEOMETRY_RECALCULATION_FORMULA",
+          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": "RISK_GEOMETRY_RECALCULATION_FORMULA",
+          "BREAKOUT_PROOF_CONFIRMED_GENERATION": "BREAKOUT_PROOF_FORMULA",
+          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "STRUCTURE_PROOF_FORMULA",
+          "NO_ZERO_EXECUTABLE_TUNING_ACTION": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK"
+        },
+        "evidenceRules": {
+          "TARGET_RECALIBRATION": "zeroExecutableTargetShortfallPct must be positive",
+          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": "zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence",
+          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": "zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence",
+          "BREAKOUT_PROOF_CONFIRMED_GENERATION": "zeroExecutableBreakoutProofGapCount must be positive",
+          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "zeroExecutableStructureProofGapCount must be positive",
+          "NO_ZERO_EXECUTABLE_TUNING_ACTION": "neutral bottleneck, zero severity, and no positive formula gaps"
+        }
+      }
     }
   },
   "execution_contract": {

@@ -14,14 +14,25 @@ const CASES = [
     fixture: 'STAGE6_ALPHA_FINAL_MISSING_FORMULA.fixture.json',
     expectedOverall: 'warn_formula_bottleneck_fields_missing',
     expectedCoverage: { present: 0, total: 1 },
+    expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 1,
     expectedEvidenceQualityIssues: 1
+  },
+  {
+    name: 'formula_contract_missing_warns',
+    fixture: 'STAGE6_ALPHA_FINAL_FORMULA_CONTRACT_MISSING.fixture.json',
+    expectedOverall: 'warn_formula_contract_missing_or_mismatch',
+    expectedCoverage: { present: 5, total: 5 },
+    expectedManifestContractIssues: 1,
+    expectedLaneConsistencyIssues: 0,
+    expectedEvidenceQualityIssues: 0
   },
   {
     name: 'formula_fields_present_passes',
     fixture: 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json',
     expectedOverall: 'pass_executable_present_focus_fields_ok',
     expectedCoverage: { present: 5, total: 5 },
+    expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 0,
     expectedEvidenceQualityIssues: 0
   },
@@ -30,6 +41,7 @@ const CASES = [
     fixture: 'STAGE6_ALPHA_FINAL_FORMULA_MISMATCH.fixture.json',
     expectedOverall: 'warn_formula_bottleneck_lane_mismatch',
     expectedCoverage: { present: 2, total: 2 },
+    expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 2,
     expectedEvidenceQualityIssues: 2
   },
@@ -38,6 +50,7 @@ const CASES = [
     fixture: 'STAGE6_ALPHA_FINAL_FORMULA_EVIDENCE_WEAK.fixture.json',
     expectedOverall: 'warn_formula_bottleneck_evidence_weak',
     expectedCoverage: { present: 1, total: 1 },
+    expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 0,
     expectedEvidenceQualityIssues: 1
   }
@@ -110,6 +123,13 @@ function runCase(testCase) {
     }
   }
   const laneIssues = Number(report.summary?.formulaLaneConsistencyIssues || 0);
+  const contractIssues = Number(report.summary?.formulaManifestContractIssues || 0);
+  if (contractIssues !== testCase.expectedManifestContractIssues) {
+    throw new Error(`${testCase.name}: expected formulaManifestContractIssues=${testCase.expectedManifestContractIssues}, got ${contractIssues}`);
+  }
+  if (testCase.expectedManifestContractIssues > 0 && !Array.isArray(report.formulaManifestContractIssues)) {
+    throw new Error(`${testCase.name}: expected formulaManifestContractIssues array in report`);
+  }
   if (laneIssues !== testCase.expectedLaneConsistencyIssues) {
     throw new Error(`${testCase.name}: expected formulaLaneConsistencyIssues=${testCase.expectedLaneConsistencyIssues}, got ${laneIssues}`);
   }
@@ -122,6 +142,7 @@ function runCase(testCase) {
     overall: report.overall,
     coverage: report.fieldCoverage?.zeroExecutableFormulaBottleneck,
     requiredFormulaFields: report.requiredFormulaFields,
+    contractIssues,
     laneIssues,
     evidenceIssues
   };

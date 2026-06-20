@@ -7,6 +7,27 @@ const REPO_ROOT = process.cwd();
 const DEFAULT_STAGE6_DIR = 'state/stage6-audit-source';
 const OUT_JSON = process.env.STAGE6_FOCUS_AUDIT_OUT_JSON || 'state/stage6-fresh-focus-audit.json';
 const OUT_MD = process.env.STAGE6_FOCUS_AUDIT_OUT_MD || 'docs/STAGE6_FRESH_FOCUS_AUDIT.md';
+const REQUIRED_FORMULA_FIELDS = [
+  'zeroExecutableFormulaBottleneck',
+  'zeroExecutableFormulaSeverity',
+  'zeroExecutableTargetShortfallPct',
+  'zeroExecutableRiskTargetShortfallPct',
+  'zeroExecutableBreakoutProofGapCount',
+  'zeroExecutableStructureProofGapCount',
+  'zeroExecutableFormulaReasons',
+  'zeroExecutableFormulaRecommendedAction'
+];
+const EXPECTED_FORMULA_CONTRACT = {
+  version: 'zero_executable_formula_v1',
+  laneToBottleneck: {
+    TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
+    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
+    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
+    BREAKOUT_PROOF_CONFIRMED_GENERATION: 'BREAKOUT_PROOF_FORMULA',
+    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'STRUCTURE_PROOF_FORMULA',
+    NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
+  }
+};
 
 function resolveRepo(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(REPO_ROOT, filePath);
@@ -236,6 +257,45 @@ function formulaEvidenceQualityIssue(row) {
   };
 }
 
+function formulaManifestContractIssues(stage6) {
+  const contract = stage6?.manifest?.decisionGate?.zeroExecutableFormulaContract || stage6?.decisionGate?.zeroExecutableFormulaContract || null;
+  if (!contract || typeof contract !== 'object') {
+    return [{ issue: 'formula_contract_missing', path: 'manifest.decisionGate.zeroExecutableFormulaContract' }];
+  }
+  const issues = [];
+  if (contract.version !== EXPECTED_FORMULA_CONTRACT.version) {
+    issues.push({
+      issue: 'formula_contract_version_mismatch',
+      expected: EXPECTED_FORMULA_CONTRACT.version,
+      actual: contract.version || null
+    });
+  }
+  const requiredFields = new Set(Array.isArray(contract.requiredRowFields) ? contract.requiredRowFields : []);
+  for (const field of REQUIRED_FORMULA_FIELDS) {
+    if (!requiredFields.has(field)) {
+      issues.push({ issue: 'formula_contract_required_field_missing', field });
+    }
+  }
+  const laneMap = contract.laneToBottleneck || {};
+  for (const [lane, expected] of Object.entries(EXPECTED_FORMULA_CONTRACT.laneToBottleneck)) {
+    if (laneMap[lane] !== expected) {
+      issues.push({
+        issue: 'formula_contract_lane_mapping_mismatch',
+        lane,
+        expected,
+        actual: laneMap[lane] || null
+      });
+    }
+  }
+  const evidenceRules = contract.evidenceRules || {};
+  for (const lane of Object.keys(EXPECTED_FORMULA_CONTRACT.laneToBottleneck)) {
+    if (!String(evidenceRules[lane] || '').trim()) {
+      issues.push({ issue: 'formula_contract_evidence_rule_missing', lane });
+    }
+  }
+  return issues;
+}
+
 function requiredFieldCoverage(rows, field) {
   return {
     present: rows.filter((row) => Object.prototype.hasOwnProperty.call(row, field)).length,
@@ -340,6 +400,7 @@ function buildMarkdown(report) {
   lines.push(`| targetRecalibrationRequiredTargetSourceCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationRequiredTargetSourceCounts))} |`);
   lines.push(`| riskGeometryTargetRecalibrationCandidateCounts | ${esc(JSON.stringify(report.summary.riskGeometryTargetRecalibrationCandidateCounts))} |`);
   lines.push(`| zeroExecutableFormulaBottleneckCounts | ${esc(JSON.stringify(report.summary.zeroExecutableFormulaBottleneckCounts))} |`);
+  lines.push(`| formulaManifestContractIssues | ${esc(report.summary.formulaManifestContractIssues)} |`);
   lines.push(`| formulaLaneConsistencyIssues | ${esc(report.summary.formulaLaneConsistencyIssues)} |`);
   lines.push(`| formulaEvidenceQualityIssues | ${esc(report.summary.formulaEvidenceQualityIssues)} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
@@ -376,6 +437,7 @@ function buildMarkdown(report) {
   lines.push('## Track Separation');
   lines.push('');
   lines.push('- `warn_formula_bottleneck_fields_missing` means the Stage6 artifact predates the formula-bottleneck contract or the producer failed to emit it. Treat that as a fresh-hash verification gap, not a sidecar problem.');
+  lines.push('- `warn_formula_contract_missing_or_mismatch` means rows may expose formula fields, but the artifact manifest does not publish the formula tuning contract version/rules.');
   lines.push('- `warn_formula_bottleneck_lane_mismatch` means a row has formula fields, but the formula bottleneck contradicts its zero-executable tuning lane. Fix Stage6 producer mapping before tuning thresholds.');
   lines.push('- `warn_formula_bottleneck_evidence_weak` means the formula bottleneck lane is present, but its numeric/proof evidence is too weak to support tuning.');
   lines.push('- Stage6 zero-executable tuning belongs to the analysis producer track, not sidecar submit/reprice.');
@@ -398,16 +460,7 @@ function main() {
     'breakoutRetestProofConfirmed',
     'targetRecalibrationViabilityVerdict'
   ];
-  const requiredFormulaFields = [
-    'zeroExecutableFormulaBottleneck',
-    'zeroExecutableFormulaSeverity',
-    'zeroExecutableTargetShortfallPct',
-    'zeroExecutableRiskTargetShortfallPct',
-    'zeroExecutableBreakoutProofGapCount',
-    'zeroExecutableStructureProofGapCount',
-    'zeroExecutableFormulaReasons',
-    'zeroExecutableFormulaRecommendedAction'
-  ];
+  const requiredFormulaFields = REQUIRED_FORMULA_FIELDS;
   const fieldCoverage = {
     zeroExecutableTuningLane: requiredFieldCoverage(rows, 'zeroExecutableTuningLane'),
     breakoutRetestProofConfirmed: requiredFieldCoverage(rows, 'breakoutRetestProofConfirmed'),
@@ -461,6 +514,7 @@ function main() {
     const coverage = fieldCoverage[field];
     return coverage?.total > 0 && coverage.present === coverage.total;
   });
+  const formulaManifestIssues = formulaManifestContractIssues(stage6);
   const formulaLaneConsistencyIssues = rows.map(formulaLaneConsistencyIssue).filter(Boolean);
   const formulaEvidenceQualityIssues = rows.map(formulaEvidenceQualityIssue).filter(Boolean);
   const hasOpaqueOtherOnly = rows.length > 0 && Object.keys(countBy(rows, blockerCategory)).length === 1 && countBy(rows, blockerCategory).other === rows.length;
@@ -470,6 +524,8 @@ function main() {
       ? 'fail_required_focus_fields_missing'
       : !formulaCoveragePass
         ? 'warn_formula_bottleneck_fields_missing'
+        : formulaManifestIssues.length > 0
+          ? 'warn_formula_contract_missing_or_mismatch'
         : formulaLaneConsistencyIssues.length > 0
           ? 'warn_formula_bottleneck_lane_mismatch'
           : formulaEvidenceQualityIssues.length > 0
@@ -502,6 +558,7 @@ function main() {
       targetRecalibrationRequiredTargetSourceCounts: countBy(rows, (row) => row?.targetRecalibrationRequiredTargetSource || 'missing'),
       riskGeometryTargetRecalibrationCandidateCounts: countBy(rows, (row) => String(row?.riskGeometryTargetRecalibrationCandidate ?? 'missing')),
       zeroExecutableFormulaBottleneckCounts: countBy(rows, (row) => row?.zeroExecutableFormulaBottleneck || 'missing'),
+      formulaManifestContractIssues: formulaManifestIssues.length,
       formulaLaneConsistencyIssues: formulaLaneConsistencyIssues.length,
       formulaEvidenceQualityIssues: formulaEvidenceQualityIssues.length,
       blockerCategoryCounts: countBy(rows, blockerCategory)
@@ -509,6 +566,7 @@ function main() {
     fieldCoverage,
     requiredFocusFields,
     requiredFormulaFields,
+    formulaManifestContractIssues: formulaManifestIssues,
     formulaLaneConsistencyIssues,
     formulaEvidenceQualityIssues,
     rawExecutableDowngrades: rawExecutableDowngradeRows,
