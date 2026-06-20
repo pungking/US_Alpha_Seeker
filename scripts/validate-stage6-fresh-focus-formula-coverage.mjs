@@ -31,7 +31,7 @@ const CASES = [
     name: 'formula_fields_present_passes',
     fixture: 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json',
     expectedOverall: 'pass_executable_present_focus_fields_ok',
-    expectedCoverage: { present: 5, total: 5 },
+    expectedCoverage: { present: 6, total: 6 },
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 0,
     expectedEvidenceQualityIssues: 0

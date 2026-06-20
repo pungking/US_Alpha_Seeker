@@ -12,7 +12,7 @@ const CASES = [
     name: 'formula_v3_backlog_ready',
     fixture: 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json',
     expectedOverall: 'pass_formula_tuning_backlog_ready',
-    expectedProducerRows: 4,
+    expectedProducerRows: 5,
     expectedTopTrack: 'risk_geometry_recalculation',
     expectedTopKnob: 'RISK_GEOMETRY_REQUIRED_TARGET_PRICE',
     expectMissingV3: 0
