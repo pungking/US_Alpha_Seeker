@@ -1,0 +1,37 @@
+{
+  "schema_version": "stage6_alpha_final/v1",
+  "generated_at": "2026-06-20T00:00:00.000Z",
+  "manifest": {
+    "stage6Hash": "fixture-formula-evidence-weak",
+    "decisionGate": {
+      "actionableVerdicts": ["BUY", "STRONG_BUY", "STRONGBUY"],
+      "currentEntryMinRr": 2,
+      "currentEntryMinTargetBufferPct": 3
+    }
+  },
+  "execution_contract": {
+    "modelTop6": [
+      {
+        "symbol": "FORMWEAK",
+        "verdict": "BUY",
+        "finalDecision": "WAIT_PRICE",
+        "decisionReason": "wait_target_near_current",
+        "executionBucket": "WATCHLIST",
+        "zeroExecutableTuningLane": "TARGET_RECALIBRATION",
+        "breakoutRetestProofConfirmed": false,
+        "targetRecalibrationViabilityVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REVIEW_READY",
+        "zeroExecutableFormulaBottleneck": "TARGET_RECALIBRATION_FORMULA",
+        "zeroExecutableFormulaSeverity": 1,
+        "zeroExecutableTargetShortfallPct": 0,
+        "zeroExecutableRiskTargetShortfallPct": null,
+        "zeroExecutableBreakoutProofGapCount": 0,
+        "zeroExecutableStructureProofGapCount": 0,
+        "zeroExecutableFormulaReasons": ["target_shortfall_pct:0"],
+        "zeroExecutableFormulaRecommendedAction": "Weak evidence fixture."
+      }
+    ],
+    "watchlistTop": [],
+    "executablePicks": []
+  },
+  "alpha_candidates": []
+}

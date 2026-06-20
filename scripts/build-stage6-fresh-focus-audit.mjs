@@ -64,6 +64,11 @@ function numberOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function stringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
 function esc(value) {
   return String(value ?? 'N/A').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
@@ -181,6 +186,56 @@ function formulaLaneConsistencyIssue(row) {
   };
 }
 
+function formulaEvidenceQualityIssue(row) {
+  const lane = String(row?.zeroExecutableTuningLane || '').trim().toUpperCase();
+  const bottleneck = String(row?.zeroExecutableFormulaBottleneck || '').trim().toUpperCase();
+  const severity = numberOrNull(row?.zeroExecutableFormulaSeverity);
+  const targetShortfall = numberOrNull(row?.zeroExecutableTargetShortfallPct);
+  const riskShortfall = numberOrNull(row?.zeroExecutableRiskTargetShortfallPct);
+  const breakoutGaps = numberOrNull(row?.zeroExecutableBreakoutProofGapCount);
+  const structureGaps = numberOrNull(row?.zeroExecutableStructureProofGapCount);
+  const reasons = stringArray(row?.zeroExecutableFormulaReasons);
+  const action = String(row?.zeroExecutableFormulaRecommendedAction || '').trim();
+  const issueReasons = [];
+
+  if (!Number.isFinite(severity)) issueReasons.push('formula_severity_missing');
+  if (reasons.length === 0) issueReasons.push('formula_reasons_missing');
+  if (!action) issueReasons.push('formula_recommended_action_missing');
+
+  if (lane === 'TARGET_RECALIBRATION' && !(targetShortfall != null && targetShortfall > 0)) {
+    issueReasons.push('target_shortfall_not_positive');
+  }
+  if (
+    (lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' || lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') &&
+    !(severity != null && severity > 0 && reasons.some((reason) => /risk|stop|target|geometry|recalculated|proof/i.test(reason)))
+  ) {
+    issueReasons.push('risk_geometry_formula_evidence_weak');
+  }
+  if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION' && !(breakoutGaps != null && breakoutGaps > 0)) {
+    issueReasons.push('breakout_proof_gap_count_not_positive');
+  }
+  if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION' && !(structureGaps != null && structureGaps > 0)) {
+    issueReasons.push('structure_proof_gap_count_not_positive');
+  }
+  if (lane === 'NO_ZERO_EXECUTABLE_TUNING_ACTION') {
+    if (bottleneck !== 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK') issueReasons.push('no_action_bottleneck_not_neutral');
+    if (severity !== 0) issueReasons.push('no_action_severity_not_zero');
+    if ((targetShortfall != null && targetShortfall > 0) || (riskShortfall != null && riskShortfall > 0) || (breakoutGaps != null && breakoutGaps > 0) || (structureGaps != null && structureGaps > 0)) {
+      issueReasons.push('no_action_has_positive_formula_gap');
+    }
+  }
+  if (issueReasons.length === 0) return null;
+  return {
+    symbol: normalizeSymbol(row),
+    zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
+    zeroExecutableFormulaBottleneck: row?.zeroExecutableFormulaBottleneck || null,
+    zeroExecutableFormulaSeverity: severity,
+    issueReasons,
+    finalDecision: decisionOf(row),
+    decisionReason: reasonOf(row)
+  };
+}
+
 function requiredFieldCoverage(rows, field) {
   return {
     present: rows.filter((row) => Object.prototype.hasOwnProperty.call(row, field)).length,
@@ -286,6 +341,7 @@ function buildMarkdown(report) {
   lines.push(`| riskGeometryTargetRecalibrationCandidateCounts | ${esc(JSON.stringify(report.summary.riskGeometryTargetRecalibrationCandidateCounts))} |`);
   lines.push(`| zeroExecutableFormulaBottleneckCounts | ${esc(JSON.stringify(report.summary.zeroExecutableFormulaBottleneckCounts))} |`);
   lines.push(`| formulaLaneConsistencyIssues | ${esc(report.summary.formulaLaneConsistencyIssues)} |`);
+  lines.push(`| formulaEvidenceQualityIssues | ${esc(report.summary.formulaEvidenceQualityIssues)} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
   lines.push(`| rawExecutableDowngrades | ${esc(JSON.stringify(report.rawExecutableDowngrades))} |`);
   lines.push('');
@@ -321,6 +377,7 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('- `warn_formula_bottleneck_fields_missing` means the Stage6 artifact predates the formula-bottleneck contract or the producer failed to emit it. Treat that as a fresh-hash verification gap, not a sidecar problem.');
   lines.push('- `warn_formula_bottleneck_lane_mismatch` means a row has formula fields, but the formula bottleneck contradicts its zero-executable tuning lane. Fix Stage6 producer mapping before tuning thresholds.');
+  lines.push('- `warn_formula_bottleneck_evidence_weak` means the formula bottleneck lane is present, but its numeric/proof evidence is too weak to support tuning.');
   lines.push('- Stage6 zero-executable tuning belongs to the analysis producer track, not sidecar submit/reprice.');
   lines.push('- `ops-health-report=fail` belongs to the alpha-exec-engine protection/guard metadata track and must not be used to tune Stage6 entry policy.');
   lines.push('- If zero-executable repeats with clear focus metrics, move to producer tuning: breakout proofConfirmed criteria, target recalibration formula, and risk-geometry recalculation evidence.');
@@ -405,6 +462,7 @@ function main() {
     return coverage?.total > 0 && coverage.present === coverage.total;
   });
   const formulaLaneConsistencyIssues = rows.map(formulaLaneConsistencyIssue).filter(Boolean);
+  const formulaEvidenceQualityIssues = rows.map(formulaEvidenceQualityIssue).filter(Boolean);
   const hasOpaqueOtherOnly = rows.length > 0 && Object.keys(countBy(rows, blockerCategory)).length === 1 && countBy(rows, blockerCategory).other === rows.length;
   const overall = rows.length === 0
     ? 'fail_no_rows'
@@ -414,6 +472,8 @@ function main() {
         ? 'warn_formula_bottleneck_fields_missing'
         : formulaLaneConsistencyIssues.length > 0
           ? 'warn_formula_bottleneck_lane_mismatch'
+          : formulaEvidenceQualityIssues.length > 0
+            ? 'warn_formula_bottleneck_evidence_weak'
           : hasOpaqueOtherOnly
             ? 'warn_opaque_blocker_categories'
             : executableRows.length > 0
@@ -443,12 +503,14 @@ function main() {
       riskGeometryTargetRecalibrationCandidateCounts: countBy(rows, (row) => String(row?.riskGeometryTargetRecalibrationCandidate ?? 'missing')),
       zeroExecutableFormulaBottleneckCounts: countBy(rows, (row) => row?.zeroExecutableFormulaBottleneck || 'missing'),
       formulaLaneConsistencyIssues: formulaLaneConsistencyIssues.length,
+      formulaEvidenceQualityIssues: formulaEvidenceQualityIssues.length,
       blockerCategoryCounts: countBy(rows, blockerCategory)
     },
     fieldCoverage,
     requiredFocusFields,
     requiredFormulaFields,
     formulaLaneConsistencyIssues,
+    formulaEvidenceQualityIssues,
     rawExecutableDowngrades: rawExecutableDowngradeRows,
     trackSeparation: {
       stage6ProducerTuning: ['breakout_proofConfirmed_criteria', 'target_recalibration_formula', 'risk_geometry_recalculation_evidence'],

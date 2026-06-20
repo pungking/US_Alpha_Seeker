@@ -14,21 +14,32 @@ const CASES = [
     fixture: 'STAGE6_ALPHA_FINAL_MISSING_FORMULA.fixture.json',
     expectedOverall: 'warn_formula_bottleneck_fields_missing',
     expectedCoverage: { present: 0, total: 1 },
-    expectedLaneConsistencyIssues: 1
+    expectedLaneConsistencyIssues: 1,
+    expectedEvidenceQualityIssues: 1
   },
   {
     name: 'formula_fields_present_passes',
     fixture: 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json',
     expectedOverall: 'pass_executable_present_focus_fields_ok',
     expectedCoverage: { present: 5, total: 5 },
-    expectedLaneConsistencyIssues: 0
+    expectedLaneConsistencyIssues: 0,
+    expectedEvidenceQualityIssues: 0
   },
   {
     name: 'formula_lane_mismatch_warns',
     fixture: 'STAGE6_ALPHA_FINAL_FORMULA_MISMATCH.fixture.json',
     expectedOverall: 'warn_formula_bottleneck_lane_mismatch',
     expectedCoverage: { present: 2, total: 2 },
-    expectedLaneConsistencyIssues: 2
+    expectedLaneConsistencyIssues: 2,
+    expectedEvidenceQualityIssues: 2
+  },
+  {
+    name: 'formula_evidence_weak_warns',
+    fixture: 'STAGE6_ALPHA_FINAL_FORMULA_EVIDENCE_WEAK.fixture.json',
+    expectedOverall: 'warn_formula_bottleneck_evidence_weak',
+    expectedCoverage: { present: 1, total: 1 },
+    expectedLaneConsistencyIssues: 0,
+    expectedEvidenceQualityIssues: 1
   }
 ];
 const REQUIRED_FORMULA_FIELDS = [
@@ -97,12 +108,17 @@ function runCase(testCase) {
   if (laneIssues !== testCase.expectedLaneConsistencyIssues) {
     throw new Error(`${testCase.name}: expected formulaLaneConsistencyIssues=${testCase.expectedLaneConsistencyIssues}, got ${laneIssues}`);
   }
+  const evidenceIssues = Number(report.summary?.formulaEvidenceQualityIssues || 0);
+  if (evidenceIssues !== testCase.expectedEvidenceQualityIssues) {
+    throw new Error(`${testCase.name}: expected formulaEvidenceQualityIssues=${testCase.expectedEvidenceQualityIssues}, got ${evidenceIssues}`);
+  }
   return {
     name: testCase.name,
     overall: report.overall,
     coverage: report.fieldCoverage?.zeroExecutableFormulaBottleneck,
     requiredFormulaFields: report.requiredFormulaFields,
-    laneIssues
+    laneIssues,
+    evidenceIssues
   };
 }
 
