@@ -82,6 +82,13 @@ Interpretation:
 
 After RTH opens, inspect only the first sidecar run that consumes the fresh Stage6 hash.
 
+Precondition:
+
+- Track A must have already identified the exact Stage6 file/hash.
+- The sidecar run must reference that same hash or a newer expected fresh hash.
+- If no fresh sidecar run exists yet, do not poll indefinitely. Wait for the first
+  scheduled sidecar run, inspect it once, then stop.
+
 Required safe-mode checks:
 
 - `previewStale=false`
@@ -106,3 +113,24 @@ Expected zero-executable routing:
 - If an actionable payload appears in safe mode, verify it remains non-mutating and wait for an explicit execution approval gate before any broker path.
 - If zero-executable repeats, do not keep observing. Move to Stage6 producer tuning using the row-level proof fields.
 - If sidecar consumes a stale hash, fix artifact handoff/freshness before discussing entry/reprice/submit behavior.
+- If there is no actionable event and the hash was consumed correctly, close the
+  RTH check as `no_event_observed_once` and return to producer audits rather than
+  opening a multi-hour monitor loop.
+
+## Evidence Template
+
+Record the one-shot result in this shape:
+
+```json
+{
+  "stage6Hash": "<fresh hash>",
+  "sidecarConsumedHash": "<sidecar hash>",
+  "previewStale": false,
+  "decisionAuditRows": 0,
+  "payloadExpectation": "<status>",
+  "topSkipReasonCategories": {},
+  "brokerMutationAttempted": false,
+  "brokerMutationSubmitted": false,
+  "result": "pass_no_event_observed_once"
+}
+```

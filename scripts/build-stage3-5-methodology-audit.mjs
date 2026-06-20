@@ -17,6 +17,7 @@ const SOURCE_FILES = {
   stage5: 'components/IctAnalysis.tsx',
   stage6: 'components/AlphaAnalysis.tsx'
 };
+const FORMULA_TOLERANCE = 0.15;
 
 function resolveRepo(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(ROOT, filePath);
@@ -88,6 +89,11 @@ function num(value) {
 function round(value, digits = 2) {
   const n = Number(value);
   return Number.isFinite(n) ? Number(n.toFixed(digits)) : null;
+}
+
+function clampScore(value) {
+  const n = num(value);
+  return n == null ? null : Math.max(0, Math.min(100, n));
 }
 
 function pct(numerator, denominator) {
@@ -244,10 +250,47 @@ function stage3ArtifactAudit(rows, findings) {
   if (missingIntegrity.length) {
     addFinding(findings, 'Stage3', 'medium', 'stage3_integrity_reasons_coverage_gap', 'Some rows do not expose integrityReasons.', { sample: missingIntegrity.slice(0, 20), count: missingIntegrity.length }, 'Emit integrityReasons as an array for every Stage3 row, even when empty.');
   }
+  const compositeFormulaMismatches = rows.map((row) => {
+    const fundamentalScore = num(row.fundamentalScore);
+    const qualityScore = num(row.qualityScore);
+    const compositeAlpha = num(row.compositeAlpha);
+    if (fundamentalScore == null || qualityScore == null || compositeAlpha == null) return null;
+    const expectedCompositeAlpha = clampScore((qualityScore * 0.3) + (fundamentalScore * 0.7));
+    const delta = Math.abs(expectedCompositeAlpha - compositeAlpha);
+    return delta > FORMULA_TOLERANCE
+      ? {
+          symbol: normalizeSymbol(row),
+          fundamentalScore: round(fundamentalScore),
+          qualityScore: round(qualityScore),
+          compositeAlpha: round(compositeAlpha),
+          expectedCompositeAlpha: round(expectedCompositeAlpha),
+          delta: round(delta)
+        }
+      : null;
+  }).filter(Boolean);
+  if (compositeFormulaMismatches.length) {
+    addFinding(
+      findings,
+      'Stage3',
+      'high',
+      'stage3_composite_formula_mismatch',
+      'Stage3 compositeAlpha does not match the documented 70/30 fundamental/quality formula.',
+      compositeFormulaMismatches.slice(0, 20),
+      'Keep compositeAlpha deterministic: clamp(qualityScore * 0.3 + fundamentalScore * 0.7) after the final bounded fundamental score.',
+      SOURCE_FILES.stage3,
+      lineOf(SOURCE_FILES.stage3, /compositeAlpha/)
+    );
+  }
   return {
     rows: rows.length,
     scoreStats: numericStats(rows, 'fundamentalScore'),
     compositeStats: numericStats(rows, 'compositeAlpha'),
+    formulaConsistency: {
+      compositeFormula: 'clamp(qualityScore * 0.3 + fundamentalScore * 0.7)',
+      tolerance: FORMULA_TOLERANCE,
+      mismatches: compositeFormulaMismatches.length,
+      sample: compositeFormulaMismatches.slice(0, 10)
+    },
     coverage: cov,
     dataQualityCounts: countBy(rows, (row) => String(row.dataQuality || 'missing')),
     imputedCount: rows.filter((row) => row.isImputed === true).length,
@@ -293,9 +336,42 @@ function stage4ArtifactAudit(rows, findings, stage6Rows = []) {
   if (heuristicHigh.length) {
     addFinding(findings, 'Stage4', 'high', 'stage4_heuristic_score_too_high', 'Heuristic technical fallback produced a high score.', heuristicHigh.slice(0, 20), 'Cap heuristic rows and prevent breakout/structure promotion from non-OHLCV evidence.', SOURCE_FILES.stage4, lineOf(SOURCE_FILES.stage4, /dataSource:\s*'HEURISTIC'/));
   }
+  const finalScoreMismatches = rows.map((row) => {
+    const technicalScore = num(row.technicalScore);
+    const finalScore = num(row.scoreBreakdown?.finalScore);
+    if (technicalScore == null || finalScore == null) return null;
+    const delta = Math.abs(technicalScore - finalScore);
+    return delta > FORMULA_TOLERANCE
+      ? {
+          symbol: normalizeSymbol(row),
+          technicalScore: round(technicalScore),
+          scoreBreakdownFinalScore: round(finalScore),
+          delta: round(delta)
+        }
+      : null;
+  }).filter(Boolean);
+  if (finalScoreMismatches.length) {
+    addFinding(
+      findings,
+      'Stage4',
+      'high',
+      'stage4_final_score_mismatch',
+      'Stage4 technicalScore diverges from scoreBreakdown.finalScore.',
+      finalScoreMismatches.slice(0, 20),
+      'Keep scoreBreakdown.finalScore synchronized after all signal bonuses, caps, and hygiene penalties.',
+      SOURCE_FILES.stage4,
+      lineOf(SOURCE_FILES.stage4, /scoreBreakdown/)
+    );
+  }
   return {
     rows: rows.length,
     scoreStats: numericStats(rows, 'technicalScore'),
+    formulaConsistency: {
+      finalScoreContract: 'technicalScore == scoreBreakdown.finalScore after all Stage4 overlays',
+      tolerance: FORMULA_TOLERANCE,
+      mismatches: finalScoreMismatches.length,
+      sample: finalScoreMismatches.slice(0, 10)
+    },
     coverage: cov,
     dataSourceCounts: countBy(rows, (row) => String(row.dataSource || 'missing')),
     dataQualityStateCounts: countBy(rows, (row) => String(row.techMetrics?.dataQualityState || 'missing')),
@@ -329,9 +405,57 @@ function stage5ArtifactAudit(rows, findings) {
   if (weakMetricHighScore.length) {
     addFinding(findings, 'Stage5', 'high', 'stage5_high_score_without_metric_evidence', 'High ICT score lacks full component evidence.', weakMetricHighScore.slice(0, 20), 'Do not allow high-confidence ICT usage without full metric components.');
   }
+  const weightedComponentMismatches = rows.map((row) => {
+    const fundamentalScore = num(row.fundamentalScore);
+    const technicalScore = num(row.technicalScore);
+    const ictScore = num(row.ictScore);
+    const baseFundamentalPart = num(row.compositeBreakdown?.baseFundamentalPart);
+    const baseTechnicalPart = num(row.compositeBreakdown?.baseTechnicalPart);
+    const baseIctPart = num(row.compositeBreakdown?.baseIctPart);
+    if ([fundamentalScore, technicalScore, ictScore, baseFundamentalPart, baseTechnicalPart, baseIctPart].some((value) => value == null)) return null;
+    const expectedFundamentalPart = fundamentalScore * 0.2;
+    const expectedTechnicalPart = technicalScore * 0.3;
+    const expectedIctPart = ictScore * 0.5;
+    const maxDelta = Math.max(
+      Math.abs(baseFundamentalPart - expectedFundamentalPart),
+      Math.abs(baseTechnicalPart - expectedTechnicalPart),
+      Math.abs(baseIctPart - expectedIctPart)
+    );
+    return maxDelta > FORMULA_TOLERANCE
+      ? {
+          symbol: normalizeSymbol(row),
+          baseFundamentalPart: round(baseFundamentalPart),
+          expectedFundamentalPart: round(expectedFundamentalPart),
+          baseTechnicalPart: round(baseTechnicalPart),
+          expectedTechnicalPart: round(expectedTechnicalPart),
+          baseIctPart: round(baseIctPart),
+          expectedIctPart: round(expectedIctPart),
+          maxDelta: round(maxDelta)
+        }
+      : null;
+  }).filter(Boolean);
+  if (weightedComponentMismatches.length) {
+    addFinding(
+      findings,
+      'Stage5',
+      'high',
+      'stage5_weighted_component_mismatch',
+      'Stage5 compositeBreakdown base parts do not match the documented 20/30/50 inputs.',
+      weightedComponentMismatches.slice(0, 20),
+      'Keep Stage5 compositeBreakdown traceable: fundamental*0.20, technical*0.30, ict*0.50 before bonuses, penalties, calibration, and diversification.',
+      SOURCE_FILES.stage5,
+      lineOf(SOURCE_FILES.stage5, /baseFundamentalPart/)
+    );
+  }
   return {
     rows: rows.length,
     scoreStats: numericStats(rows, 'ictScore'),
+    formulaConsistency: {
+      baseWeightContract: 'baseFundamentalPart=fundamentalScore*0.20; baseTechnicalPart=technicalScore*0.30; baseIctPart=ictScore*0.50',
+      tolerance: FORMULA_TOLERANCE,
+      mismatches: weightedComponentMismatches.length,
+      sample: weightedComponentMismatches.slice(0, 10)
+    },
     coverage: cov,
     pdZoneCounts: countBy(rows, (row) => String(row.pdZone || 'missing')),
     geometrySourceCounts: countBy(rows, (row) => String(row.executionGeometrySource || 'missing')),
@@ -426,6 +550,7 @@ function buildMarkdown(report) {
     lines.push('', `### ${stage}`, '', '| Metric | Value |', '| --- | --- |');
     lines.push(`| rows | ${esc(audit.rows)} |`);
     lines.push(`| scoreStats | ${esc(JSON.stringify(audit.scoreStats || {}))} |`);
+    if (audit.formulaConsistency) lines.push(`| formulaConsistency | ${esc(JSON.stringify(audit.formulaConsistency))} |`);
     if (audit.shortHistoryPolicy) lines.push(`| shortHistoryPolicy | ${esc(JSON.stringify(audit.shortHistoryPolicy))} |`);
     if (audit.dataQualityCounts) lines.push(`| dataQualityCounts | ${esc(JSON.stringify(audit.dataQualityCounts))} |`);
     if (audit.dataSourceCounts) lines.push(`| dataSourceCounts | ${esc(JSON.stringify(audit.dataSourceCounts))} |`);

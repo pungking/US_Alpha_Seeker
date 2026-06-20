@@ -11,6 +11,11 @@ Default behavior remains conservative:
 - sidecar must not promote or chase these rows
 - Stage6 producer must expose `breakoutRetestPromotionPolicyDecision`, `breakoutRetestPromotionEntryBasis`, and `breakoutRetestPromotionBlockedBy` so a proof-confirmed row cannot be mistaken for an executable row.
 
+As of the current policy decision, keep promotion disabled. This is intentional,
+not a missing implementation. A proof-confirmed row may become
+`breakoutRetestPromotionReady=true`, but it remains `WAIT_PRICE` until a
+separate producer-policy change explicitly enables promotion.
+
 ## Why
 
 A proof-confirmed breakout row proves that the producer found stronger structure evidence than review-ready, but it does not by itself decide execution timing, order entry basis, or target/stop geometry. Promoting without an explicit producer policy flag would silently change execution behavior downstream.
@@ -34,6 +39,20 @@ If promotion is explicitly enabled in a future producer policy, the row must sat
 8. Risk geometry must not require unresolved recalibration/no-trade.
 9. Current-entry stop distance must remain inside the Stage6 stop-distance policy band.
 10. The Stage6 row must explicitly state the intended entry basis as `BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT`; sidecar must not infer or rewrite the entry basis.
+
+## Policy State Matrix
+
+| Proof State | Input Geometry | Promotion Flag | Producer Output |
+| --- | --- | --- | --- |
+| `reviewReady=true`, `proofConfirmed=false` | any | any | `WAIT_PRICE / wait_breakout_retest_required` |
+| `proofConfirmed=true` | blocked RR, buffer, stop, target, or verdict | any | `WAIT_PRICE` with explicit blockers |
+| `proofConfirmed=true` | all candidate conditions pass | disabled | `WAIT_PRICE`, `breakoutRetestPromotionReady=true`, `breakoutRetestPromotionPolicyDecision=WAIT_CONSERVATIVE_DEFAULT` |
+| `proofConfirmed=true` | all candidate conditions pass | enabled by future approved producer policy | `EXECUTABLE_NOW` with `breakoutRetestPromotionPolicyDecision=PROMOTE_CURRENT_ENTRY` |
+
+The current repository state is the third row: proof can be ready, but promotion
+is still disabled. The next policy change, if any, must be made in the Stage6
+producer and protected by fixture validation before any sidecar behavior is
+considered.
 
 ## Producer Policy Decision Fields
 
@@ -63,3 +82,5 @@ This separates "producer inputs are ready" from "producer policy is allowed to p
 - Stage6 rows expose promotion policy decision fields and blockers.
 - No broker mutation occurs.
 - Promotion remains disabled until a separate producer policy change is explicitly requested.
+- The fixture suite proves that disabled-but-ready proofConfirmed rows stay
+  `WAIT_PRICE` and expose `proof_confirmed_promotion_flag_disabled`.

@@ -58,6 +58,7 @@ Owned evidence:
 Done-when:
 
 - Scores are bounded to the documented scale.
+- `compositeAlpha` reconciles to `clamp(qualityScore * 0.3 + fundamentalScore * 0.7)`.
 - Imputed or weak data cannot silently produce high-confidence candidates.
 - Full Stage3 artifact can be audited without relying on Stage6 finalist fallback.
 
@@ -75,6 +76,7 @@ Owned evidence:
 Done-when:
 
 - Stale, short, or heuristic-only rows are visibly capped or downgraded.
+- `technicalScore` reconciles to `scoreBreakdown.finalScore` after all overlays.
 - Indicator formulas expose lookback assumptions and minimum observation counts.
 - Full Stage4 artifact can be audited for all candidates, not only finalists.
 
@@ -91,6 +93,9 @@ Owned evidence:
 Done-when:
 
 - High ICT scores require component evidence.
+- `compositeBreakdown` base parts reconcile to the documented 20/30/50
+  fundamental/technical/ICT weights before bonuses, penalties, calibration, and
+  diversification.
 - Geometry fallback is visible and cannot masquerade as confirmed structure.
 - Stage5 carries enough structure evidence for Stage6 to explain WAIT vs executable.
 
@@ -199,6 +204,20 @@ For the current track, the lead should run this order:
 4. Verify `qualityGateLane=weak_pillar_execution_gate` appears when applicable.
 5. Acquire full Stage3/4/5 artifacts and run full methodology audit.
 6. Only then proceed to structure / breakout / target recalibration tuning.
+
+## Deep Audit Contract
+
+The Stage3~5 audit is now required to prove formula consistency, not just field
+coverage. A passing full-stage methodology review must include:
+
+| Stage | Mandatory Formula Evidence | Failure Class |
+| --- | --- | --- |
+| Stage3 | bounded `fundamentalScore`; bounded `compositeAlpha`; `compositeAlpha = clamp(qualityScore * 0.3 + fundamentalScore * 0.7)` | `stage3_composite_formula_mismatch` |
+| Stage4 | `technicalScore = scoreBreakdown.finalScore`; short/heuristic history cannot become opaque high-confidence evidence | `stage4_final_score_mismatch` |
+| Stage5 | `baseFundamentalPart = fundamentalScore * 0.20`; `baseTechnicalPart = technicalScore * 0.30`; `baseIctPart = ictScore * 0.50` | `stage5_weighted_component_mismatch` |
+
+These checks are report-only. They do not change candidate decisions by
+themselves; they decide whether policy tuning is safe to perform.
 
 ## Progress Reporting Template
 
