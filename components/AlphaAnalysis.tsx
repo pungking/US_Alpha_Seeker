@@ -143,6 +143,9 @@ interface AlphaCandidate {
   breakoutRetestProofRetestLevel?: number | null;
   breakoutRetestProofRetestDate?: string | null;
   breakoutRetestProofRetestLow?: number | null;
+  breakoutRetestProofRetestClose?: number | null;
+  breakoutRetestProofRetestLowGapPct?: number | null;
+  breakoutRetestProofRetestCloseGapPct?: number | null;
   breakoutRetestProofBarsSinceRetest?: number | null;
   breakoutRetestProofCurrentExtensionPct?: number | null;
   breakoutRetestProofTolerancePct?: number | null;
@@ -150,6 +153,7 @@ interface AlphaCandidate {
   breakoutRetestProofMaxExtensionPct?: number | null;
   breakoutRetestProofRetestTouchFound?: boolean | null;
   breakoutRetestProofRetestFresh?: boolean | null;
+  breakoutRetestProofRetestCloseReclaimed?: boolean | null;
   breakoutRetestProofCurrentExtensionOk?: boolean | null;
   breakoutRetestProofLatestCloseAboveRetest?: boolean | null;
   breakoutRetestProofContinuationConfirmed?: boolean | null;
@@ -692,6 +696,9 @@ type BreakoutRetestProofPayload = {
   retestLevel: number | null;
   retestDate: string | null;
   retestLow: number | null;
+  retestClose: number | null;
+  retestLowGapPct: number | null;
+  retestCloseGapPct: number | null;
   barsSinceRetest: number | null;
   currentExtensionFromRetestPct: number | null;
   tolerancePct: number | null;
@@ -699,6 +706,7 @@ type BreakoutRetestProofPayload = {
   maxCurrentExtensionFromRetestPct: number | null;
   retestTouchFound: boolean;
   retestFresh: boolean;
+  retestCloseReclaimed: boolean;
   currentExtensionOk: boolean;
   latestCloseAboveRetest: boolean;
   continuationConfirmed: boolean;
@@ -1129,6 +1137,9 @@ const deriveBreakoutRetestProof = (input: {
     retestLevel: roundOrNull(entry, 4),
     retestDate: null as string | null,
     retestLow: null as number | null,
+    retestClose: null as number | null,
+    retestLowGapPct: null as number | null,
+    retestCloseGapPct: null as number | null,
     barsSinceRetest: null as number | null,
     currentExtensionFromRetestPct:
       price != null && entry != null && entry > 0
@@ -1139,6 +1150,7 @@ const deriveBreakoutRetestProof = (input: {
     maxCurrentExtensionFromRetestPct: roundOrNull(policy.maxCurrentExtensionFromRetestPct, 2),
     retestTouchFound: false,
     retestFresh: false,
+    retestCloseReclaimed: false,
     currentExtensionOk: false,
     latestCloseAboveRetest: false,
     continuationConfirmed: false,
@@ -1170,14 +1182,21 @@ const deriveBreakoutRetestProof = (input: {
 
   const recent = bars.slice(-policy.retestLookbackBars);
   const tolerance = entry * (policy.retestTolerancePct / 100);
-  const retestCandidates = recent
+  const retestTouchCandidates = recent
     .map((bar, idx) => ({ bar, idx }))
-    .filter(({ bar }) => bar.low <= entry + tolerance && bar.close >= entry);
-  const latestRetest = retestCandidates[retestCandidates.length - 1] || null;
+    .filter(({ bar }) => bar.low <= entry + tolerance && bar.low >= entry - tolerance && bar.high >= entry);
+  const retestUndercutCandidates = recent
+    .map((bar, idx) => ({ bar, idx }))
+    .filter(({ bar }) => bar.low < entry - tolerance && bar.high >= entry);
+  const latestRetest = retestTouchCandidates[retestTouchCandidates.length - 1] || null;
+  const latestRetestUndercut = retestUndercutCandidates[retestUndercutCandidates.length - 1] || null;
   const barsSinceRetest = latestRetest ? recent.length - 1 - latestRetest.idx : null;
   const currentExtensionFromRetestPct = ((price - entry) / entry) * 100;
   const retestTouchFound = Boolean(latestRetest);
   const retestFresh = barsSinceRetest != null && barsSinceRetest <= policy.maxBarsSinceRetest;
+  const retestCloseReclaimed = Boolean(latestRetest && latestRetest.bar.close >= entry);
+  const retestLowGapPct = latestRetest ? ((entry - latestRetest.bar.low) / entry) * 100 : null;
+  const retestCloseGapPct = latestRetest ? ((latestRetest.bar.close - entry) / entry) * 100 : null;
   const currentExtensionOk = currentExtensionFromRetestPct <= policy.maxCurrentExtensionFromRetestPct;
   const latestCloseAboveRetest = Boolean(latest && latest.close >= entry);
   const continuationExtensionOk = currentExtensionFromRetestPct <= policy.maxContinuationExtensionPct;
@@ -1198,6 +1217,8 @@ const deriveBreakoutRetestProof = (input: {
   );
   const reasons: string[] = [];
   if (!retestTouchFound) reasons.push('retest_touch_missing');
+  if (!retestTouchFound && latestRetestUndercut) reasons.push('retest_low_below_tolerance');
+  if (retestTouchFound && !retestCloseReclaimed) reasons.push('retest_close_not_reclaimed');
   if (!retestFresh) reasons.push(barsSinceRetest == null ? 'retest_freshness_unavailable' : 'retest_stale');
   if (!currentExtensionOk) reasons.push('current_extension_from_retest_high');
   if (!latestCloseAboveRetest) reasons.push('latest_close_below_retest_level');
@@ -1205,7 +1226,7 @@ const deriveBreakoutRetestProof = (input: {
   if (!continuationCurrentRrOk) reasons.push('continuation_rr_below_strong_floor');
   if (!continuationTargetBufferOk) reasons.push('continuation_target_buffer_below_strong_floor');
 
-  const retestConfirmed = retestTouchFound && retestFresh && currentExtensionOk && latestCloseAboveRetest;
+  const retestConfirmed = retestTouchFound && retestCloseReclaimed && retestFresh && currentExtensionOk && latestCloseAboveRetest;
   const confirmed = retestConfirmed || continuationConfirmed;
   const reviewReady = !confirmed && input.rrAtCurrentPrice >= minRr && input.targetBufferFromCurrentPct >= minTargetBufferPct;
   const verdict = confirmed
@@ -1227,10 +1248,14 @@ const deriveBreakoutRetestProof = (input: {
     ...basePayload,
     retestDate: latestRetest?.bar?.date ?? null,
     retestLow: roundOrNull(latestRetest?.bar?.low ?? null, 4),
+    retestClose: roundOrNull(latestRetest?.bar?.close ?? null, 4),
+    retestLowGapPct: roundOrNull(retestLowGapPct, 2),
+    retestCloseGapPct: roundOrNull(retestCloseGapPct, 2),
     barsSinceRetest,
     currentExtensionFromRetestPct: roundOrNull(currentExtensionFromRetestPct, 2),
     retestTouchFound,
     retestFresh,
+    retestCloseReclaimed,
     currentExtensionOk,
     latestCloseAboveRetest,
     continuationConfirmed,
@@ -7435,6 +7460,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLevel: breakoutRetestProof.retestLevel,
               breakoutRetestProofRetestDate: breakoutRetestProof.retestDate,
               breakoutRetestProofRetestLow: breakoutRetestProof.retestLow,
+              breakoutRetestProofRetestClose: breakoutRetestProof.retestClose,
+              breakoutRetestProofRetestLowGapPct: breakoutRetestProof.retestLowGapPct,
+              breakoutRetestProofRetestCloseGapPct: breakoutRetestProof.retestCloseGapPct,
               breakoutRetestProofBarsSinceRetest: breakoutRetestProof.barsSinceRetest,
               breakoutRetestProofCurrentExtensionPct: breakoutRetestProof.currentExtensionFromRetestPct,
               breakoutRetestProofTolerancePct: breakoutRetestProof.tolerancePct,
@@ -7442,6 +7470,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxExtensionPct: breakoutRetestProof.maxCurrentExtensionFromRetestPct,
               breakoutRetestProofRetestTouchFound: breakoutRetestProof.retestTouchFound,
               breakoutRetestProofRetestFresh: breakoutRetestProof.retestFresh,
+              breakoutRetestProofRetestCloseReclaimed: breakoutRetestProof.retestCloseReclaimed,
               breakoutRetestProofCurrentExtensionOk: breakoutRetestProof.currentExtensionOk,
               breakoutRetestProofLatestCloseAboveRetest: breakoutRetestProof.latestCloseAboveRetest,
               breakoutRetestProofContinuationConfirmed: breakoutRetestProof.continuationConfirmed,
@@ -7676,6 +7705,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLevel: executionContract.breakoutRetestProofRetestLevel,
               breakoutRetestProofRetestDate: executionContract.breakoutRetestProofRetestDate,
               breakoutRetestProofRetestLow: executionContract.breakoutRetestProofRetestLow,
+              breakoutRetestProofRetestClose: executionContract.breakoutRetestProofRetestClose,
+              breakoutRetestProofRetestLowGapPct: executionContract.breakoutRetestProofRetestLowGapPct,
+              breakoutRetestProofRetestCloseGapPct: executionContract.breakoutRetestProofRetestCloseGapPct,
               breakoutRetestProofBarsSinceRetest: executionContract.breakoutRetestProofBarsSinceRetest,
               breakoutRetestProofCurrentExtensionPct: executionContract.breakoutRetestProofCurrentExtensionPct,
               breakoutRetestProofTolerancePct: executionContract.breakoutRetestProofTolerancePct,
@@ -7683,6 +7715,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxExtensionPct: executionContract.breakoutRetestProofMaxExtensionPct,
               breakoutRetestProofRetestTouchFound: executionContract.breakoutRetestProofRetestTouchFound,
               breakoutRetestProofRetestFresh: executionContract.breakoutRetestProofRetestFresh,
+              breakoutRetestProofRetestCloseReclaimed: executionContract.breakoutRetestProofRetestCloseReclaimed,
               breakoutRetestProofCurrentExtensionOk: executionContract.breakoutRetestProofCurrentExtensionOk,
               breakoutRetestProofLatestCloseAboveRetest: executionContract.breakoutRetestProofLatestCloseAboveRetest,
               breakoutRetestProofContinuationConfirmed: executionContract.breakoutRetestProofContinuationConfirmed,
@@ -8190,6 +8223,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLevel: executionContract.breakoutRetestProofRetestLevel,
               breakoutRetestProofRetestDate: executionContract.breakoutRetestProofRetestDate,
               breakoutRetestProofRetestLow: executionContract.breakoutRetestProofRetestLow,
+              breakoutRetestProofRetestClose: executionContract.breakoutRetestProofRetestClose,
+              breakoutRetestProofRetestLowGapPct: executionContract.breakoutRetestProofRetestLowGapPct,
+              breakoutRetestProofRetestCloseGapPct: executionContract.breakoutRetestProofRetestCloseGapPct,
               breakoutRetestProofBarsSinceRetest: executionContract.breakoutRetestProofBarsSinceRetest,
               breakoutRetestProofCurrentExtensionPct: executionContract.breakoutRetestProofCurrentExtensionPct,
               breakoutRetestProofTolerancePct: executionContract.breakoutRetestProofTolerancePct,
@@ -8197,6 +8233,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxExtensionPct: executionContract.breakoutRetestProofMaxExtensionPct,
               breakoutRetestProofRetestTouchFound: executionContract.breakoutRetestProofRetestTouchFound,
               breakoutRetestProofRetestFresh: executionContract.breakoutRetestProofRetestFresh,
+              breakoutRetestProofRetestCloseReclaimed: executionContract.breakoutRetestProofRetestCloseReclaimed,
               breakoutRetestProofCurrentExtensionOk: executionContract.breakoutRetestProofCurrentExtensionOk,
               breakoutRetestProofLatestCloseAboveRetest: executionContract.breakoutRetestProofLatestCloseAboveRetest,
               breakoutRetestProofContinuationConfirmed: executionContract.breakoutRetestProofContinuationConfirmed,
@@ -8553,6 +8590,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLevel: toOptionalFiniteNumber(item.breakoutRetestProofRetestLevel),
               breakoutRetestProofRetestDate: normalizeOptionalText(item.breakoutRetestProofRetestDate),
               breakoutRetestProofRetestLow: toOptionalFiniteNumber(item.breakoutRetestProofRetestLow),
+              breakoutRetestProofRetestClose: toOptionalFiniteNumber(item.breakoutRetestProofRetestClose),
+              breakoutRetestProofRetestLowGapPct: toOptionalFiniteNumber(item.breakoutRetestProofRetestLowGapPct),
+              breakoutRetestProofRetestCloseGapPct: toOptionalFiniteNumber(item.breakoutRetestProofRetestCloseGapPct),
               breakoutRetestProofBarsSinceRetest: toOptionalFiniteNumber(item.breakoutRetestProofBarsSinceRetest),
               breakoutRetestProofCurrentExtensionPct: toOptionalFiniteNumber(item.breakoutRetestProofCurrentExtensionPct),
               breakoutRetestProofTolerancePct: toOptionalFiniteNumber(item.breakoutRetestProofTolerancePct),
@@ -8560,6 +8600,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxExtensionPct: toOptionalFiniteNumber(item.breakoutRetestProofMaxExtensionPct),
               breakoutRetestProofRetestTouchFound: item.breakoutRetestProofRetestTouchFound == null ? null : Boolean(item.breakoutRetestProofRetestTouchFound),
               breakoutRetestProofRetestFresh: item.breakoutRetestProofRetestFresh == null ? null : Boolean(item.breakoutRetestProofRetestFresh),
+              breakoutRetestProofRetestCloseReclaimed: item.breakoutRetestProofRetestCloseReclaimed == null ? null : Boolean(item.breakoutRetestProofRetestCloseReclaimed),
               breakoutRetestProofCurrentExtensionOk: item.breakoutRetestProofCurrentExtensionOk == null ? null : Boolean(item.breakoutRetestProofCurrentExtensionOk),
               breakoutRetestProofLatestCloseAboveRetest: item.breakoutRetestProofLatestCloseAboveRetest == null ? null : Boolean(item.breakoutRetestProofLatestCloseAboveRetest),
               breakoutRetestProofContinuationConfirmed: item.breakoutRetestProofContinuationConfirmed == null ? null : Boolean(item.breakoutRetestProofContinuationConfirmed),
@@ -8751,6 +8792,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofRetestLevel: toOptionalFiniteNumber(item?.breakoutRetestProofRetestLevel),
               breakoutRetestProofRetestDate: normalizeOptionalText(item?.breakoutRetestProofRetestDate),
               breakoutRetestProofRetestLow: toOptionalFiniteNumber(item?.breakoutRetestProofRetestLow),
+              breakoutRetestProofRetestClose: toOptionalFiniteNumber(item?.breakoutRetestProofRetestClose),
+              breakoutRetestProofRetestLowGapPct: toOptionalFiniteNumber(item?.breakoutRetestProofRetestLowGapPct),
+              breakoutRetestProofRetestCloseGapPct: toOptionalFiniteNumber(item?.breakoutRetestProofRetestCloseGapPct),
               breakoutRetestProofBarsSinceRetest: toOptionalFiniteNumber(item?.breakoutRetestProofBarsSinceRetest),
               breakoutRetestProofCurrentExtensionPct: toOptionalFiniteNumber(item?.breakoutRetestProofCurrentExtensionPct),
               breakoutRetestProofTolerancePct: toOptionalFiniteNumber(item?.breakoutRetestProofTolerancePct),
@@ -8758,6 +8802,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxExtensionPct: toOptionalFiniteNumber(item?.breakoutRetestProofMaxExtensionPct),
               breakoutRetestProofRetestTouchFound: item?.breakoutRetestProofRetestTouchFound == null ? null : Boolean(item.breakoutRetestProofRetestTouchFound),
               breakoutRetestProofRetestFresh: item?.breakoutRetestProofRetestFresh == null ? null : Boolean(item.breakoutRetestProofRetestFresh),
+              breakoutRetestProofRetestCloseReclaimed: item?.breakoutRetestProofRetestCloseReclaimed == null ? null : Boolean(item.breakoutRetestProofRetestCloseReclaimed),
               breakoutRetestProofCurrentExtensionOk: item?.breakoutRetestProofCurrentExtensionOk == null ? null : Boolean(item.breakoutRetestProofCurrentExtensionOk),
               breakoutRetestProofLatestCloseAboveRetest: item?.breakoutRetestProofLatestCloseAboveRetest == null ? null : Boolean(item.breakoutRetestProofLatestCloseAboveRetest),
               breakoutRetestProofContinuationConfirmed: item?.breakoutRetestProofContinuationConfirmed == null ? null : Boolean(item.breakoutRetestProofContinuationConfirmed),

@@ -79,6 +79,10 @@ const requiredSchemaFields = [
   'breakoutRetestProofReviewReady',
   'breakoutRetestProofContinuationConfirmed',
   'breakoutRetestProofContinuationExtensionOk',
+  'breakoutRetestProofRetestClose',
+  'breakoutRetestProofRetestLowGapPct',
+  'breakoutRetestProofRetestCloseGapPct',
+  'breakoutRetestProofRetestCloseReclaimed',
   'breakoutRetestPromotionReady',
   'breakoutRetestPromotionEligible',
   'breakoutRetestPromotionEnabled',
@@ -310,21 +314,31 @@ for (const [idx, row] of candidates.entries()) {
     for (const field of [
       'breakoutRetestProofTolerancePct',
       'breakoutRetestProofMaxBarsSinceRetest',
-      'breakoutRetestProofMaxExtensionPct'
+      'breakoutRetestProofMaxExtensionPct',
+      'breakoutRetestProofRetestLowGapPct',
+      'breakoutRetestProofRetestCloseGapPct'
     ]) {
       if (!isFiniteNumber(row[field])) errors.push(`${label}: breakout retest proof missing numeric ${field}`);
     }
     for (const field of [
       'breakoutRetestProofRetestTouchFound',
       'breakoutRetestProofRetestFresh',
+      'breakoutRetestProofRetestCloseReclaimed',
       'breakoutRetestProofCurrentExtensionOk',
       'breakoutRetestProofLatestCloseAboveRetest'
     ]) {
       if (!isBooleanLike(row[field])) errors.push(`${label}: breakout retest proof missing boolean ${field}`);
     }
+    if (isTrue(row.breakoutRetestProofRetestTouchFound) && !isFiniteNumber(row.breakoutRetestProofRetestClose)) {
+      errors.push(`${label}: breakout retest touch requires breakoutRetestProofRetestClose`);
+    }
+    if (isTrue(row.breakoutRetestProofRetestCloseReclaimed) && !isTrue(row.breakoutRetestProofRetestTouchFound)) {
+      errors.push(`${label}: breakout close reclaim requires retest touch`);
+    }
     const retestConfirmed =
       isTrue(row.breakoutRetestProofRetestTouchFound) &&
       isTrue(row.breakoutRetestProofRetestFresh) &&
+      isTrue(row.breakoutRetestProofRetestCloseReclaimed) &&
       isTrue(row.breakoutRetestProofCurrentExtensionOk) &&
       isTrue(row.breakoutRetestProofLatestCloseAboveRetest);
     const continuationConfirmed =

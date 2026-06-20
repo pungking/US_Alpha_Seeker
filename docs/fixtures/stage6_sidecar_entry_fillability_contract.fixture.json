@@ -552,7 +552,12 @@
       "zeroExecutableFormulaAdjustmentKnob": "BREAKOUT_PROOF_CONFIRMED_GENERATION",
       "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION",
       "zeroExecutableFormulaAdjustmentMagnitude": 2,
-      "zeroExecutableFormulaAdjustmentRationale": "Review-ready breakout is not enough; only proofConfirmed rows may become executable."
+      "zeroExecutableFormulaAdjustmentRationale": "Review-ready breakout is not enough; only proofConfirmed rows may become executable.",
+      "breakoutRetestProofRetestLow": 100,
+      "breakoutRetestProofRetestClose": 100.3,
+      "breakoutRetestProofRetestLowGapPct": 0,
+      "breakoutRetestProofRetestCloseGapPct": 0.3,
+      "breakoutRetestProofRetestCloseReclaimed": true
     },
     {
       "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
@@ -629,7 +634,12 @@
       "zeroExecutableFormulaAdjustmentKnob": "BREAKOUT_PROOF_CONFIRMED_GENERATION",
       "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION",
       "zeroExecutableFormulaAdjustmentMagnitude": 1,
-      "zeroExecutableFormulaAdjustmentRationale": "Review-ready breakout is not enough; only proofConfirmed rows may become executable."
+      "zeroExecutableFormulaAdjustmentRationale": "Review-ready breakout is not enough; only proofConfirmed rows may become executable.",
+      "breakoutRetestProofRetestLow": 100,
+      "breakoutRetestProofRetestClose": 100.3,
+      "breakoutRetestProofRetestLowGapPct": 0,
+      "breakoutRetestProofRetestCloseGapPct": 0.3,
+      "breakoutRetestProofRetestCloseReclaimed": true
     },
     {
       "symbol": "TARGET_NEAR_WAIT",

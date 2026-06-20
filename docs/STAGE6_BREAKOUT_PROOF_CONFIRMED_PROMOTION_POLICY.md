@@ -27,18 +27,24 @@ If promotion is explicitly enabled in a future producer policy, the row must sat
 1. `verdict` is one of the actionable verdicts: `BUY`, `STRONG_BUY`, `STRONGBUY`.
 2. `breakoutRetestProofConfirmed=true`.
 3. `breakoutRetestProofReviewReady` alone is not enough.
-4. Current-price RR evidence is valid and `rrAtCurrentPrice >= decisionGate.currentEntryMinRr`.
-5. Current target buffer is valid and `targetBufferFromCurrentPct >= decisionGate.currentEntryMinTargetBufferPct`.
-6. Continuation proofs must also satisfy:
+4. Retest proof must separate the touch from the reclaim:
+   - `breakoutRetestProofRetestTouchFound=true`
+   - `breakoutRetestProofRetestCloseReclaimed=true`
+   - `breakoutRetestProofRetestLowGapPct` and
+     `breakoutRetestProofRetestCloseGapPct` are finite.
+   A wick/touch without a close reclaim is diagnostic review evidence only.
+5. Current-price RR evidence is valid and `rrAtCurrentPrice >= decisionGate.currentEntryMinRr`.
+6. Current target buffer is valid and `targetBufferFromCurrentPct >= decisionGate.currentEntryMinTargetBufferPct`.
+7. Continuation proofs must also satisfy:
    - `breakoutRetestProofContinuationConfirmed=true`
    - `breakoutRetestProofContinuationExtensionOk=true`
    - current extension is within `maxContinuationExtensionPct`
-7. Target/current geometry must not be in no-trade state:
+8. Target/current geometry must not be in no-trade state:
    - `targetNoTradeConfirmed` must not be true
    - `targetRecalibrationViabilityVerdict` must not be a no-trade verdict
-8. Risk geometry must not require unresolved recalibration/no-trade.
-9. Current-entry stop distance must remain inside the Stage6 stop-distance policy band.
-10. The Stage6 row must explicitly state the intended entry basis as `BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT`; sidecar must not infer or rewrite the entry basis.
+9. Risk geometry must not require unresolved recalibration/no-trade.
+10. Current-entry stop distance must remain inside the Stage6 stop-distance policy band.
+11. The Stage6 row must explicitly state the intended entry basis as `BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT`; sidecar must not infer or rewrite the entry basis.
 
 ## Policy State Matrix
 
@@ -67,6 +73,9 @@ Stage6 producer rows must keep these fields explicit:
   when the row is blocked because breakout proof is not confirmed or because
   proof-confirmed promotion remains disabled by producer policy. This keeps
   breakout tuning separate from target/risk/structure formula work.
+- `breakoutRetestProofRetestCloseReclaimed`: must be false when the retest
+  touched but did not close back above the retest level. This prevents
+  `proofConfirmed=true` from being generated from a wick-only retest.
 
 ## Current Runtime Interpretation
 
