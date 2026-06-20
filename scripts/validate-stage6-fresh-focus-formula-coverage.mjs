@@ -16,7 +16,8 @@ const CASES = [
     expectedCoverage: { present: 0, total: 1 },
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 1,
-    expectedEvidenceQualityIssues: 1
+    expectedEvidenceQualityIssues: 1,
+    expectedLaneSpecificFormulaIssues: 1
   },
   {
     name: 'formula_contract_missing_warns',
@@ -25,7 +26,8 @@ const CASES = [
     expectedCoverage: { present: 5, total: 5 },
     expectedManifestContractIssues: 1,
     expectedLaneConsistencyIssues: 0,
-    expectedEvidenceQualityIssues: 0
+    expectedEvidenceQualityIssues: 0,
+    expectedLaneSpecificFormulaIssues: 4
   },
   {
     name: 'formula_fields_present_passes',
@@ -34,7 +36,8 @@ const CASES = [
     expectedCoverage: { present: 6, total: 6 },
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 0,
-    expectedEvidenceQualityIssues: 0
+    expectedEvidenceQualityIssues: 0,
+    expectedLaneSpecificFormulaIssues: 0
   },
   {
     name: 'formula_lane_mismatch_warns',
@@ -43,7 +46,8 @@ const CASES = [
     expectedCoverage: { present: 2, total: 2 },
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 2,
-    expectedEvidenceQualityIssues: 2
+    expectedEvidenceQualityIssues: 2,
+    expectedLaneSpecificFormulaIssues: 1
   },
   {
     name: 'formula_evidence_weak_warns',
@@ -52,7 +56,8 @@ const CASES = [
     expectedCoverage: { present: 1, total: 1 },
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 0,
-    expectedEvidenceQualityIssues: 1
+    expectedEvidenceQualityIssues: 1,
+    expectedLaneSpecificFormulaIssues: 1
   }
 ];
 const REQUIRED_FORMULA_FIELDS = [
@@ -108,6 +113,16 @@ function validateProducerSourceContract() {
       throw new Error(`producer formula contract missing token: ${token}`);
     }
   }
+  for (const token of [
+    'targetRecalibrationFormulaEvidenceBasis',
+    'riskGeometryFormulaEvidenceBasis',
+    'breakoutRetestProofFormulaEvidenceBasis',
+    'structurePolicyFormulaEvidenceBasis'
+  ]) {
+    if (!source.includes(token)) {
+      throw new Error(`producer lane-specific formula field propagation missing token: ${token}`);
+    }
+  }
 }
 
 function runCase(testCase) {
@@ -153,6 +168,10 @@ function runCase(testCase) {
   if (evidenceIssues !== testCase.expectedEvidenceQualityIssues) {
     throw new Error(`${testCase.name}: expected formulaEvidenceQualityIssues=${testCase.expectedEvidenceQualityIssues}, got ${evidenceIssues}`);
   }
+  const laneSpecificIssues = Number(report.summary?.laneSpecificFormulaEvidenceIssues || 0);
+  if (laneSpecificIssues !== testCase.expectedLaneSpecificFormulaIssues) {
+    throw new Error(`${testCase.name}: expected laneSpecificFormulaEvidenceIssues=${testCase.expectedLaneSpecificFormulaIssues}, got ${laneSpecificIssues}`);
+  }
   return {
     name: testCase.name,
     overall: report.overall,
@@ -160,7 +179,8 @@ function runCase(testCase) {
     requiredFormulaFields: report.requiredFormulaFields,
     contractIssues,
     laneIssues,
-    evidenceIssues
+    evidenceIssues,
+    laneSpecificIssues
   };
 }
 

@@ -325,6 +325,59 @@ function formulaEvidenceQualityIssue(row) {
   };
 }
 
+function laneSpecificFormulaEvidenceIssue(row) {
+  const lane = String(row?.zeroExecutableTuningLane || '').trim().toUpperCase();
+  const zeroBasis = String(row?.zeroExecutableFormulaEvidenceBasis || '').trim();
+  const issueReasons = [];
+  const requireBasisMatch = (fieldName) => {
+    const basis = String(row?.[fieldName] || '').trim();
+    if (!basis) {
+      issueReasons.push(`${fieldName}_missing`);
+      return;
+    }
+    if (zeroBasis && basis !== zeroBasis) {
+      issueReasons.push(`${fieldName}_mismatch_zero_executable_basis`);
+    }
+  };
+  const requirePositiveFormulaTriplet = (prefix) => {
+    const observed = numberOrNull(row?.[`${prefix}FormulaObservedValue`]);
+    const threshold = numberOrNull(row?.[`${prefix}FormulaThresholdValue`]);
+    const delta = numberOrNull(row?.[`${prefix}FormulaDeltaValue`]);
+    const unit = String(row?.[`${prefix}FormulaUnit`] || '').trim();
+    if (observed == null || observed <= 0) issueReasons.push(`${prefix}FormulaObservedValue_not_positive`);
+    if (threshold == null) issueReasons.push(`${prefix}FormulaThresholdValue_missing`);
+    if (delta == null || delta <= 0) issueReasons.push(`${prefix}FormulaDeltaValue_not_positive`);
+    if (!unit) issueReasons.push(`${prefix}FormulaUnit_missing`);
+  };
+
+  if (lane === 'TARGET_RECALIBRATION') {
+    requireBasisMatch('targetRecalibrationFormulaEvidenceBasis');
+    requirePositiveFormulaTriplet('targetRecalibration');
+  } else if (lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' || lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') {
+    requireBasisMatch('riskGeometryFormulaEvidenceBasis');
+    requirePositiveFormulaTriplet('riskGeometry');
+  } else if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION') {
+    requireBasisMatch('breakoutRetestProofFormulaEvidenceBasis');
+    requirePositiveFormulaTriplet('breakoutRetestProof');
+  } else if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
+    requireBasisMatch('structurePolicyFormulaEvidenceBasis');
+  }
+
+  if (issueReasons.length === 0) return null;
+  return {
+    symbol: normalizeSymbol(row),
+    zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
+    zeroExecutableFormulaEvidenceBasis: zeroBasis || null,
+    targetRecalibrationFormulaEvidenceBasis: row?.targetRecalibrationFormulaEvidenceBasis || null,
+    riskGeometryFormulaEvidenceBasis: row?.riskGeometryFormulaEvidenceBasis || null,
+    breakoutRetestProofFormulaEvidenceBasis: row?.breakoutRetestProofFormulaEvidenceBasis || null,
+    structurePolicyFormulaEvidenceBasis: row?.structurePolicyFormulaEvidenceBasis || null,
+    issueReasons,
+    finalDecision: decisionOf(row),
+    decisionReason: reasonOf(row)
+  };
+}
+
 function formulaManifestContractIssues(stage6) {
   const contract = stage6?.manifest?.decisionGate?.zeroExecutableFormulaContract || stage6?.decisionGate?.zeroExecutableFormulaContract || null;
   if (!contract || typeof contract !== 'object') {
@@ -403,6 +456,11 @@ function compactRow(row) {
     breakoutRetestProofMaxContinuationExtensionPct: numberOrNull(row?.breakoutRetestProofMaxContinuationExtensionPct),
     breakoutRetestProofContinuationMinRr: numberOrNull(row?.breakoutRetestProofContinuationMinRr),
     breakoutRetestProofContinuationMinTargetBufferPct: numberOrNull(row?.breakoutRetestProofContinuationMinTargetBufferPct),
+    breakoutRetestProofFormulaEvidenceBasis: row?.breakoutRetestProofFormulaEvidenceBasis || null,
+    breakoutRetestProofFormulaObservedValue: numberOrNull(row?.breakoutRetestProofFormulaObservedValue),
+    breakoutRetestProofFormulaThresholdValue: numberOrNull(row?.breakoutRetestProofFormulaThresholdValue),
+    breakoutRetestProofFormulaDeltaValue: numberOrNull(row?.breakoutRetestProofFormulaDeltaValue),
+    breakoutRetestProofFormulaUnit: row?.breakoutRetestProofFormulaUnit || null,
     breakoutRetestPromotionVerdict: row?.breakoutRetestPromotionVerdict || null,
     breakoutRetestPromotionReady: row?.breakoutRetestPromotionReady ?? null,
     breakoutRetestPromotionPolicyDecision: row?.breakoutRetestPromotionPolicyDecision || null,
@@ -419,6 +477,11 @@ function compactRow(row) {
     targetRecalibrationSourceStopPrice: numberOrNull(row?.targetRecalibrationSourceStopPrice),
     targetRecalibrationStopDistanceAtCurrent: numberOrNull(row?.targetRecalibrationStopDistanceAtCurrent),
     targetRecalibrationRequiredTargetSource: row?.targetRecalibrationRequiredTargetSource || null,
+    targetRecalibrationFormulaEvidenceBasis: row?.targetRecalibrationFormulaEvidenceBasis || null,
+    targetRecalibrationFormulaObservedValue: numberOrNull(row?.targetRecalibrationFormulaObservedValue),
+    targetRecalibrationFormulaThresholdValue: numberOrNull(row?.targetRecalibrationFormulaThresholdValue),
+    targetRecalibrationFormulaDeltaValue: numberOrNull(row?.targetRecalibrationFormulaDeltaValue),
+    targetRecalibrationFormulaUnit: row?.targetRecalibrationFormulaUnit || null,
     targetRecalibrationRiskBasisStopDistancePct: numberOrNull(row?.targetRecalibrationRiskBasisStopDistancePct),
     targetRecalibrationShortfallPct: numberOrNull(row?.targetRecalibrationShortfallPct),
     riskGeometryPolicyVerdict: row?.riskGeometryPolicyVerdict || null,
@@ -438,7 +501,13 @@ function compactRow(row) {
     riskGeometryTargetBufferOk: row?.riskGeometryTargetBufferOk ?? null,
     riskGeometryRepairLane: row?.riskGeometryRepairLane || null,
     riskGeometryProofConfirmed: row?.riskGeometryProofConfirmed ?? null,
+    riskGeometryFormulaEvidenceBasis: row?.riskGeometryFormulaEvidenceBasis || null,
+    riskGeometryFormulaObservedValue: numberOrNull(row?.riskGeometryFormulaObservedValue),
+    riskGeometryFormulaThresholdValue: numberOrNull(row?.riskGeometryFormulaThresholdValue),
+    riskGeometryFormulaDeltaValue: numberOrNull(row?.riskGeometryFormulaDeltaValue),
+    riskGeometryFormulaUnit: row?.riskGeometryFormulaUnit || null,
     structurePolicyBlockerLane: row?.structurePolicyBlockerLane || null,
+    structurePolicyFormulaEvidenceBasis: row?.structurePolicyFormulaEvidenceBasis || null,
     structurePolicyCurrentRrOk: row?.structurePolicyCurrentRrOk ?? null,
     structurePolicyTargetBufferOk: row?.structurePolicyTargetBufferOk ?? null,
     structurePolicyDistanceWithinReviewBand: row?.structurePolicyDistanceWithinReviewBand ?? null,
@@ -480,6 +549,7 @@ function buildMarkdown(report) {
   lines.push(`| formulaManifestContractIssues | ${esc(report.summary.formulaManifestContractIssues)} |`);
   lines.push(`| formulaLaneConsistencyIssues | ${esc(report.summary.formulaLaneConsistencyIssues)} |`);
   lines.push(`| formulaEvidenceQualityIssues | ${esc(report.summary.formulaEvidenceQualityIssues)} |`);
+  lines.push(`| laneSpecificFormulaEvidenceIssues | ${esc(report.summary.laneSpecificFormulaEvidenceIssues)} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
   lines.push(`| rawExecutableDowngrades | ${esc(JSON.stringify(report.rawExecutableDowngrades))} |`);
   lines.push('');
@@ -493,8 +563,8 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Row Focus');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Formula Bottleneck | Severity | Formula Evidence | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Formula Bottleneck | Severity | Formula Evidence | Lane Formula Basis | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
   for (const row of report.rows) {
     const riskChecks = [
       `target=${row.riskGeometryTargetAboveCurrent}`,
@@ -509,7 +579,13 @@ function buildMarkdown(report) {
       `dist=${row.structurePolicyDistanceWithinReviewBand}`
     ].join(',');
     const formulaEvidence = `${row.zeroExecutableFormulaEvidenceBasis || 'missing'}:${row.zeroExecutableFormulaObservedValue ?? 'N/A'}>${row.zeroExecutableFormulaThresholdValue ?? 'N/A'} delta=${row.zeroExecutableFormulaDeltaValue ?? 'N/A'} ${row.zeroExecutableFormulaUnit || ''}; knob=${row.zeroExecutableFormulaAdjustmentKnob || 'missing'} direction=${row.zeroExecutableFormulaAdjustmentDirection || 'missing'}`;
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(formulaEvidence)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
+    const laneFormulaBasis = [
+      `structure=${row.structurePolicyFormulaEvidenceBasis || 'N/A'}`,
+      `breakout=${row.breakoutRetestProofFormulaEvidenceBasis || 'N/A'}`,
+      `target=${row.targetRecalibrationFormulaEvidenceBasis || 'N/A'}`,
+      `risk=${row.riskGeometryFormulaEvidenceBasis || 'N/A'}`
+    ].join('; ');
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(formulaEvidence)} | ${esc(laneFormulaBasis)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
   lines.push('## Track Separation');
@@ -518,6 +594,7 @@ function buildMarkdown(report) {
   lines.push('- `warn_formula_contract_missing_or_mismatch` means rows may expose formula fields, but the artifact manifest does not publish the formula tuning contract version/rules.');
   lines.push('- `warn_formula_bottleneck_lane_mismatch` means a row has formula fields, but the formula bottleneck contradicts its zero-executable tuning lane. Fix Stage6 producer mapping before tuning thresholds.');
   lines.push('- `warn_formula_bottleneck_evidence_weak` means the formula bottleneck lane is present, but its numeric/proof evidence is too weak to support tuning.');
+  lines.push('- `warn_lane_specific_formula_evidence_mismatch` means the row has generic zero-executable formula fields, but the structure/breakout/target/risk lane-specific formula fields are missing or disagree with the primary formula basis.');
   lines.push('- Stage6 zero-executable tuning belongs to the analysis producer track, not sidecar submit/reprice.');
   lines.push('- `ops-health-report=fail` belongs to the alpha-exec-engine protection/guard metadata track and must not be used to tune Stage6 entry policy.');
   lines.push('- If zero-executable repeats with clear focus metrics, move to producer tuning: breakout proofConfirmed criteria, target recalibration formula, and risk-geometry recalculation evidence.');
@@ -545,6 +622,11 @@ function main() {
     breakoutRetestProofContinuationConfirmed: requiredFieldCoverage(rows, 'breakoutRetestProofContinuationConfirmed'),
     breakoutRetestPromotionPolicyDecision: requiredFieldCoverage(rows, 'breakoutRetestPromotionPolicyDecision'),
     breakoutRetestPromotionBlockedBy: requiredFieldCoverage(rows, 'breakoutRetestPromotionBlockedBy'),
+    breakoutRetestProofFormulaEvidenceBasis: requiredFieldCoverage(rows, 'breakoutRetestProofFormulaEvidenceBasis'),
+    breakoutRetestProofFormulaObservedValue: requiredFieldCoverage(rows, 'breakoutRetestProofFormulaObservedValue'),
+    breakoutRetestProofFormulaThresholdValue: requiredFieldCoverage(rows, 'breakoutRetestProofFormulaThresholdValue'),
+    breakoutRetestProofFormulaDeltaValue: requiredFieldCoverage(rows, 'breakoutRetestProofFormulaDeltaValue'),
+    breakoutRetestProofFormulaUnit: requiredFieldCoverage(rows, 'breakoutRetestProofFormulaUnit'),
     targetRecalibrationViabilityVerdict: requiredFieldCoverage(rows, 'targetRecalibrationViabilityVerdict'),
     targetRecalibrationRequiredTargetByBufferPrice: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetByBufferPrice'),
     targetRecalibrationRequiredTargetByRrPrice: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetByRrPrice'),
@@ -553,7 +635,13 @@ function main() {
     targetRecalibrationSourceStopPrice: requiredFieldCoverage(rows, 'targetRecalibrationSourceStopPrice'),
     targetRecalibrationStopDistanceAtCurrent: requiredFieldCoverage(rows, 'targetRecalibrationStopDistanceAtCurrent'),
     targetRecalibrationRequiredTargetSource: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetSource'),
+    targetRecalibrationFormulaEvidenceBasis: requiredFieldCoverage(rows, 'targetRecalibrationFormulaEvidenceBasis'),
+    targetRecalibrationFormulaObservedValue: requiredFieldCoverage(rows, 'targetRecalibrationFormulaObservedValue'),
+    targetRecalibrationFormulaThresholdValue: requiredFieldCoverage(rows, 'targetRecalibrationFormulaThresholdValue'),
+    targetRecalibrationFormulaDeltaValue: requiredFieldCoverage(rows, 'targetRecalibrationFormulaDeltaValue'),
+    targetRecalibrationFormulaUnit: requiredFieldCoverage(rows, 'targetRecalibrationFormulaUnit'),
     structurePolicyBlockerLane: requiredFieldCoverage(rows, 'structurePolicyBlockerLane'),
+    structurePolicyFormulaEvidenceBasis: requiredFieldCoverage(rows, 'structurePolicyFormulaEvidenceBasis'),
     structurePolicyCurrentRrOk: requiredFieldCoverage(rows, 'structurePolicyCurrentRrOk'),
     structurePolicyTargetBufferOk: requiredFieldCoverage(rows, 'structurePolicyTargetBufferOk'),
     structurePolicyDistanceWithinReviewBand: requiredFieldCoverage(rows, 'structurePolicyDistanceWithinReviewBand'),
@@ -570,6 +658,11 @@ function main() {
     riskGeometryTargetBufferOk: requiredFieldCoverage(rows, 'riskGeometryTargetBufferOk'),
     riskGeometryRepairLane: requiredFieldCoverage(rows, 'riskGeometryRepairLane'),
     riskGeometryProofConfirmed: requiredFieldCoverage(rows, 'riskGeometryProofConfirmed'),
+    riskGeometryFormulaEvidenceBasis: requiredFieldCoverage(rows, 'riskGeometryFormulaEvidenceBasis'),
+    riskGeometryFormulaObservedValue: requiredFieldCoverage(rows, 'riskGeometryFormulaObservedValue'),
+    riskGeometryFormulaThresholdValue: requiredFieldCoverage(rows, 'riskGeometryFormulaThresholdValue'),
+    riskGeometryFormulaDeltaValue: requiredFieldCoverage(rows, 'riskGeometryFormulaDeltaValue'),
+    riskGeometryFormulaUnit: requiredFieldCoverage(rows, 'riskGeometryFormulaUnit'),
     qualityGateLane: requiredFieldCoverage(rows, 'qualityGateLane'),
     qualityGatePolicyVerdict: requiredFieldCoverage(rows, 'qualityGatePolicyVerdict'),
     zeroExecutableFormulaBottleneck: requiredFieldCoverage(rows, 'zeroExecutableFormulaBottleneck'),
@@ -604,6 +697,7 @@ function main() {
   const formulaManifestIssues = formulaManifestContractIssues(stage6);
   const formulaLaneConsistencyIssues = rows.map(formulaLaneConsistencyIssue).filter(Boolean);
   const formulaEvidenceQualityIssues = rows.map(formulaEvidenceQualityIssue).filter(Boolean);
+  const laneSpecificFormulaEvidenceIssues = rows.map(laneSpecificFormulaEvidenceIssue).filter(Boolean);
   const hasOpaqueOtherOnly = rows.length > 0 && Object.keys(countBy(rows, blockerCategory)).length === 1 && countBy(rows, blockerCategory).other === rows.length;
   const overall = rows.length === 0
     ? 'fail_no_rows'
@@ -617,6 +711,8 @@ function main() {
           ? 'warn_formula_bottleneck_lane_mismatch'
           : formulaEvidenceQualityIssues.length > 0
             ? 'warn_formula_bottleneck_evidence_weak'
+          : laneSpecificFormulaEvidenceIssues.length > 0
+            ? 'warn_lane_specific_formula_evidence_mismatch'
           : hasOpaqueOtherOnly
             ? 'warn_opaque_blocker_categories'
             : executableRows.length > 0
@@ -648,6 +744,7 @@ function main() {
       formulaManifestContractIssues: formulaManifestIssues.length,
       formulaLaneConsistencyIssues: formulaLaneConsistencyIssues.length,
       formulaEvidenceQualityIssues: formulaEvidenceQualityIssues.length,
+      laneSpecificFormulaEvidenceIssues: laneSpecificFormulaEvidenceIssues.length,
       blockerCategoryCounts: countBy(rows, blockerCategory)
     },
     fieldCoverage,
@@ -656,6 +753,7 @@ function main() {
     formulaManifestContractIssues: formulaManifestIssues,
     formulaLaneConsistencyIssues,
     formulaEvidenceQualityIssues,
+    laneSpecificFormulaEvidenceIssues,
     rawExecutableDowngrades: rawExecutableDowngradeRows,
     trackSeparation: {
       stage6ProducerTuning: ['breakout_proofConfirmed_criteria', 'target_recalibration_formula', 'risk_geometry_recalculation_evidence'],
