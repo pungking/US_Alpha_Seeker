@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 const fixturePath = process.env.STAGE6_FILLABILITY_CONTRACT_FIXTURE || 'docs/fixtures/stage6_sidecar_entry_fillability_contract.fixture.json';
+const schemaPath = process.env.STAGE6_FILLABILITY_CONTRACT_SCHEMA || 'schemas/stage6_sidecar_entry_fillability_contract.schema.json';
 const data = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
 const candidates = Array.isArray(data.candidates) ? data.candidates : [];
 const actionableVerdicts = new Set(
   String(data?.decisionGate?.actionableVerdicts || 'BUY,STRONG_BUY,STRONGBUY')
@@ -21,6 +23,21 @@ const isBooleanLike = (value) => value === true || value === false || String(val
 const isFiniteNumber = (value) => value !== null && value !== '' && value !== undefined && !Number.isNaN(Number(value)) && Number.isFinite(Number(value));
 const tuningLane = (row) => String(row.zeroExecutableTuningLane || '').trim().toUpperCase();
 const formulaBottleneck = (row) => String(row.zeroExecutableFormulaBottleneck || '').trim().toUpperCase();
+const schemaCandidateProperties = schema?.$defs?.stage6Candidate?.properties || {};
+for (const field of [
+  'zeroExecutableFormulaBottleneck',
+  'zeroExecutableFormulaSeverity',
+  'zeroExecutableTargetShortfallPct',
+  'zeroExecutableRiskTargetShortfallPct',
+  'zeroExecutableBreakoutProofGapCount',
+  'zeroExecutableStructureProofGapCount',
+  'zeroExecutableFormulaReasons',
+  'zeroExecutableFormulaRecommendedAction'
+]) {
+  if (!Object.prototype.hasOwnProperty.call(schemaCandidateProperties, field)) {
+    errors.push(`schema missing formula bottleneck field: ${field}`);
+  }
+}
 const riskGeometryReasons = new Set([
   'blocked_invalid_geometry',
   'blocked_stop_too_tight',

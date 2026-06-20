@@ -72,6 +72,19 @@ function arr(value) {
   return Array.isArray(value) ? value.map((item) => String(item || '').trim()).filter(Boolean) : [];
 }
 
+function formulaProfile(row) {
+  return {
+    bottleneck: text(row?.zeroExecutableFormulaBottleneck),
+    severity: round(row?.zeroExecutableFormulaSeverity),
+    targetShortfallPct: round(row?.zeroExecutableTargetShortfallPct),
+    riskTargetShortfallPct: round(row?.zeroExecutableRiskTargetShortfallPct),
+    breakoutProofGapCount: numberOrNull(row?.zeroExecutableBreakoutProofGapCount),
+    structureProofGapCount: numberOrNull(row?.zeroExecutableStructureProofGapCount),
+    reasons: arr(row?.zeroExecutableFormulaReasons),
+    recommendedAction: text(row?.zeroExecutableFormulaRecommendedAction)
+  };
+}
+
 function fmt(value, digits = 2) {
   const n = numberOrNull(value);
   return n == null ? 'N/A' : n.toFixed(digits);
@@ -278,6 +291,7 @@ function classifyRiskGeometry(row, policy) {
       executionFeasibilityAtCurrentVerdict: row?.executionFeasibilityAtCurrentVerdict || null,
       executionFeasibilityAtCurrentReason: row?.executionFeasibilityAtCurrentReason || null,
       riskGeometryPolicyVerdict: row?.riskGeometryPolicyVerdict || null,
+      zeroExecutableFormula: formulaProfile(row),
       riskGeometryRecalibrationRequired: row?.riskGeometryRecalibrationRequired ?? null,
       riskGeometryNoTradeRequired: row?.riskGeometryNoTradeRequired ?? null,
       riskGeometryRecalculatedStopCandidate: row?.riskGeometryRecalculatedStopCandidate ?? null,
@@ -378,6 +392,7 @@ function classifyStructureWait(row, policy) {
       executionFeasibilityAtCurrentVerdict: row?.executionFeasibilityAtCurrentVerdict || null,
       executionFeasibilityAtCurrentReason: row?.executionFeasibilityAtCurrentReason || null,
       zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
+      zeroExecutableFormula: formulaProfile(row),
       producerFlags: {
         adaptiveCurrentEntryEnabled: policy.adaptiveCurrentEntryEnabled,
         currentEntryStopRecalcEnabled: policy.currentEntryStopRecalcEnabled,
@@ -454,6 +469,7 @@ function classifyQualityGate(row, policy) {
       executionFeasibilityAtCurrentVerdict: row?.executionFeasibilityAtCurrentVerdict || null,
       executionFeasibilityAtCurrentReason: row?.executionFeasibilityAtCurrentReason || null,
       executionFeasibilityAtCurrentReasons: arr(row?.executionFeasibilityAtCurrentReasons),
+      zeroExecutableFormula: formulaProfile(row),
       rootCauses
     }
   };
@@ -484,31 +500,32 @@ function buildMarkdown(report) {
   lines.push(`- Structure wait rows: ${report.summary.structureWaitRows}`);
   lines.push(`- Risk geometry rows: ${report.summary.riskGeometryRows}`);
   lines.push(`- Quality gate rows: ${report.summary.qualityGateRows}`);
+  lines.push(`- Formula bottlenecks: ${esc(JSON.stringify(report.summary.formulaBottlenecks || {}))}`);
   lines.push(`- Safety: report-only; broker/order mutation is out of scope.`);
   lines.push('');
   lines.push('## Structure Wait');
   lines.push('');
-  lines.push('| Symbol | Decision | Root Cause | Structure Confirmed | Recalc Feasible | RR@Current | TargetBuf% | EntryDist% | Structure Verdict | Recommendation |');
-  lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- |');
+  lines.push('| Symbol | Decision | Root Cause | Formula Bottleneck | Severity | Structure Confirmed | Recalc Feasible | RR@Current | TargetBuf% | EntryDist% | Structure Verdict | Recommendation |');
+  lines.push('| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- | --- |');
   for (const row of report.structureWait) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.rootCause)} | ${row.isStructureConfirmed ? 'yes' : 'no'} | ${row.isRecalcFeasible ? 'yes' : 'no'} | ${fmt(row.evidence.rrAtCurrent)} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${fmt(row.evidence.entryDistancePct)} | ${esc(row.evidence.currentEntryStructureVerdict)} | ${esc(row.recommendation)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.rootCause)} | ${esc(row.evidence.zeroExecutableFormula?.bottleneck || 'missing')} | ${fmt(row.evidence.zeroExecutableFormula?.severity)} | ${row.isStructureConfirmed ? 'yes' : 'no'} | ${row.isRecalcFeasible ? 'yes' : 'no'} | ${fmt(row.evidence.rrAtCurrent)} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${fmt(row.evidence.entryDistancePct)} | ${esc(row.evidence.currentEntryStructureVerdict)} | ${esc(row.recommendation)} |`);
   }
   lines.push('');
   lines.push('## Risk Geometry');
   lines.push('');
-  lines.push('| Symbol | Decision | Root Cause | Recalc Candidate | RR@Current | RR@Recalc | TargetBuf% | StopDist% | Producer Flags | Recommendation |');
-  lines.push('| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |');
+  lines.push('| Symbol | Decision | Root Cause | Formula Bottleneck | Severity | Recalc Candidate | RR@Current | RR@Recalc | TargetBuf% | StopDist% | Producer Flags | Recommendation |');
+  lines.push('| --- | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- |');
   for (const row of report.riskGeometry) {
     const flags = row.evidence.producerFlags;
-    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.rootCause)} | ${row.isActualRecalculatedStopCandidate ? 'yes' : 'no'} | ${fmt(row.evidence.originalRrAtCurrent)} | ${fmt(row.evidence.rrWithRecalculatedStop)} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${fmt(row.evidence.requiredStopDistancePct)} | ${esc(`adaptive=${flags.adaptiveCurrentEntryEnabled}, stopRecalc=${flags.currentEntryStopRecalcEnabled}`)} | ${esc(row.recommendation)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.rootCause)} | ${esc(row.evidence.zeroExecutableFormula?.bottleneck || 'missing')} | ${fmt(row.evidence.zeroExecutableFormula?.severity)} | ${row.isActualRecalculatedStopCandidate ? 'yes' : 'no'} | ${fmt(row.evidence.originalRrAtCurrent)} | ${fmt(row.evidence.rrWithRecalculatedStop)} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${fmt(row.evidence.requiredStopDistancePct)} | ${esc(`adaptive=${flags.adaptiveCurrentEntryEnabled}, stopRecalc=${flags.currentEntryStopRecalcEnabled}`)} | ${esc(row.recommendation)} |`);
   }
   lines.push('');
   lines.push('## Quality Gate');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Producer Lane | Producer Verdict | Root Cause | Verdict Unusable | HOLD | Target Geometry Block | Normalization Issue | TargetBuf% | Recommendation |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |');
+  lines.push('| Symbol | Verdict | Decision | Producer Lane | Producer Verdict | Root Cause | Formula Bottleneck | Severity | Verdict Unusable | HOLD | Target Geometry Block | Normalization Issue | TargetBuf% | Recommendation |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |');
   for (const row of report.qualityGate) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerLane)} | ${esc(row.producerVerdict)} | ${esc(row.rootCause)} | ${row.isVerdictUnusable ? 'yes' : 'no'} | ${row.isHold ? 'yes' : 'no'} | ${row.isTargetGeometryBlock ? 'yes' : 'no'} | ${row.isAiVerdictNormalizationIssue ? 'yes' : 'no'} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${esc(row.recommendation)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerLane)} | ${esc(row.producerVerdict)} | ${esc(row.rootCause)} | ${esc(row.evidence.zeroExecutableFormula?.bottleneck || 'missing')} | ${fmt(row.evidence.zeroExecutableFormula?.severity)} | ${row.isVerdictUnusable ? 'yes' : 'no'} | ${row.isHold ? 'yes' : 'no'} | ${row.isTargetGeometryBlock ? 'yes' : 'no'} | ${row.isAiVerdictNormalizationIssue ? 'yes' : 'no'} | ${fmt(row.evidence.targetBufferFromCurrentPct)} | ${esc(row.recommendation)} |`);
   }
   lines.push('');
   lines.push('## Done-When Interpretation');
@@ -540,6 +557,7 @@ function main() {
       ].includes(String(row?.decisionReason || ''))
     )
     .map((row) => classifyQualityGate(row, policy));
+  const allAuditedRows = [...structureWait, ...riskGeometry, ...qualityGate];
   const evidence = sidecarEvidence(process.env.STAGE6_BLOCKER_AUDIT_SIDECAR_STATE_DIR);
   const report = {
     generatedAt: new Date().toISOString(),
@@ -555,6 +573,11 @@ function main() {
       structureWaitRows: structureWait.length,
       riskGeometryRows: riskGeometry.length,
       qualityGateRows: qualityGate.length,
+      formulaBottlenecks: allAuditedRows.reduce((acc, row) => {
+        const key = row.evidence?.zeroExecutableFormula?.bottleneck || 'missing';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {}),
       structureWaitRootCauses: structureWait.reduce((acc, row) => ({ ...acc, [row.rootCause]: (acc[row.rootCause] || 0) + 1 }), {}),
       riskGeometryRootCauses: riskGeometry.reduce((acc, row) => ({ ...acc, [row.rootCause]: (acc[row.rootCause] || 0) + 1 }), {}),
       qualityGateRootCauses: qualityGate.reduce((acc, row) => ({ ...acc, [row.rootCause]: (acc[row.rootCause] || 0) + 1 }), {})
