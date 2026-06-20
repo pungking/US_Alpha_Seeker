@@ -12,7 +12,7 @@
   "execution_contract": {
     "modelTop6": [
       {
-        "symbol": "FORMOK",
+        "symbol": "FORMSTR",
         "verdict": "BUY",
         "finalDecision": "WAIT_PRICE",
         "decisionReason": "wait_structure_confirmation_required",
@@ -26,11 +26,62 @@
         "zeroExecutableRiskTargetShortfallPct": null,
         "zeroExecutableBreakoutProofGapCount": 0,
         "zeroExecutableStructureProofGapCount": 2,
-        "zeroExecutableFormulaReasons": [
-          "tuning_lane:STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
-          "structure_proof_gap_count:2"
-        ],
+        "zeroExecutableFormulaReasons": ["structure_proof_gap_count:2"],
         "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly."
+      },
+      {
+        "symbol": "FORMBRK",
+        "verdict": "STRONG_BUY",
+        "finalDecision": "WAIT_PRICE",
+        "decisionReason": "wait_breakout_retest_required",
+        "executionBucket": "WATCHLIST",
+        "zeroExecutableTuningLane": "BREAKOUT_PROOF_CONFIRMED_GENERATION",
+        "breakoutRetestProofConfirmed": false,
+        "targetRecalibrationViabilityVerdict": "TARGET_VIABILITY_NOT_APPLICABLE",
+        "zeroExecutableFormulaBottleneck": "BREAKOUT_PROOF_FORMULA",
+        "zeroExecutableFormulaSeverity": 2,
+        "zeroExecutableTargetShortfallPct": null,
+        "zeroExecutableRiskTargetShortfallPct": null,
+        "zeroExecutableBreakoutProofGapCount": 2,
+        "zeroExecutableStructureProofGapCount": 0,
+        "zeroExecutableFormulaReasons": ["breakout_proof_gap_count:2"],
+        "zeroExecutableFormulaRecommendedAction": "Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable."
+      },
+      {
+        "symbol": "FORMTGT",
+        "verdict": "BUY",
+        "finalDecision": "WAIT_PRICE",
+        "decisionReason": "wait_target_near_current",
+        "executionBucket": "WATCHLIST",
+        "zeroExecutableTuningLane": "TARGET_RECALIBRATION",
+        "breakoutRetestProofConfirmed": false,
+        "targetRecalibrationViabilityVerdict": "TARGET_NEAR_CURRENT_RECALIBRATION_REVIEW_READY",
+        "zeroExecutableFormulaBottleneck": "TARGET_RECALIBRATION_FORMULA",
+        "zeroExecutableFormulaSeverity": 7.5,
+        "zeroExecutableTargetShortfallPct": 7.5,
+        "zeroExecutableRiskTargetShortfallPct": null,
+        "zeroExecutableBreakoutProofGapCount": 0,
+        "zeroExecutableStructureProofGapCount": 0,
+        "zeroExecutableFormulaReasons": ["target_shortfall_pct:7.5"],
+        "zeroExecutableFormulaRecommendedAction": "Tune Stage6 target recalibration evidence or keep no-trade; do not solve with sidecar reprice."
+      },
+      {
+        "symbol": "FORMRISK",
+        "verdict": "BUY",
+        "finalDecision": "WAIT_PRICE",
+        "decisionReason": "wait_recalculated_stop_required",
+        "executionBucket": "WATCHLIST",
+        "zeroExecutableTuningLane": "STOP_TARGET_RISK_GEOMETRY_RECALCULATION",
+        "breakoutRetestProofConfirmed": false,
+        "targetRecalibrationViabilityVerdict": "TARGET_VIABILITY_NOT_APPLICABLE",
+        "zeroExecutableFormulaBottleneck": "RISK_GEOMETRY_RECALCULATION_FORMULA",
+        "zeroExecutableFormulaSeverity": 13.6,
+        "zeroExecutableTargetShortfallPct": null,
+        "zeroExecutableRiskTargetShortfallPct": 13.6,
+        "zeroExecutableBreakoutProofGapCount": 0,
+        "zeroExecutableStructureProofGapCount": 0,
+        "zeroExecutableFormulaReasons": ["risk_target_shortfall_pct:13.6"],
+        "zeroExecutableFormulaRecommendedAction": "Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion."
       }
     ],
     "watchlistTop": [],

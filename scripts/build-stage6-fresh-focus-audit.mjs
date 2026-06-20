@@ -154,6 +154,32 @@ function blockerCategory(row) {
   return 'other';
 }
 
+function expectedFormulaBottleneck(row) {
+  const lane = String(row?.zeroExecutableTuningLane || '').trim().toUpperCase();
+  if (lane === 'TARGET_RECALIBRATION') return 'TARGET_RECALIBRATION_FORMULA';
+  if (lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' || lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') {
+    return 'RISK_GEOMETRY_RECALCULATION_FORMULA';
+  }
+  if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION') return 'BREAKOUT_PROOF_FORMULA';
+  if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') return 'STRUCTURE_PROOF_FORMULA';
+  return null;
+}
+
+function formulaLaneConsistencyIssue(row) {
+  const expected = expectedFormulaBottleneck(row);
+  if (!expected) return null;
+  const actual = String(row?.zeroExecutableFormulaBottleneck || '').trim().toUpperCase();
+  if (actual === expected) return null;
+  return {
+    symbol: normalizeSymbol(row),
+    zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
+    expectedFormulaBottleneck: expected,
+    actualFormulaBottleneck: row?.zeroExecutableFormulaBottleneck || null,
+    finalDecision: decisionOf(row),
+    decisionReason: reasonOf(row)
+  };
+}
+
 function requiredFieldCoverage(rows, field) {
   return {
     present: rows.filter((row) => Object.prototype.hasOwnProperty.call(row, field)).length,
@@ -258,6 +284,7 @@ function buildMarkdown(report) {
   lines.push(`| targetRecalibrationRequiredTargetSourceCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationRequiredTargetSourceCounts))} |`);
   lines.push(`| riskGeometryTargetRecalibrationCandidateCounts | ${esc(JSON.stringify(report.summary.riskGeometryTargetRecalibrationCandidateCounts))} |`);
   lines.push(`| zeroExecutableFormulaBottleneckCounts | ${esc(JSON.stringify(report.summary.zeroExecutableFormulaBottleneckCounts))} |`);
+  lines.push(`| formulaLaneConsistencyIssues | ${esc(report.summary.formulaLaneConsistencyIssues)} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
   lines.push(`| rawExecutableDowngrades | ${esc(JSON.stringify(report.rawExecutableDowngrades))} |`);
   lines.push('');
@@ -292,6 +319,7 @@ function buildMarkdown(report) {
   lines.push('## Track Separation');
   lines.push('');
   lines.push('- `warn_formula_bottleneck_fields_missing` means the Stage6 artifact predates the formula-bottleneck contract or the producer failed to emit it. Treat that as a fresh-hash verification gap, not a sidecar problem.');
+  lines.push('- `warn_formula_bottleneck_lane_mismatch` means a row has formula fields, but the formula bottleneck contradicts its zero-executable tuning lane. Fix Stage6 producer mapping before tuning thresholds.');
   lines.push('- Stage6 zero-executable tuning belongs to the analysis producer track, not sidecar submit/reprice.');
   lines.push('- `ops-health-report=fail` belongs to the alpha-exec-engine protection/guard metadata track and must not be used to tune Stage6 entry policy.');
   lines.push('- If zero-executable repeats with clear focus metrics, move to producer tuning: breakout proofConfirmed criteria, target recalibration formula, and risk-geometry recalculation evidence.');
@@ -369,6 +397,7 @@ function main() {
     const coverage = fieldCoverage[field];
     return coverage?.total > 0 && coverage.present === coverage.total;
   });
+  const formulaLaneConsistencyIssues = rows.map(formulaLaneConsistencyIssue).filter(Boolean);
   const hasOpaqueOtherOnly = rows.length > 0 && Object.keys(countBy(rows, blockerCategory)).length === 1 && countBy(rows, blockerCategory).other === rows.length;
   const overall = rows.length === 0
     ? 'fail_no_rows'
@@ -376,11 +405,13 @@ function main() {
       ? 'fail_required_focus_fields_missing'
       : !formulaCoveragePass
         ? 'warn_formula_bottleneck_fields_missing'
-      : hasOpaqueOtherOnly
-        ? 'warn_opaque_blocker_categories'
-        : executableRows.length > 0
-          ? 'pass_executable_present_focus_fields_ok'
-          : 'pass_zero_executable_focus_fields_ok';
+        : formulaLaneConsistencyIssues.length > 0
+          ? 'warn_formula_bottleneck_lane_mismatch'
+          : hasOpaqueOtherOnly
+            ? 'warn_opaque_blocker_categories'
+            : executableRows.length > 0
+              ? 'pass_executable_present_focus_fields_ok'
+              : 'pass_zero_executable_focus_fields_ok';
   const report = {
     generatedAt: new Date().toISOString(),
     overall,
@@ -404,11 +435,13 @@ function main() {
       targetRecalibrationRequiredTargetSourceCounts: countBy(rows, (row) => row?.targetRecalibrationRequiredTargetSource || 'missing'),
       riskGeometryTargetRecalibrationCandidateCounts: countBy(rows, (row) => String(row?.riskGeometryTargetRecalibrationCandidate ?? 'missing')),
       zeroExecutableFormulaBottleneckCounts: countBy(rows, (row) => row?.zeroExecutableFormulaBottleneck || 'missing'),
+      formulaLaneConsistencyIssues: formulaLaneConsistencyIssues.length,
       blockerCategoryCounts: countBy(rows, blockerCategory)
     },
     fieldCoverage,
     requiredFocusFields,
     requiredFormulaFields,
+    formulaLaneConsistencyIssues,
     rawExecutableDowngrades: rawExecutableDowngradeRows,
     trackSeparation: {
       stage6ProducerTuning: ['breakout_proofConfirmed_criteria', 'target_recalibration_formula', 'risk_geometry_recalculation_evidence'],

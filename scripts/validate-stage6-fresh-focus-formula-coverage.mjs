@@ -12,13 +12,22 @@ const CASES = [
     name: 'missing_formula_fields_warns',
     fixture: 'STAGE6_ALPHA_FINAL_MISSING_FORMULA.fixture.json',
     expectedOverall: 'warn_formula_bottleneck_fields_missing',
-    expectedCoverage: 0
+    expectedCoverage: { present: 0, total: 1 },
+    expectedLaneConsistencyIssues: 1
   },
   {
     name: 'formula_fields_present_passes',
     fixture: 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json',
     expectedOverall: 'pass_zero_executable_focus_fields_ok',
-    expectedCoverage: 1
+    expectedCoverage: { present: 4, total: 4 },
+    expectedLaneConsistencyIssues: 0
+  },
+  {
+    name: 'formula_lane_mismatch_warns',
+    fixture: 'STAGE6_ALPHA_FINAL_FORMULA_MISMATCH.fixture.json',
+    expectedOverall: 'warn_formula_bottleneck_lane_mismatch',
+    expectedCoverage: { present: 1, total: 1 },
+    expectedLaneConsistencyIssues: 1
   }
 ];
 
@@ -45,10 +54,14 @@ function runCase(testCase) {
     throw new Error(`${testCase.name}: expected overall=${testCase.expectedOverall}, got ${report.overall}`);
   }
   const coverage = report.fieldCoverage?.zeroExecutableFormulaBottleneck;
-  if (!coverage || coverage.present !== testCase.expectedCoverage || coverage.total !== 1) {
+  if (!coverage || coverage.present !== testCase.expectedCoverage.present || coverage.total !== testCase.expectedCoverage.total) {
     throw new Error(`${testCase.name}: unexpected formula coverage ${JSON.stringify(coverage)}`);
   }
-  return { name: testCase.name, overall: report.overall, coverage };
+  const laneIssues = Number(report.summary?.formulaLaneConsistencyIssues || 0);
+  if (laneIssues !== testCase.expectedLaneConsistencyIssues) {
+    throw new Error(`${testCase.name}: expected formulaLaneConsistencyIssues=${testCase.expectedLaneConsistencyIssues}, got ${laneIssues}`);
+  }
+  return { name: testCase.name, overall: report.overall, coverage, laneIssues };
 }
 
 const results = CASES.map(runCase);

@@ -1,0 +1,37 @@
+{
+  "schema_version": "stage6_alpha_final/v1",
+  "generated_at": "2026-06-20T00:00:00.000Z",
+  "manifest": {
+    "stage6Hash": "fixture-formula-mismatch",
+    "decisionGate": {
+      "actionableVerdicts": ["BUY", "STRONG_BUY", "STRONGBUY"],
+      "currentEntryMinRr": 2,
+      "currentEntryMinTargetBufferPct": 3
+    }
+  },
+  "execution_contract": {
+    "modelTop6": [
+      {
+        "symbol": "FORMBAD",
+        "verdict": "BUY",
+        "finalDecision": "WAIT_PRICE",
+        "decisionReason": "wait_structure_confirmation_required",
+        "executionBucket": "WATCHLIST",
+        "zeroExecutableTuningLane": "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
+        "breakoutRetestProofConfirmed": false,
+        "targetRecalibrationViabilityVerdict": "TARGET_VIABILITY_NOT_APPLICABLE",
+        "zeroExecutableFormulaBottleneck": "BREAKOUT_PROOF_FORMULA",
+        "zeroExecutableFormulaSeverity": 2,
+        "zeroExecutableTargetShortfallPct": null,
+        "zeroExecutableRiskTargetShortfallPct": null,
+        "zeroExecutableBreakoutProofGapCount": 2,
+        "zeroExecutableStructureProofGapCount": 0,
+        "zeroExecutableFormulaReasons": ["intentional_mismatch_fixture"],
+        "zeroExecutableFormulaRecommendedAction": "Mismatch fixture."
+      }
+    ],
+    "watchlistTop": [],
+    "executablePicks": []
+  },
+  "alpha_candidates": []
+}
