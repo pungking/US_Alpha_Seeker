@@ -110,6 +110,8 @@ Owned evidence:
 - target recalibration fields
 - risk geometry fields
 - `zeroExecutableTuningLane`
+- `zeroExecutableFormulaBottleneck`
+- `zeroExecutableFormulaSeverity`
 - `qualityGateLane`
 
 Done-when:
@@ -118,6 +120,9 @@ Done-when:
 - Weak pillar candidates route to WAIT/quality gate unless waiver exists.
 - Breakout review-ready never promotes without proof-confirmed evidence.
 - Target already reached routes to recalibration or no-trade, not sidecar chase.
+- Zero-executable rows expose the dominant formula bottleneck so tuning is
+  aimed at target, risk geometry, breakout proof, or structure proof instead of
+  broad filter relaxation.
 
 ### Stage6.5 - Execution Contract, Not Execution
 

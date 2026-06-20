@@ -234,6 +234,14 @@ interface AlphaCandidate {
   zeroExecutablePrimaryTuningTarget?: boolean | null;
   zeroExecutableTuningReasons?: string[] | null;
   zeroExecutableTuningRecommendedAction?: string | null;
+  zeroExecutableFormulaBottleneck?: string | null;
+  zeroExecutableFormulaSeverity?: number | null;
+  zeroExecutableTargetShortfallPct?: number | null;
+  zeroExecutableRiskTargetShortfallPct?: number | null;
+  zeroExecutableBreakoutProofGapCount?: number | null;
+  zeroExecutableStructureProofGapCount?: number | null;
+  zeroExecutableFormulaReasons?: string[] | null;
+  zeroExecutableFormulaRecommendedAction?: string | null;
   tradePlanDecision?: string | null;
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
@@ -783,6 +791,17 @@ type Stage6ZeroExecutableTuningPayload = {
   lane: string;
   verdict: string;
   primaryTuningTarget: boolean;
+  reasons: string[];
+  recommendedAction: string;
+};
+
+type Stage6ZeroExecutableFormulaProfilePayload = {
+  bottleneck: string;
+  severity: number;
+  targetShortfallPct: number | null;
+  riskTargetShortfallPct: number | null;
+  breakoutProofGapCount: number;
+  structureProofGapCount: number;
   reasons: string[];
   recommendedAction: string;
 };
@@ -2068,6 +2087,85 @@ const deriveZeroExecutableTuningPolicy = (input: {
     primaryTuningTarget: false,
     reasons: ['not_zero_executable_policy_lane'],
     recommendedAction: 'No zero-executable tuning action required.'
+  };
+};
+
+const deriveZeroExecutableFormulaProfile = (input: {
+  tuningPolicy: Stage6ZeroExecutableTuningPayload;
+  targetPolicy: Stage6TargetPolicyPayload;
+  riskGeometryPolicy: Stage6RiskGeometryPolicyPayload;
+  breakoutPromotion: Stage6BreakoutPromotionPayload;
+  structurePolicy: Stage6PolicyReviewPayload;
+}): Stage6ZeroExecutableFormulaProfilePayload => {
+  const targetShortfallPct = input.targetPolicy.shortfallPct != null && Number.isFinite(input.targetPolicy.shortfallPct)
+    ? Math.max(0, input.targetPolicy.shortfallPct)
+    : null;
+  const riskTargetShortfallPct = input.riskGeometryPolicy.targetShortfallPct != null && Number.isFinite(input.riskGeometryPolicy.targetShortfallPct)
+    ? Math.max(0, input.riskGeometryPolicy.targetShortfallPct)
+    : null;
+  const breakoutProofGaps = new Set<string>();
+  for (const reason of [...input.breakoutPromotion.blockedBy, ...input.breakoutPromotion.reasons]) {
+    if (!reason) continue;
+    if (
+      reason.includes('proof') ||
+      reason.includes('retest') ||
+      reason.includes('extension') ||
+      reason.includes('current_entry_feasibility') ||
+      reason.includes('current_stop_distance')
+    ) {
+      breakoutProofGaps.add(reason);
+    }
+  }
+  const structureProofGaps = new Set<string>();
+  if (input.structurePolicy.blockerLane !== 'not_applicable') structureProofGaps.add(`structure_lane:${input.structurePolicy.blockerLane}`);
+  if (!input.structurePolicy.currentRrOk) structureProofGaps.add('structure_current_rr_below_min');
+  if (!input.structurePolicy.targetBufferOk) structureProofGaps.add('structure_target_buffer_below_min');
+  if (!input.structurePolicy.distanceWithinReviewBand) structureProofGaps.add('structure_distance_outside_review_band');
+  for (const reason of input.structurePolicy.reasons) {
+    if (reason.includes('structure') || reason.includes('support') || reason.includes('current_')) structureProofGaps.add(reason);
+  }
+  const targetSeverity = input.targetPolicy.recalibrationRequired ? Math.max(1, targetShortfallPct ?? 1) : 0;
+  const riskSeverity = input.riskGeometryPolicy.recalibrationRequired || input.riskGeometryPolicy.recalculatedStopCandidate
+    ? Math.max(1, riskTargetShortfallPct ?? 0, input.riskGeometryPolicy.proofConfirmed ? 0 : 1)
+    : 0;
+  const breakoutSeverity = input.tuningPolicy.lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION'
+    ? Math.max(1, breakoutProofGaps.size)
+    : 0;
+  const structureSeverity = input.tuningPolicy.lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION'
+    ? Math.max(1, structureProofGaps.size)
+    : 0;
+  const candidates = [
+    { key: 'TARGET_RECALIBRATION_FORMULA', severity: targetSeverity },
+    { key: 'RISK_GEOMETRY_RECALCULATION_FORMULA', severity: riskSeverity },
+    { key: 'BREAKOUT_PROOF_FORMULA', severity: breakoutSeverity },
+    { key: 'STRUCTURE_PROOF_FORMULA', severity: structureSeverity }
+  ].filter((candidate) => candidate.severity > 0);
+  const winner = candidates.sort((a, b) => b.severity - a.severity)[0] || { key: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK', severity: 0 };
+  const reasons = [
+    `tuning_lane:${input.tuningPolicy.lane}`,
+    ...(targetSeverity > 0 ? [`target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`] : []),
+    ...(riskSeverity > 0 ? [`risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`] : []),
+    ...(breakoutSeverity > 0 ? [`breakout_proof_gap_count:${breakoutProofGaps.size}`] : []),
+    ...(structureSeverity > 0 ? [`structure_proof_gap_count:${structureProofGaps.size}`] : [])
+  ];
+  return {
+    bottleneck: winner.key,
+    severity: roundOrNull(winner.severity, 2) ?? 0,
+    targetShortfallPct: roundOrNull(targetShortfallPct, 2),
+    riskTargetShortfallPct: roundOrNull(riskTargetShortfallPct, 2),
+    breakoutProofGapCount: breakoutProofGaps.size,
+    structureProofGapCount: structureProofGaps.size,
+    reasons,
+    recommendedAction:
+      winner.key === 'TARGET_RECALIBRATION_FORMULA'
+        ? 'Tune Stage6 target recalibration evidence or keep no-trade; do not solve with sidecar reprice.'
+        : winner.key === 'RISK_GEOMETRY_RECALCULATION_FORMULA'
+          ? 'Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion.'
+          : winner.key === 'BREAKOUT_PROOF_FORMULA'
+            ? 'Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable.'
+            : winner.key === 'STRUCTURE_PROOF_FORMULA'
+              ? 'Improve structure proof generation or keep WAIT; do not relax structure gates blindly.'
+              : 'No formula bottleneck detected for this row.'
   };
 };
 
@@ -6992,6 +7090,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutPromotion: breakoutRetestPromotion,
               structurePolicy: structurePolicyReview
           });
+          const zeroExecutableFormulaProfile = deriveZeroExecutableFormulaProfile({
+              tuningPolicy: zeroExecutableTuningPolicy,
+              targetPolicy: targetRecalibrationPolicy,
+              riskGeometryPolicy,
+              breakoutPromotion: breakoutRetestPromotion,
+              structurePolicy: structurePolicyReview
+          });
           const qualityScore = computeAlphaQualityScore({
               conviction: convictionScore,
               expectedReturnPct,
@@ -7172,6 +7277,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               zeroExecutablePrimaryTuningTarget: zeroExecutableTuningPolicy.primaryTuningTarget,
               zeroExecutableTuningReasons: zeroExecutableTuningPolicy.reasons,
               zeroExecutableTuningRecommendedAction: zeroExecutableTuningPolicy.recommendedAction,
+              zeroExecutableFormulaBottleneck: zeroExecutableFormulaProfile.bottleneck,
+              zeroExecutableFormulaSeverity: zeroExecutableFormulaProfile.severity,
+              zeroExecutableTargetShortfallPct: zeroExecutableFormulaProfile.targetShortfallPct,
+              zeroExecutableRiskTargetShortfallPct: zeroExecutableFormulaProfile.riskTargetShortfallPct,
+              zeroExecutableBreakoutProofGapCount: zeroExecutableFormulaProfile.breakoutProofGapCount,
+              zeroExecutableStructureProofGapCount: zeroExecutableFormulaProfile.structureProofGapCount,
+              zeroExecutableFormulaReasons: zeroExecutableFormulaProfile.reasons,
+              zeroExecutableFormulaRecommendedAction: zeroExecutableFormulaProfile.recommendedAction,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,
               tradePlanReason:
                   useRecalculatedCurrentEntry

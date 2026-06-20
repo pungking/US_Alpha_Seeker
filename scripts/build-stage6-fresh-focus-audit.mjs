@@ -172,6 +172,12 @@ function compactRow(row) {
     qualityGatePolicyVerdict: row?.qualityGatePolicyVerdict || null,
     zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
     zeroExecutableTuningVerdict: row?.zeroExecutableTuningVerdict || null,
+    zeroExecutableFormulaBottleneck: row?.zeroExecutableFormulaBottleneck || null,
+    zeroExecutableFormulaSeverity: numberOrNull(row?.zeroExecutableFormulaSeverity),
+    zeroExecutableTargetShortfallPct: numberOrNull(row?.zeroExecutableTargetShortfallPct),
+    zeroExecutableRiskTargetShortfallPct: numberOrNull(row?.zeroExecutableRiskTargetShortfallPct),
+    zeroExecutableBreakoutProofGapCount: numberOrNull(row?.zeroExecutableBreakoutProofGapCount),
+    zeroExecutableStructureProofGapCount: numberOrNull(row?.zeroExecutableStructureProofGapCount),
     breakoutRetestProofConfirmed: row?.breakoutRetestProofConfirmed ?? null,
     breakoutRetestProofReviewReady: row?.breakoutRetestProofReviewReady ?? null,
     breakoutRetestProofContinuationConfirmed: row?.breakoutRetestProofContinuationConfirmed ?? null,
@@ -251,6 +257,7 @@ function buildMarkdown(report) {
   lines.push(`| targetRecalibrationViabilityVerdictCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationViabilityVerdictCounts))} |`);
   lines.push(`| targetRecalibrationRequiredTargetSourceCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationRequiredTargetSourceCounts))} |`);
   lines.push(`| riskGeometryTargetRecalibrationCandidateCounts | ${esc(JSON.stringify(report.summary.riskGeometryTargetRecalibrationCandidateCounts))} |`);
+  lines.push(`| zeroExecutableFormulaBottleneckCounts | ${esc(JSON.stringify(report.summary.zeroExecutableFormulaBottleneckCounts))} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
   lines.push(`| rawExecutableDowngrades | ${esc(JSON.stringify(report.rawExecutableDowngrades))} |`);
   lines.push('');
@@ -264,8 +271,8 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Row Focus');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Formula Bottleneck | Severity | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
   for (const row of report.rows) {
     const riskChecks = [
       `target=${row.riskGeometryTargetAboveCurrent}`,
@@ -279,7 +286,7 @@ function buildMarkdown(report) {
       `buf=${row.structurePolicyTargetBufferOk}`,
       `dist=${row.structurePolicyDistanceWithinReviewBand}`
     ].join(',');
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
   lines.push('## Track Separation');
@@ -337,6 +344,12 @@ function main() {
     riskGeometryProofConfirmed: requiredFieldCoverage(rows, 'riskGeometryProofConfirmed'),
     qualityGateLane: requiredFieldCoverage(rows, 'qualityGateLane'),
     qualityGatePolicyVerdict: requiredFieldCoverage(rows, 'qualityGatePolicyVerdict'),
+    zeroExecutableFormulaBottleneck: requiredFieldCoverage(rows, 'zeroExecutableFormulaBottleneck'),
+    zeroExecutableFormulaSeverity: requiredFieldCoverage(rows, 'zeroExecutableFormulaSeverity'),
+    zeroExecutableTargetShortfallPct: requiredFieldCoverage(rows, 'zeroExecutableTargetShortfallPct'),
+    zeroExecutableRiskTargetShortfallPct: requiredFieldCoverage(rows, 'zeroExecutableRiskTargetShortfallPct'),
+    zeroExecutableBreakoutProofGapCount: requiredFieldCoverage(rows, 'zeroExecutableBreakoutProofGapCount'),
+    zeroExecutableStructureProofGapCount: requiredFieldCoverage(rows, 'zeroExecutableStructureProofGapCount'),
     currentEntryStructureSupportReference: requiredFieldCoverage(rows, 'currentEntryStructureSupportReference'),
     currentEntryStructureSupportGapAtr: requiredFieldCoverage(rows, 'currentEntryStructureSupportGapAtr'),
     currentEntryStructureStopAlignedSupportGapAtr: requiredFieldCoverage(rows, 'currentEntryStructureStopAlignedSupportGapAtr')
@@ -377,6 +390,7 @@ function main() {
       targetRecalibrationViabilityVerdictCounts: countBy(rows, (row) => row?.targetRecalibrationViabilityVerdict || 'missing'),
       targetRecalibrationRequiredTargetSourceCounts: countBy(rows, (row) => row?.targetRecalibrationRequiredTargetSource || 'missing'),
       riskGeometryTargetRecalibrationCandidateCounts: countBy(rows, (row) => String(row?.riskGeometryTargetRecalibrationCandidate ?? 'missing')),
+      zeroExecutableFormulaBottleneckCounts: countBy(rows, (row) => row?.zeroExecutableFormulaBottleneck || 'missing'),
       blockerCategoryCounts: countBy(rows, blockerCategory)
     },
     fieldCoverage,

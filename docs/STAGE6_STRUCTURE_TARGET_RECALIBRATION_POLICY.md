@@ -27,6 +27,7 @@ A structure overblock-review row must expose:
 - `structurePolicyTargetBufferOk=true`
 - `structurePolicyDistanceWithinReviewBand=true`
 - `zeroExecutableTuningLane=STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION`
+- `zeroExecutableFormulaBottleneck=STRUCTURE_PROOF_FORMULA`
 - `zeroExecutablePrimaryTuningTarget=false`
 
 ## Target Recalibration Policy
@@ -67,6 +68,9 @@ lane explicitly.
    - The row must expose a negative `riskGeometryTargetGapPct`, positive
      `riskGeometryTargetShortfallPct`, and `riskGeometryTargetRecalibrationCandidate=true`.
    - This is producer-side target recalibration, not a sidecar chase/reprice.
+   - The row must expose `zeroExecutableFormulaBottleneck=RISK_GEOMETRY_RECALCULATION_FORMULA`
+     when the required target shortfall is caused by the recalculated stop/target
+     geometry rather than by a simple near-target condition.
 
 3. `RISK_GEOMETRY_PROOF_INCOMPLETE`
    - Recalculated stop, structure proof, target, or distance evidence is
@@ -79,4 +83,7 @@ lane explicitly.
 - Validator fails if structure overblock rows are promoted or marked as primary relaxation targets.
 - Validator fails if target-at/below-current rows are not no-trade confirmed.
 - Validator fails if a recalculated-stop target shortfall is marked proof-confirmed instead of target-recalibration required.
+- Zero-executable rows expose `zeroExecutableFormulaBottleneck` and severity
+  fields so tuning is directed at target recalibration, risk geometry,
+  breakout proof, or structure proof instead of lowering sidecar fillability.
 - No broker mutation or sidecar execution policy change occurs.

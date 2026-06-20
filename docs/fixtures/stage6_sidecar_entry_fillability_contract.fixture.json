@@ -57,7 +57,17 @@
       "zeroExecutableTuningReasons": [
         "not_zero_executable_policy_lane"
       ],
-      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
+      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required.",
+      "zeroExecutableFormulaBottleneck": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+      "zeroExecutableFormulaSeverity": 0,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row."
     },
     {
       "symbol": "CURRENT_RECALC_EXEC",
@@ -114,7 +124,17 @@
       "zeroExecutableTuningReasons": [
         "not_zero_executable_policy_lane"
       ],
-      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
+      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required.",
+      "zeroExecutableFormulaBottleneck": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+      "zeroExecutableFormulaSeverity": 0,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row."
     },
     {
       "symbol": "WAIT1",
@@ -148,7 +168,17 @@
       "zeroExecutableTuningReasons": [
         "not_zero_executable_policy_lane"
       ],
-      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required."
+      "zeroExecutableTuningRecommendedAction": "No zero-executable tuning action required.",
+      "zeroExecutableFormulaBottleneck": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+      "zeroExecutableFormulaSeverity": 0,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row."
     },
     {
       "symbol": "SPEC_WAIT",
@@ -189,7 +219,17 @@
         "execution_actionable_verdict_false",
         "ai_verdict_key:SPECULATIVE_BUY"
       ],
-      "qualityGateRecommendedAction": "Keep WAIT_PRICE unless Stage6 emits BUY/STRONG_BUY or an explicit producer-side waiver."
+      "qualityGateRecommendedAction": "Keep WAIT_PRICE unless Stage6 emits BUY/STRONG_BUY or an explicit producer-side waiver.",
+      "zeroExecutableFormulaBottleneck": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+      "zeroExecutableFormulaSeverity": 0,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row."
     },
     {
       "symbol": "STRUCT_REJECT_WAIT",
@@ -234,7 +274,18 @@
       "structurePolicyBlockerLane": "STRUCTURE_CURRENT_RR_WEAK",
       "structurePolicyCurrentRrOk": false,
       "structurePolicyTargetBufferOk": true,
-      "structurePolicyDistanceWithinReviewBand": true
+      "structurePolicyDistanceWithinReviewBand": true,
+      "zeroExecutableFormulaBottleneck": "STRUCTURE_PROOF_FORMULA",
+      "zeroExecutableFormulaSeverity": 2,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 2,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
+        "structure_proof_gap_count:2"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly."
     },
     {
       "symbol": "STRUCT_OVERBLOCK_REVIEW_WAIT",
@@ -278,7 +329,18 @@
       "structurePolicyBlockerLane": "STRUCTURE_PROOF_REQUIRED",
       "structurePolicyCurrentRrOk": true,
       "structurePolicyTargetBufferOk": true,
-      "structurePolicyDistanceWithinReviewBand": true
+      "structurePolicyDistanceWithinReviewBand": true,
+      "zeroExecutableFormulaBottleneck": "STRUCTURE_PROOF_FORMULA",
+      "zeroExecutableFormulaSeverity": 1,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 1,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
+        "structure_proof_gap_count:1"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly."
     },
     {
       "symbol": "BREAKOUT_REVIEW_WAIT",
@@ -334,7 +396,18 @@
       "breakoutRetestPromotionBlockedBy": [
         "proof_not_confirmed",
         "proof_confirmed_promotion_flag_disabled"
-      ]
+      ],
+      "zeroExecutableFormulaBottleneck": "BREAKOUT_PROOF_FORMULA",
+      "zeroExecutableFormulaSeverity": 2,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 2,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:BREAKOUT_PROOF_CONFIRMED_GENERATION",
+        "breakout_proof_gap_count:2"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable."
     },
     {
       "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
@@ -385,7 +458,18 @@
       "breakoutRetestPromotionEntryBasis": "BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT",
       "breakoutRetestPromotionBlockedBy": [
         "proof_confirmed_promotion_flag_disabled"
-      ]
+      ],
+      "zeroExecutableFormulaBottleneck": "BREAKOUT_PROOF_FORMULA",
+      "zeroExecutableFormulaSeverity": 1,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 1,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:BREAKOUT_PROOF_CONFIRMED_GENERATION",
+        "breakout_proof_gap_count:1"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable."
     },
     {
       "symbol": "TARGET_NEAR_WAIT",
@@ -478,7 +562,18 @@
       "riskGeometryRecalculatedStopRrOk": false,
       "riskGeometryTargetBufferOk": false,
       "riskGeometryRepairLane": "RISK_GEOMETRY_PROOF_INCOMPLETE",
-      "riskGeometryProofConfirmed": false
+      "riskGeometryProofConfirmed": false,
+      "zeroExecutableFormulaBottleneck": "TARGET_RECALIBRATION_FORMULA",
+      "zeroExecutableFormulaSeverity": 7.22,
+      "zeroExecutableTargetShortfallPct": 7.22,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:TARGET_RECALIBRATION",
+        "target_shortfall_pct:7.22"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Tune Stage6 target recalibration evidence or keep no-trade; do not solve with sidecar reprice."
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -574,7 +669,18 @@
       "riskGeometryRecalculatedStopRrOk": false,
       "riskGeometryTargetBufferOk": false,
       "riskGeometryRepairLane": "RISK_GEOMETRY_PROOF_INCOMPLETE",
-      "riskGeometryProofConfirmed": false
+      "riskGeometryProofConfirmed": false,
+      "zeroExecutableFormulaBottleneck": "TARGET_RECALIBRATION_FORMULA",
+      "zeroExecutableFormulaSeverity": 25.74,
+      "zeroExecutableTargetShortfallPct": 25.74,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:TARGET_RECALIBRATION",
+        "target_shortfall_pct:25.74"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Tune Stage6 target recalibration evidence or keep no-trade; do not solve with sidecar reprice."
     },
     {
       "symbol": "TARGET_REACHED_NO_TRADE",
@@ -667,7 +773,18 @@
       "riskGeometryRecalculatedStopRrOk": false,
       "riskGeometryTargetBufferOk": false,
       "riskGeometryRepairLane": "RISK_GEOMETRY_PROOF_INCOMPLETE",
-      "riskGeometryProofConfirmed": false
+      "riskGeometryProofConfirmed": false,
+      "zeroExecutableFormulaBottleneck": "TARGET_RECALIBRATION_FORMULA",
+      "zeroExecutableFormulaSeverity": 10.65,
+      "zeroExecutableTargetShortfallPct": 10.65,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:TARGET_RECALIBRATION",
+        "target_shortfall_pct:10.65"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Tune Stage6 target recalibration evidence or keep no-trade; do not solve with sidecar reprice."
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -725,7 +842,18 @@
       "riskGeometryRecalculatedStopRrOk": false,
       "riskGeometryTargetBufferOk": true,
       "riskGeometryRepairLane": "RISK_GEOMETRY_PROOF_INCOMPLETE",
-      "riskGeometryProofConfirmed": false
+      "riskGeometryProofConfirmed": false,
+      "zeroExecutableFormulaBottleneck": "RISK_GEOMETRY_RECALCULATION_FORMULA",
+      "zeroExecutableFormulaSeverity": 1,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": 0.0,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION",
+        "risk_target_shortfall_pct:0.0"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion."
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_RECALC_WAIT",
@@ -803,7 +931,18 @@
         "recalculated_stop_candidate",
         "target_below_required_after_recalculated_stop"
       ],
-      "zeroExecutableTuningRecommendedAction": "Producer has recalculated-stop evidence but target/RR proof still requires target recalibration before any executable promotion."
+      "zeroExecutableTuningRecommendedAction": "Producer has recalculated-stop evidence but target/RR proof still requires target recalibration before any executable promotion.",
+      "zeroExecutableFormulaBottleneck": "RISK_GEOMETRY_RECALCULATION_FORMULA",
+      "zeroExecutableFormulaSeverity": 13.6,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": 13.6,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:STOP_TARGET_RISK_GEOMETRY_RECALCULATION",
+        "risk_target_shortfall_pct:13.6"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion."
     },
     {
       "symbol": "WEAK_PILLAR_WAIT",
@@ -856,7 +995,17 @@
       "zeroExecutableTuningReasons": [
         "weak_pillar_execution_gate"
       ],
-      "zeroExecutableTuningRecommendedAction": "Repair Stage3/4/5 pillar evidence or require explicit waiver before execution."
+      "zeroExecutableTuningRecommendedAction": "Repair Stage3/4/5 pillar evidence or require explicit waiver before execution.",
+      "zeroExecutableFormulaBottleneck": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+      "zeroExecutableFormulaSeverity": 0,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": null,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:QUALITY_GATE"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row."
     }
   ]
 }

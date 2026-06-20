@@ -20,6 +20,7 @@ const isTrue = (value) => value === true || String(value).toLowerCase() === 'tru
 const isBooleanLike = (value) => value === true || value === false || String(value).toLowerCase() === 'true' || String(value).toLowerCase() === 'false';
 const isFiniteNumber = (value) => value !== null && value !== '' && value !== undefined && !Number.isNaN(Number(value)) && Number.isFinite(Number(value));
 const tuningLane = (row) => String(row.zeroExecutableTuningLane || '').trim().toUpperCase();
+const formulaBottleneck = (row) => String(row.zeroExecutableFormulaBottleneck || '').trim().toUpperCase();
 const riskGeometryReasons = new Set([
   'blocked_invalid_geometry',
   'blocked_stop_too_tight',
@@ -86,6 +87,27 @@ for (const [idx, row] of candidates.entries()) {
   }
   if (row.executionFeasibilityAtCurrent === 'BLOCKED' && !String(row.decisionReason || '').startsWith('wait_') && !String(row.decisionReason || '').startsWith('blocked_')) {
     errors.push(`${label}: blocked current feasibility needs wait_/blocked_ decisionReason`);
+  }
+  if (!row.zeroExecutableFormulaBottleneck) errors.push(`${label}: missing zeroExecutableFormulaBottleneck`);
+  if (!isFiniteNumber(row.zeroExecutableFormulaSeverity)) errors.push(`${label}: missing numeric zeroExecutableFormulaSeverity`);
+  if (!isFiniteNumber(row.zeroExecutableBreakoutProofGapCount)) errors.push(`${label}: missing numeric zeroExecutableBreakoutProofGapCount`);
+  if (!isFiniteNumber(row.zeroExecutableStructureProofGapCount)) errors.push(`${label}: missing numeric zeroExecutableStructureProofGapCount`);
+  if (!Array.isArray(row.zeroExecutableFormulaReasons)) errors.push(`${label}: missing zeroExecutableFormulaReasons array`);
+  if (tuningLane(row) === 'TARGET_RECALIBRATION') {
+    if (formulaBottleneck(row) !== 'TARGET_RECALIBRATION_FORMULA') errors.push(`${label}: target lane must expose TARGET_RECALIBRATION_FORMULA bottleneck`);
+    if (!isFiniteNumber(row.zeroExecutableTargetShortfallPct)) errors.push(`${label}: target lane missing zeroExecutableTargetShortfallPct`);
+  }
+  if (['STOP_TARGET_RISK_GEOMETRY_RECALCULATION', 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'].includes(tuningLane(row))) {
+    if (formulaBottleneck(row) !== 'RISK_GEOMETRY_RECALCULATION_FORMULA') errors.push(`${label}: risk lane must expose RISK_GEOMETRY_RECALCULATION_FORMULA bottleneck`);
+    if (!isFiniteNumber(row.zeroExecutableRiskTargetShortfallPct)) errors.push(`${label}: risk lane missing zeroExecutableRiskTargetShortfallPct`);
+  }
+  if (tuningLane(row) === 'BREAKOUT_PROOF_CONFIRMED_GENERATION') {
+    if (formulaBottleneck(row) !== 'BREAKOUT_PROOF_FORMULA') errors.push(`${label}: breakout lane must expose BREAKOUT_PROOF_FORMULA bottleneck`);
+    if (Number(row.zeroExecutableBreakoutProofGapCount) <= 0) errors.push(`${label}: breakout lane must expose positive proof gap count`);
+  }
+  if (tuningLane(row) === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
+    if (formulaBottleneck(row) !== 'STRUCTURE_PROOF_FORMULA') errors.push(`${label}: structure lane must expose STRUCTURE_PROOF_FORMULA bottleneck`);
+    if (Number(row.zeroExecutableStructureProofGapCount) <= 0) errors.push(`${label}: structure lane must expose positive proof gap count`);
   }
   if (row.decisionReason === 'executable_breakout_retest_confirmed' && !breakoutPromotionEnabled) {
     errors.push(`${label}: breakout proof promotion executable used while decisionGate breakoutRetestProofPromotionEnabled=false`);

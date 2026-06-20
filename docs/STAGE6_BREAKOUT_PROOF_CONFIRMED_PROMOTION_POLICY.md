@@ -63,6 +63,10 @@ Stage6 producer rows must keep these fields explicit:
 - `breakoutRetestPromotionEntryBasis`: the entry contract the producer is authorizing; for this lane it must be `BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT`.
 - `breakoutRetestPromotionBlockedBy`: cumulative blockers including `proof_confirmed_promotion_flag_disabled`, `current_entry_feasibility_not_pass`, or `current_stop_distance_outside_policy`.
 - `non_actionable_verdict`: must appear in `breakoutRetestPromotionBlockedBy` whenever the row is not sidecar-actionable. A proof-confirmed breakout cannot be `ready` unless `executionActionableVerdict=true`.
+- `zeroExecutableFormulaBottleneck=BREAKOUT_PROOF_FORMULA`: must be emitted
+  when the row is blocked because breakout proof is not confirmed or because
+  proof-confirmed promotion remains disabled by producer policy. This keeps
+  breakout tuning separate from target/risk/structure formula work.
 
 ## Current Runtime Interpretation
 

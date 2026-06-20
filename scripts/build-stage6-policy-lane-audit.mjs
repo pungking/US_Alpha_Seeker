@@ -447,6 +447,7 @@ function buildReport(input) {
     latestQualityGateRows: latestQualityGateRows.length,
     latestQualityGateLaneCounts: countBy(latestQualityGateRows, (row) => row.qualityGateLane),
     latestQualityGateDecisionCounts: countBy(latestQualityGateRows, (row) => row.laneDecision),
+    latestZeroExecutableFormulaBottleneckCounts: countBy(latestRows, (row) => row.zeroExecutableFormulaBottleneck || 'missing'),
     confirmationProofQuality: {
       all: proofStats(watchlistRows),
       latest: proofStats(latestRows),
@@ -605,6 +606,14 @@ function compactRow(row) {
     zeroExecutablePrimaryTuningTarget: row.zeroExecutablePrimaryTuningTarget ?? null,
     zeroExecutableTuningReasons: row.zeroExecutableTuningReasons || [],
     zeroExecutableTuningRecommendedAction: row.zeroExecutableTuningRecommendedAction || null,
+    zeroExecutableFormulaBottleneck: row.zeroExecutableFormulaBottleneck || null,
+    zeroExecutableFormulaSeverity: row.zeroExecutableFormulaSeverity ?? null,
+    zeroExecutableTargetShortfallPct: row.zeroExecutableTargetShortfallPct ?? null,
+    zeroExecutableRiskTargetShortfallPct: row.zeroExecutableRiskTargetShortfallPct ?? null,
+    zeroExecutableBreakoutProofGapCount: row.zeroExecutableBreakoutProofGapCount ?? null,
+    zeroExecutableStructureProofGapCount: row.zeroExecutableStructureProofGapCount ?? null,
+    zeroExecutableFormulaReasons: row.zeroExecutableFormulaReasons || [],
+    zeroExecutableFormulaRecommendedAction: row.zeroExecutableFormulaRecommendedAction || null,
     qualityGateLane: row.qualityGateLane || null,
     qualityGatePolicyVerdict: row.qualityGatePolicyVerdict || null,
     qualityGateReasons: row.qualityGateReasons || [],
@@ -623,6 +632,7 @@ function buildMarkdown(report) {
   lines.push(`- Latest Review-Ready Rows: ${report.summary.latestReviewReadyRows}`);
   lines.push(`- Latest Promotion-Review Rows: ${report.summary.latestPromotionReviewReadyRows}`);
   lines.push(`- Latest Quality-Gate Rows: ${report.summary.latestQualityGateRows}`);
+  lines.push(`- Latest Formula Bottlenecks: ${esc(JSON.stringify(report.summary.latestZeroExecutableFormulaBottleneckCounts || {}))}`);
   lines.push(`- Broker Mutation Authorized: ${report.safety.brokerMutationAuthorized}`);
   lines.push(`- Execution Policy Changed: ${report.safety.executionPolicyChanged}`);
   lines.push(`- Safety Reason: ${report.safety.reason}`);
@@ -679,10 +689,10 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Latest Rows');
   lines.push('');
-  lines.push('| Symbol | Verdict | Lane | Stage6 Reason | Lane Decision | Promotion Policy | Blocked By | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
+  lines.push('| Symbol | Verdict | Lane | Formula Bottleneck | Severity | Stage6 Reason | Lane Decision | Promotion Policy | Blocked By | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |');
+  lines.push('| --- | --- | --- | --- | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
   for (const row of report.latestRows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.lane)} | ${esc(row.decisionReason)} | ${esc(row.laneDecision)} | ${esc(row.breakoutRetestPromotionPolicyDecision || 'N/A')} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${fmt(row.expectedReturnPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${fmt(row.targetBufferFromCurrentPct)} | ${esc(row.geometryStatus)} | ${esc(row.currentRrStatus)} | ${esc(row.recommendedAction)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.lane)} | ${esc(row.zeroExecutableFormulaBottleneck || 'missing')} | ${fmt(row.zeroExecutableFormulaSeverity)} | ${esc(row.decisionReason)} | ${esc(row.laneDecision)} | ${esc(row.breakoutRetestPromotionPolicyDecision || 'N/A')} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${fmt(row.expectedReturnPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${fmt(row.targetBufferFromCurrentPct)} | ${esc(row.geometryStatus)} | ${esc(row.currentRrStatus)} | ${esc(row.recommendedAction)} |`);
   }
   lines.push('');
   lines.push('## Policy Interpretation');
