@@ -1,0 +1,55 @@
+#!/usr/bin/env node
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+const REPO_ROOT = process.cwd();
+const SCRIPT = path.join(REPO_ROOT, 'scripts/build-stage6-fresh-focus-audit.mjs');
+const FIXTURE_DIR = path.join(REPO_ROOT, 'docs/fixtures/stage6_fresh_focus_formula');
+const CASES = [
+  {
+    name: 'missing_formula_fields_warns',
+    fixture: 'STAGE6_ALPHA_FINAL_MISSING_FORMULA.fixture.json',
+    expectedOverall: 'warn_formula_bottleneck_fields_missing',
+    expectedCoverage: 0
+  },
+  {
+    name: 'formula_fields_present_passes',
+    fixture: 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json',
+    expectedOverall: 'pass_zero_executable_focus_fields_ok',
+    expectedCoverage: 1
+  }
+];
+
+function runCase(testCase) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `stage6-fresh-focus-${testCase.name}-`));
+  const outJson = path.join(tmp, 'audit.json');
+  const outMd = path.join(tmp, 'audit.md');
+  const fixturePath = path.join(FIXTURE_DIR, testCase.fixture);
+  const result = spawnSync(process.execPath, [SCRIPT], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      STAGE6_FOCUS_AUDIT_STAGE6_PATH: fixturePath,
+      STAGE6_FOCUS_AUDIT_OUT_JSON: outJson,
+      STAGE6_FOCUS_AUDIT_OUT_MD: outMd
+    },
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    throw new Error(`${testCase.name}: audit exited ${result.status}\nstdout=${result.stdout}\nstderr=${result.stderr}`);
+  }
+  const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
+  if (report.overall !== testCase.expectedOverall) {
+    throw new Error(`${testCase.name}: expected overall=${testCase.expectedOverall}, got ${report.overall}`);
+  }
+  const coverage = report.fieldCoverage?.zeroExecutableFormulaBottleneck;
+  if (!coverage || coverage.present !== testCase.expectedCoverage || coverage.total !== 1) {
+    throw new Error(`${testCase.name}: unexpected formula coverage ${JSON.stringify(coverage)}`);
+  }
+  return { name: testCase.name, overall: report.overall, coverage };
+}
+
+const results = CASES.map(runCase);
+console.log(`[STAGE6_FRESH_FOCUS_FORMULA_COVERAGE] PASS ${JSON.stringify(results)}`);

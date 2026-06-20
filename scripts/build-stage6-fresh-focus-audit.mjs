@@ -5,8 +5,8 @@ import crypto from 'node:crypto';
 
 const REPO_ROOT = process.cwd();
 const DEFAULT_STAGE6_DIR = 'state/stage6-audit-source';
-const OUT_JSON = 'state/stage6-fresh-focus-audit.json';
-const OUT_MD = 'docs/STAGE6_FRESH_FOCUS_AUDIT.md';
+const OUT_JSON = process.env.STAGE6_FOCUS_AUDIT_OUT_JSON || 'state/stage6-fresh-focus-audit.json';
+const OUT_MD = process.env.STAGE6_FOCUS_AUDIT_OUT_MD || 'docs/STAGE6_FRESH_FOCUS_AUDIT.md';
 
 function resolveRepo(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(REPO_ROOT, filePath);

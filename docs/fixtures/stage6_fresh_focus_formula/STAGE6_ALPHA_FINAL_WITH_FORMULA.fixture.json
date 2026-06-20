@@ -1,0 +1,40 @@
+{
+  "schema_version": "stage6_alpha_final/v1",
+  "generated_at": "2026-06-20T00:00:00.000Z",
+  "manifest": {
+    "stage6Hash": "fixture-with-formula",
+    "decisionGate": {
+      "actionableVerdicts": ["BUY", "STRONG_BUY", "STRONGBUY"],
+      "currentEntryMinRr": 2,
+      "currentEntryMinTargetBufferPct": 3
+    }
+  },
+  "execution_contract": {
+    "modelTop6": [
+      {
+        "symbol": "FORMOK",
+        "verdict": "BUY",
+        "finalDecision": "WAIT_PRICE",
+        "decisionReason": "wait_structure_confirmation_required",
+        "executionBucket": "WATCHLIST",
+        "zeroExecutableTuningLane": "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
+        "breakoutRetestProofConfirmed": false,
+        "targetRecalibrationViabilityVerdict": "TARGET_VIABILITY_NOT_APPLICABLE",
+        "zeroExecutableFormulaBottleneck": "STRUCTURE_PROOF_FORMULA",
+        "zeroExecutableFormulaSeverity": 2,
+        "zeroExecutableTargetShortfallPct": null,
+        "zeroExecutableRiskTargetShortfallPct": null,
+        "zeroExecutableBreakoutProofGapCount": 0,
+        "zeroExecutableStructureProofGapCount": 2,
+        "zeroExecutableFormulaReasons": [
+          "tuning_lane:STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
+          "structure_proof_gap_count:2"
+        ],
+        "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly."
+      }
+    ],
+    "watchlistTop": [],
+    "executablePicks": []
+  },
+  "alpha_candidates": []
+}

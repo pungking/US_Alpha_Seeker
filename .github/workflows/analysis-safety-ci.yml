@@ -27,6 +27,8 @@ jobs:
         run: npm run ops:safety:client-secret-exposure
       - name: Stage6 fillability contract fixture
         run: npm run ops:stage6:fillability-contract:validate
+      - name: Stage6 fresh-focus formula coverage fixture
+        run: npm run ops:stage6:fresh-focus:formula-coverage
       - name: Stage6 holiday analysis-only fixture
         env:
           STAGE6_HOLIDAY_SAFETY_PAYLOAD: docs/fixtures/stage6_holiday_safety/stage6-dispatch-payload-holiday.fixture.json
