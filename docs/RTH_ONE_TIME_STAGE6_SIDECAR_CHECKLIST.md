@@ -88,6 +88,9 @@ Interpretation:
 - If `zeroExecutableFormulaBottleneckCounts` clusters around one lane, tune that
   producer formula first. Do not lower sidecar fillability floors as a substitute
   for missing Stage6 evidence.
+- `zeroExecutableFormulaBottleneck` is the primary formula bottleneck for the
+  row's `zeroExecutableTuningLane`; secondary target/risk proof weaknesses
+  should remain in `zeroExecutableFormulaReasons`, not override the primary lane.
 - `warn_formula_bottleneck_fields_missing` means the Stage6 artifact is stale
   relative to the current producer contract or the producer failed to emit the
   formula fields. Generate/inspect a fresh Stage6 before tuning sidecar policy.

@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 const REPO_ROOT = process.cwd();
 const SCRIPT = path.join(REPO_ROOT, 'scripts/build-stage6-fresh-focus-audit.mjs');
 const FIXTURE_DIR = path.join(REPO_ROOT, 'docs/fixtures/stage6_fresh_focus_formula');
+const PRODUCER_SOURCE = path.join(REPO_ROOT, 'components/AlphaAnalysis.tsx');
 const CASES = [
   {
     name: 'missing_formula_fields_warns',
@@ -40,6 +41,28 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaReasons',
   'zeroExecutableFormulaRecommendedAction'
 ];
+
+function validateProducerSourceContract() {
+  const source = fs.readFileSync(PRODUCER_SOURCE, 'utf8');
+  const start = source.indexOf('const deriveZeroExecutableFormulaProfile');
+  const end = source.indexOf('const toNonNegativeInt', start);
+  if (start < 0 || end < 0) {
+    throw new Error('producer source missing deriveZeroExecutableFormulaProfile contract block');
+  }
+  const block = source.slice(start, end);
+  for (const token of [
+    'preferredFormulaBottleneck',
+    'primary_formula_bottleneck',
+    'TARGET_RECALIBRATION_FORMULA',
+    'RISK_GEOMETRY_RECALCULATION_FORMULA',
+    'BREAKOUT_PROOF_FORMULA',
+    'STRUCTURE_PROOF_FORMULA'
+  ]) {
+    if (!block.includes(token)) {
+      throw new Error(`producer formula contract missing token: ${token}`);
+    }
+  }
+}
 
 function runCase(testCase) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `stage6-fresh-focus-${testCase.name}-`));
@@ -83,4 +106,5 @@ function runCase(testCase) {
 }
 
 const results = CASES.map(runCase);
+validateProducerSourceContract();
 console.log(`[STAGE6_FRESH_FOCUS_FORMULA_COVERAGE] PASS ${JSON.stringify(results)}`);

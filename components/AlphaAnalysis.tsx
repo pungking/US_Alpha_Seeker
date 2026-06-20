@@ -2134,15 +2134,34 @@ const deriveZeroExecutableFormulaProfile = (input: {
   const structureSeverity = input.tuningPolicy.lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION'
     ? Math.max(1, structureProofGaps.size)
     : 0;
+  const preferredFormulaBottleneck =
+    input.tuningPolicy.lane === 'TARGET_RECALIBRATION'
+      ? 'TARGET_RECALIBRATION_FORMULA'
+      : input.tuningPolicy.lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' ||
+        input.tuningPolicy.lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'
+        ? 'RISK_GEOMETRY_RECALCULATION_FORMULA'
+        : input.tuningPolicy.lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION'
+          ? 'BREAKOUT_PROOF_FORMULA'
+          : input.tuningPolicy.lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION'
+            ? 'STRUCTURE_PROOF_FORMULA'
+            : null;
   const candidates = [
     { key: 'TARGET_RECALIBRATION_FORMULA', severity: targetSeverity },
     { key: 'RISK_GEOMETRY_RECALCULATION_FORMULA', severity: riskSeverity },
     { key: 'BREAKOUT_PROOF_FORMULA', severity: breakoutSeverity },
     { key: 'STRUCTURE_PROOF_FORMULA', severity: structureSeverity }
   ].filter((candidate) => candidate.severity > 0);
-  const winner = candidates.sort((a, b) => b.severity - a.severity)[0] || { key: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK', severity: 0 };
+  const preferredWinner =
+    preferredFormulaBottleneck != null
+      ? candidates.find((candidate) => candidate.key === preferredFormulaBottleneck)
+      : null;
+  const winner =
+    preferredWinner ||
+    [...candidates].sort((a, b) => b.severity - a.severity)[0] ||
+    { key: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK', severity: 0 };
   const reasons = [
     `tuning_lane:${input.tuningPolicy.lane}`,
+    ...(preferredFormulaBottleneck ? [`primary_formula_bottleneck:${preferredFormulaBottleneck}`] : []),
     ...(targetSeverity > 0 ? [`target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`] : []),
     ...(riskSeverity > 0 ? [`risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`] : []),
     ...(breakoutSeverity > 0 ? [`breakout_proof_gap_count:${breakoutProofGaps.size}`] : []),
