@@ -129,8 +129,18 @@ interface AlphaCandidate {
   structurePolicyReviewReady?: boolean | null;
   structurePolicyBlockerLane?: string | null;
   structurePolicyCurrentRrOk?: boolean | null;
+  structurePolicyCurrentRrValue?: number | null;
+  structurePolicyMinRr?: number | null;
+  structurePolicyCurrentRrShortfall?: number | null;
   structurePolicyTargetBufferOk?: boolean | null;
+  structurePolicyTargetBufferPct?: number | null;
+  structurePolicyMinTargetBufferPct?: number | null;
+  structurePolicyTargetBufferShortfallPct?: number | null;
   structurePolicyDistanceWithinReviewBand?: boolean | null;
+  structurePolicyEntryDistancePct?: number | null;
+  structurePolicyMaxReviewDistancePct?: number | null;
+  structurePolicyDistanceExcessPct?: number | null;
+  structurePolicyFormulaEvidenceBasis?: string | null;
   structurePolicyReasons?: string[] | null;
   structurePolicyRecommendedAction?: string | null;
   breakoutRetestProofVerdict?: string | null;
@@ -723,8 +733,22 @@ type Stage6PolicyReviewPayload = {
   reviewReady: boolean;
   blockerLane: string;
   currentRrOk: boolean;
+  currentRrValue: number | null;
+  minRr: number;
+  currentRrShortfall: number | null;
   targetBufferOk: boolean;
+  targetBufferPct: number | null;
+  minTargetBufferPct: number;
+  targetBufferShortfallPct: number | null;
   distanceWithinReviewBand: boolean;
+  entryDistancePct: number | null;
+  maxReviewDistancePct: number;
+  distanceExcessPct: number | null;
+  formulaEvidenceBasis: string;
+  formulaObservedValue: number;
+  formulaThresholdValue: number;
+  formulaDeltaValue: number;
+  formulaUnit: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -1285,8 +1309,22 @@ const deriveStructurePolicyReview = (input: {
       reviewReady: false,
       blockerLane: 'not_applicable',
       currentRrOk: false,
+      currentRrValue: null,
+      minRr: roundOrNull(input.minRr, 2) ?? 1.8,
+      currentRrShortfall: null,
       targetBufferOk: false,
+      targetBufferPct: null,
+      minTargetBufferPct: roundOrNull(input.minTargetBufferPct, 2) ?? 2,
+      targetBufferShortfallPct: null,
       distanceWithinReviewBand: false,
+      entryDistancePct: null,
+      maxReviewDistancePct: roundOrNull(input.maxReviewDistancePct, 2) ?? CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct,
+      distanceExcessPct: null,
+      formulaEvidenceBasis: 'not_structure_wait',
+      formulaObservedValue: 0,
+      formulaThresholdValue: 0,
+      formulaDeltaValue: 0,
+      formulaUnit: 'none',
       reasons: ['not_structure_wait'],
       recommendedAction: 'No structure policy action required.'
     };
@@ -1317,6 +1355,18 @@ const deriveStructurePolicyReview = (input: {
     input.entryDistancePct != null &&
     Number.isFinite(input.entryDistancePct) &&
     input.entryDistancePct <= maxReviewDistancePct;
+  const currentRrShortfall =
+    input.rrAtCurrentPrice != null && Number.isFinite(input.rrAtCurrentPrice)
+      ? Math.max(0, minRr - input.rrAtCurrentPrice)
+      : minRr;
+  const targetBufferShortfallPct =
+    input.targetBufferFromCurrentPct != null && Number.isFinite(input.targetBufferFromCurrentPct)
+      ? Math.max(0, minTargetBufferPct - input.targetBufferFromCurrentPct)
+      : minTargetBufferPct;
+  const distanceExcessPct =
+    input.entryDistancePct != null && Number.isFinite(input.entryDistancePct)
+      ? Math.max(0, input.entryDistancePct - maxReviewDistancePct)
+      : maxReviewDistancePct;
   const blockerLane = !currentRrOk
     ? 'STRUCTURE_CURRENT_RR_WEAK'
     : !targetBufferOk
@@ -1335,6 +1385,61 @@ const deriveStructurePolicyReview = (input: {
     ...(distanceWithinReviewBand ? [] : ['current_distance_above_structure_review_band']),
     `structure_blocker_lane:${blockerLane}`
   ];
+  const numericEvidenceCandidates = [
+    {
+      basis: 'structure_current_rr_shortfall',
+      observed: roundOrNull(input.rrAtCurrentPrice, 2) ?? 0,
+      threshold: roundOrNull(minRr, 2) ?? minRr,
+      delta: roundOrNull(currentRrShortfall, 2) ?? 0,
+      unit: 'rr'
+    },
+    {
+      basis: 'structure_target_buffer_shortfall',
+      observed: roundOrNull(input.targetBufferFromCurrentPct, 2) ?? 0,
+      threshold: roundOrNull(minTargetBufferPct, 2) ?? minTargetBufferPct,
+      delta: roundOrNull(targetBufferShortfallPct, 2) ?? 0,
+      unit: 'pct'
+    },
+    {
+      basis: 'structure_distance_excess',
+      observed: roundOrNull(input.entryDistancePct, 2) ?? 0,
+      threshold: roundOrNull(maxReviewDistancePct, 2) ?? maxReviewDistancePct,
+      delta: roundOrNull(distanceExcessPct, 2) ?? 0,
+      unit: 'pct'
+    }
+  ].sort((a, b) => b.delta - a.delta);
+  const topNumericEvidence = numericEvidenceCandidates[0];
+  const fallbackProofGap = explicitReject
+    ? 'structure_explicit_reject_proof_gap'
+    : input.structureConfirmed
+      ? 'structure_confirmed_not_promoted_gap'
+      : 'structure_proof_missing_gap';
+  const formulaEvidence =
+    topNumericEvidence && topNumericEvidence.delta > 0
+      ? topNumericEvidence
+      : {
+          basis: fallbackProofGap,
+          observed: 1,
+          threshold: 0,
+          delta: 1,
+          unit: 'proof_gap_count'
+        };
+  const evidencePayload = {
+    currentRrValue: roundOrNull(input.rrAtCurrentPrice, 2),
+    minRr: roundOrNull(minRr, 2) ?? minRr,
+    currentRrShortfall: roundOrNull(currentRrShortfall, 2),
+    targetBufferPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
+    minTargetBufferPct: roundOrNull(minTargetBufferPct, 2) ?? minTargetBufferPct,
+    targetBufferShortfallPct: roundOrNull(targetBufferShortfallPct, 2),
+    entryDistancePct: roundOrNull(input.entryDistancePct, 2),
+    maxReviewDistancePct: roundOrNull(maxReviewDistancePct, 2) ?? maxReviewDistancePct,
+    distanceExcessPct: roundOrNull(distanceExcessPct, 2),
+    formulaEvidenceBasis: formulaEvidence.basis,
+    formulaObservedValue: formulaEvidence.observed,
+    formulaThresholdValue: formulaEvidence.threshold,
+    formulaDeltaValue: formulaEvidence.delta,
+    formulaUnit: formulaEvidence.unit
+  };
   if (input.structureConfirmed) {
     return {
       verdict: 'STRUCTURE_CONFIRMED_WAIT_REVIEW_READY',
@@ -1343,6 +1448,7 @@ const deriveStructurePolicyReview = (input: {
       currentRrOk,
       targetBufferOk,
       distanceWithinReviewBand,
+      ...evidencePayload,
       reasons: reasons.length ? reasons : ['structure_confirmed_but_not_promoted'],
       recommendedAction: 'Structure is confirmed; review producer current-entry rules before any executable promotion.'
     };
@@ -1355,6 +1461,7 @@ const deriveStructurePolicyReview = (input: {
       currentRrOk,
       targetBufferOk,
       distanceWithinReviewBand,
+      ...evidencePayload,
       reasons: reasons.length ? reasons : ['explicit_reject_with_current_rr_ok'],
       recommendedAction: 'Inspect support/stop proof. Do not promote until Stage6 emits confirmed structure metadata.'
     };
@@ -1367,6 +1474,7 @@ const deriveStructurePolicyReview = (input: {
       currentRrOk,
       targetBufferOk,
       distanceWithinReviewBand,
+      ...evidencePayload,
       reasons: reasons.length ? reasons : ['explicit_structure_reject'],
       recommendedAction: 'Keep WAIT_PRICE. Explicit structure reject plus weak current execution evidence does not justify promotion.'
     };
@@ -1379,6 +1487,7 @@ const deriveStructurePolicyReview = (input: {
       currentRrOk,
       targetBufferOk,
       distanceWithinReviewBand,
+      ...evidencePayload,
       reasons: reasons.length ? reasons : ['structure_proof_missing_with_current_rr_ok'],
       recommendedAction: 'Add or repair structure proof metadata. Do not use sidecar chase as substitute proof.'
     };
@@ -1390,6 +1499,7 @@ const deriveStructurePolicyReview = (input: {
     currentRrOk,
     targetBufferOk,
     distanceWithinReviewBand,
+    ...evidencePayload,
     reasons: reasons.length ? reasons : ['current_execution_not_ready'],
     recommendedAction: 'Keep WAIT_PRICE; current RR/distance is not strong enough to override structure wait.'
   };
@@ -2328,13 +2438,12 @@ const deriveZeroExecutableFormulaProfile = (input: {
       };
     }
     if (winner.key === 'STRUCTURE_PROOF_FORMULA') {
-      const observedValue = structureProofGaps.size;
       return {
-        observedValue,
-        thresholdValue: 0,
-        deltaValue: observedValue,
-        unit: 'proof_gap_count',
-        evidenceBasis: 'structure_proof_gap_count'
+        observedValue: input.structurePolicy.formulaObservedValue,
+        thresholdValue: input.structurePolicy.formulaThresholdValue,
+        deltaValue: input.structurePolicy.formulaDeltaValue,
+        unit: input.structurePolicy.formulaUnit,
+        evidenceBasis: input.structurePolicy.formulaEvidenceBasis
       };
     }
     return {
@@ -2385,8 +2494,16 @@ const deriveZeroExecutableFormulaProfile = (input: {
       };
     }
     if (winner.key === 'STRUCTURE_PROOF_FORMULA') {
+      const basis = input.structurePolicy.formulaEvidenceBasis;
+      const knob = basis.includes('current_rr')
+        ? 'CURRENT_ENTRY_STRUCTURE_RR_EVIDENCE'
+        : basis.includes('target_buffer')
+          ? 'CURRENT_ENTRY_STRUCTURE_TARGET_BUFFER_EVIDENCE'
+          : basis.includes('distance')
+            ? 'CURRENT_ENTRY_STRUCTURE_DISTANCE_BAND'
+            : 'CURRENT_ENTRY_STRUCTURE_SUPPORT_PROOF';
       return {
-        knob: 'CURRENT_ENTRY_STRUCTURE_SUPPORT_PROOF',
+        knob,
         direction: 'IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE',
         magnitude: formulaEvidence.deltaValue,
         rationale: 'Structure wait requires stronger support/RR/distance proof; blind structure relaxation remains blocked.'
@@ -2411,7 +2528,11 @@ const deriveZeroExecutableFormulaProfile = (input: {
     ...(targetSeverity > 0 ? [`target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`] : []),
     ...(riskSeverity > 0 ? [`risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`] : []),
     ...(breakoutSeverity > 0 ? [`breakout_proof_gap_count:${breakoutProofGaps.size}`] : []),
-    ...(structureSeverity > 0 ? [`structure_proof_gap_count:${structureProofGaps.size}`] : [])
+    ...(structureSeverity > 0 ? [
+      `structure_proof_gap_count:${structureProofGaps.size}`,
+      `structure_formula_basis:${input.structurePolicy.formulaEvidenceBasis}`,
+      `structure_formula_delta:${input.structurePolicy.formulaDeltaValue}`
+    ] : [])
   ];
   return {
     bottleneck: winner.key,
@@ -7446,8 +7567,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyReviewReady: structurePolicyReview.reviewReady,
               structurePolicyBlockerLane: structurePolicyReview.blockerLane,
               structurePolicyCurrentRrOk: structurePolicyReview.currentRrOk,
+              structurePolicyCurrentRrValue: structurePolicyReview.currentRrValue,
+              structurePolicyMinRr: structurePolicyReview.minRr,
+              structurePolicyCurrentRrShortfall: structurePolicyReview.currentRrShortfall,
               structurePolicyTargetBufferOk: structurePolicyReview.targetBufferOk,
+              structurePolicyTargetBufferPct: structurePolicyReview.targetBufferPct,
+              structurePolicyMinTargetBufferPct: structurePolicyReview.minTargetBufferPct,
+              structurePolicyTargetBufferShortfallPct: structurePolicyReview.targetBufferShortfallPct,
               structurePolicyDistanceWithinReviewBand: structurePolicyReview.distanceWithinReviewBand,
+              structurePolicyEntryDistancePct: structurePolicyReview.entryDistancePct,
+              structurePolicyMaxReviewDistancePct: structurePolicyReview.maxReviewDistancePct,
+              structurePolicyDistanceExcessPct: structurePolicyReview.distanceExcessPct,
+              structurePolicyFormulaEvidenceBasis: structurePolicyReview.formulaEvidenceBasis,
               structurePolicyReasons: structurePolicyReview.reasons,
               structurePolicyRecommendedAction: structurePolicyReview.recommendedAction,
               breakoutRetestProofVerdict: breakoutRetestProof.verdict,
@@ -7691,8 +7822,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyReviewReady: executionContract.structurePolicyReviewReady,
               structurePolicyBlockerLane: executionContract.structurePolicyBlockerLane,
               structurePolicyCurrentRrOk: executionContract.structurePolicyCurrentRrOk,
+              structurePolicyCurrentRrValue: executionContract.structurePolicyCurrentRrValue,
+              structurePolicyMinRr: executionContract.structurePolicyMinRr,
+              structurePolicyCurrentRrShortfall: executionContract.structurePolicyCurrentRrShortfall,
               structurePolicyTargetBufferOk: executionContract.structurePolicyTargetBufferOk,
+              structurePolicyTargetBufferPct: executionContract.structurePolicyTargetBufferPct,
+              structurePolicyMinTargetBufferPct: executionContract.structurePolicyMinTargetBufferPct,
+              structurePolicyTargetBufferShortfallPct: executionContract.structurePolicyTargetBufferShortfallPct,
               structurePolicyDistanceWithinReviewBand: executionContract.structurePolicyDistanceWithinReviewBand,
+              structurePolicyEntryDistancePct: executionContract.structurePolicyEntryDistancePct,
+              structurePolicyMaxReviewDistancePct: executionContract.structurePolicyMaxReviewDistancePct,
+              structurePolicyDistanceExcessPct: executionContract.structurePolicyDistanceExcessPct,
+              structurePolicyFormulaEvidenceBasis: executionContract.structurePolicyFormulaEvidenceBasis,
               structurePolicyReasons: executionContract.structurePolicyReasons,
               structurePolicyRecommendedAction: executionContract.structurePolicyRecommendedAction,
               breakoutRetestProofVerdict: executionContract.breakoutRetestProofVerdict,
@@ -8209,8 +8350,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyReviewReady: executionContract.structurePolicyReviewReady,
               structurePolicyBlockerLane: executionContract.structurePolicyBlockerLane,
               structurePolicyCurrentRrOk: executionContract.structurePolicyCurrentRrOk,
+              structurePolicyCurrentRrValue: executionContract.structurePolicyCurrentRrValue,
+              structurePolicyMinRr: executionContract.structurePolicyMinRr,
+              structurePolicyCurrentRrShortfall: executionContract.structurePolicyCurrentRrShortfall,
               structurePolicyTargetBufferOk: executionContract.structurePolicyTargetBufferOk,
+              structurePolicyTargetBufferPct: executionContract.structurePolicyTargetBufferPct,
+              structurePolicyMinTargetBufferPct: executionContract.structurePolicyMinTargetBufferPct,
+              structurePolicyTargetBufferShortfallPct: executionContract.structurePolicyTargetBufferShortfallPct,
               structurePolicyDistanceWithinReviewBand: executionContract.structurePolicyDistanceWithinReviewBand,
+              structurePolicyEntryDistancePct: executionContract.structurePolicyEntryDistancePct,
+              structurePolicyMaxReviewDistancePct: executionContract.structurePolicyMaxReviewDistancePct,
+              structurePolicyDistanceExcessPct: executionContract.structurePolicyDistanceExcessPct,
+              structurePolicyFormulaEvidenceBasis: executionContract.structurePolicyFormulaEvidenceBasis,
               structurePolicyReasons: executionContract.structurePolicyReasons,
               structurePolicyRecommendedAction: executionContract.structurePolicyRecommendedAction,
               breakoutRetestProofVerdict: executionContract.breakoutRetestProofVerdict,
@@ -8576,8 +8727,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyReviewReady: Boolean(item.structurePolicyReviewReady),
               structurePolicyBlockerLane: normalizeOptionalText(item.structurePolicyBlockerLane),
               structurePolicyCurrentRrOk: item.structurePolicyCurrentRrOk == null ? null : Boolean(item.structurePolicyCurrentRrOk),
+              structurePolicyCurrentRrValue: toOptionalFiniteNumber(item.structurePolicyCurrentRrValue),
+              structurePolicyMinRr: toOptionalFiniteNumber(item.structurePolicyMinRr),
+              structurePolicyCurrentRrShortfall: toOptionalFiniteNumber(item.structurePolicyCurrentRrShortfall),
               structurePolicyTargetBufferOk: item.structurePolicyTargetBufferOk == null ? null : Boolean(item.structurePolicyTargetBufferOk),
+              structurePolicyTargetBufferPct: toOptionalFiniteNumber(item.structurePolicyTargetBufferPct),
+              structurePolicyMinTargetBufferPct: toOptionalFiniteNumber(item.structurePolicyMinTargetBufferPct),
+              structurePolicyTargetBufferShortfallPct: toOptionalFiniteNumber(item.structurePolicyTargetBufferShortfallPct),
               structurePolicyDistanceWithinReviewBand: item.structurePolicyDistanceWithinReviewBand == null ? null : Boolean(item.structurePolicyDistanceWithinReviewBand),
+              structurePolicyEntryDistancePct: toOptionalFiniteNumber(item.structurePolicyEntryDistancePct),
+              structurePolicyMaxReviewDistancePct: toOptionalFiniteNumber(item.structurePolicyMaxReviewDistancePct),
+              structurePolicyDistanceExcessPct: toOptionalFiniteNumber(item.structurePolicyDistanceExcessPct),
+              structurePolicyFormulaEvidenceBasis: normalizeOptionalText(item.structurePolicyFormulaEvidenceBasis),
               structurePolicyReasons: Array.isArray(item.structurePolicyReasons) ? item.structurePolicyReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               structurePolicyRecommendedAction: normalizeOptionalText(item.structurePolicyRecommendedAction),
               breakoutRetestProofVerdict: normalizeOptionalText(item.breakoutRetestProofVerdict),
@@ -8778,8 +8939,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyReviewReady: Boolean(item?.structurePolicyReviewReady),
               structurePolicyBlockerLane: normalizeOptionalText(item?.structurePolicyBlockerLane),
               structurePolicyCurrentRrOk: item?.structurePolicyCurrentRrOk == null ? null : Boolean(item.structurePolicyCurrentRrOk),
+              structurePolicyCurrentRrValue: toOptionalFiniteNumber(item?.structurePolicyCurrentRrValue),
+              structurePolicyMinRr: toOptionalFiniteNumber(item?.structurePolicyMinRr),
+              structurePolicyCurrentRrShortfall: toOptionalFiniteNumber(item?.structurePolicyCurrentRrShortfall),
               structurePolicyTargetBufferOk: item?.structurePolicyTargetBufferOk == null ? null : Boolean(item.structurePolicyTargetBufferOk),
+              structurePolicyTargetBufferPct: toOptionalFiniteNumber(item?.structurePolicyTargetBufferPct),
+              structurePolicyMinTargetBufferPct: toOptionalFiniteNumber(item?.structurePolicyMinTargetBufferPct),
+              structurePolicyTargetBufferShortfallPct: toOptionalFiniteNumber(item?.structurePolicyTargetBufferShortfallPct),
               structurePolicyDistanceWithinReviewBand: item?.structurePolicyDistanceWithinReviewBand == null ? null : Boolean(item.structurePolicyDistanceWithinReviewBand),
+              structurePolicyEntryDistancePct: toOptionalFiniteNumber(item?.structurePolicyEntryDistancePct),
+              structurePolicyMaxReviewDistancePct: toOptionalFiniteNumber(item?.structurePolicyMaxReviewDistancePct),
+              structurePolicyDistanceExcessPct: toOptionalFiniteNumber(item?.structurePolicyDistanceExcessPct),
+              structurePolicyFormulaEvidenceBasis: normalizeOptionalText(item?.structurePolicyFormulaEvidenceBasis),
               structurePolicyReasons: Array.isArray(item?.structurePolicyReasons) ? item.structurePolicyReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               structurePolicyRecommendedAction: normalizeOptionalText(item?.structurePolicyRecommendedAction),
               breakoutRetestProofVerdict: normalizeOptionalText(item?.breakoutRetestProofVerdict),

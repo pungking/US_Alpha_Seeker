@@ -26,9 +26,20 @@ A structure overblock-review row must expose:
 - `structurePolicyCurrentRrOk=true`
 - `structurePolicyTargetBufferOk=true`
 - `structurePolicyDistanceWithinReviewBand=true`
+- numeric evidence fields for current RR, minimum RR, RR shortfall, target
+  buffer, buffer shortfall, entry distance, distance band, and distance excess
 - `zeroExecutableTuningLane=STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION`
 - `zeroExecutableFormulaBottleneck=STRUCTURE_PROOF_FORMULA`
+- `structurePolicyFormulaEvidenceBasis` matching
+  `zeroExecutableFormulaEvidenceBasis`
 - `zeroExecutablePrimaryTuningTarget=false`
+
+Structure formula evidence must point at the dominant measurable blocker:
+`structure_current_rr_shortfall`, `structure_target_buffer_shortfall`,
+`structure_distance_excess`, or a proof-gap basis such as
+`structure_explicit_reject_proof_gap`. It must not collapse every structure row
+into a generic proof-gap count when RR, target buffer, or distance evidence is
+the real blocker.
 
 ## Target Recalibration Policy
 
@@ -95,6 +106,9 @@ lane explicitly.
 
 - Contract fixture includes structure justified, structure overblock-review, target recalibration candidate, target gap no-trade, target already reached no-trade, and stop/target risk-geometry target recalibration rows.
 - Validator fails if structure overblock rows are promoted or marked as primary relaxation targets.
+- Validator fails if structure rows do not expose numeric RR/buffer/distance
+  evidence or if `structurePolicyFormulaEvidenceBasis` diverges from
+  `zeroExecutableFormulaEvidenceBasis`.
 - Validator fails if target-at/below-current rows are not no-trade confirmed.
 - Validator fails if a recalculated-stop target shortfall is marked proof-confirmed instead of target-recalibration required.
 - Validator fails if a recalculated-stop target shortfall above gap policy is

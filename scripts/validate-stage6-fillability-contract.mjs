@@ -92,6 +92,16 @@ const requiredSchemaFields = [
   'breakoutRetestPromotionBlockedBy',
   'structurePolicyVerdict',
   'structurePolicyReviewReady',
+  'structurePolicyCurrentRrValue',
+  'structurePolicyMinRr',
+  'structurePolicyCurrentRrShortfall',
+  'structurePolicyTargetBufferPct',
+  'structurePolicyMinTargetBufferPct',
+  'structurePolicyTargetBufferShortfallPct',
+  'structurePolicyEntryDistancePct',
+  'structurePolicyMaxReviewDistancePct',
+  'structurePolicyDistanceExcessPct',
+  'structurePolicyFormulaEvidenceBasis',
   'currentEntryStructureVerdict',
   'currentEntryRecalcFeasible',
   'currentEntryStructureConfirmed',
@@ -392,6 +402,37 @@ for (const [idx, row] of candidates.entries()) {
     }
     if (tuningLane(row) !== 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
       errors.push(`${label}: structure wait must be marked as proof-required, not a relaxation lane`);
+    }
+    for (const field of [
+      'structurePolicyCurrentRrValue',
+      'structurePolicyMinRr',
+      'structurePolicyCurrentRrShortfall',
+      'structurePolicyTargetBufferPct',
+      'structurePolicyMinTargetBufferPct',
+      'structurePolicyTargetBufferShortfallPct',
+      'structurePolicyEntryDistancePct',
+      'structurePolicyMaxReviewDistancePct',
+      'structurePolicyDistanceExcessPct'
+    ]) {
+      if (!isFiniteNumber(row[field])) errors.push(`${label}: structure wait missing numeric ${field}`);
+    }
+    if (!String(row.structurePolicyFormulaEvidenceBasis || '').trim()) {
+      errors.push(`${label}: structure wait missing structurePolicyFormulaEvidenceBasis`);
+    }
+    if (String(row.zeroExecutableFormulaEvidenceBasis || '') !== String(row.structurePolicyFormulaEvidenceBasis || '')) {
+      errors.push(`${label}: structure formula evidence basis must match structurePolicyFormulaEvidenceBasis`);
+    }
+    const structureBasis = String(row.structurePolicyFormulaEvidenceBasis || '');
+    const structureKnob = String(row.zeroExecutableFormulaAdjustmentKnob || '');
+    const expectedStructureKnob = structureBasis.includes('current_rr')
+      ? 'CURRENT_ENTRY_STRUCTURE_RR_EVIDENCE'
+      : structureBasis.includes('target_buffer')
+        ? 'CURRENT_ENTRY_STRUCTURE_TARGET_BUFFER_EVIDENCE'
+        : structureBasis.includes('distance')
+          ? 'CURRENT_ENTRY_STRUCTURE_DISTANCE_BAND'
+          : 'CURRENT_ENTRY_STRUCTURE_SUPPORT_PROOF';
+    if (structureKnob !== expectedStructureKnob) {
+      errors.push(`${label}: structure formula knob ${structureKnob || 'missing'} must match ${expectedStructureKnob} for ${structureBasis}`);
     }
     if (isTrue(row.zeroExecutablePrimaryTuningTarget)) {
       errors.push(`${label}: structure wait cannot be a primary zero-executable tuning target`);
