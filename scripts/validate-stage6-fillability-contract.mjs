@@ -73,6 +73,8 @@ const requiredSchemaFields = [
   'riskGeometryRecalculatedStopCandidate',
   'riskGeometryRequiredTargetBufferPct',
   'riskGeometryTargetRecalibrationCandidate',
+  'riskGeometryTargetRecalibrationGapPolicyPct',
+  'riskGeometryTargetNoTradeConfirmed',
   'breakoutRetestProofConfirmed',
   'breakoutRetestProofReviewReady',
   'breakoutRetestProofContinuationConfirmed',
@@ -481,9 +483,13 @@ for (const [idx, row] of candidates.entries()) {
         'riskGeometryRequiredStopDistanceValid',
         'riskGeometryRecalculatedStopRrOk',
         'riskGeometryTargetBufferOk',
-        'riskGeometryTargetRecalibrationCandidate'
+        'riskGeometryTargetRecalibrationCandidate',
+        'riskGeometryTargetNoTradeConfirmed'
       ]) {
         if (!isBooleanLike(row[field])) errors.push(`${label}: recalculated stop candidate missing boolean ${field}`);
+      }
+      if (!isFiniteNumber(row.riskGeometryTargetRecalibrationGapPolicyPct)) {
+        errors.push(`${label}: recalculated stop candidate missing numeric riskGeometryTargetRecalibrationGapPolicyPct`);
       }
       if (row.riskGeometryRequiredTargetSource === 'expected_return' && !isFiniteNumber(row.riskGeometryRequiredTargetByExpectedReturnPrice)) {
         errors.push(`${label}: expected-return target source requires riskGeometryRequiredTargetByExpectedReturnPrice`);
@@ -498,8 +504,25 @@ for (const [idx, row] of candidates.entries()) {
         if (!(Number(row.riskGeometryTargetGapPct) < 0) || !(Number(row.riskGeometryTargetShortfallPct) > 0)) {
           errors.push(`${label}: target recalibration candidate must expose negative target gap and positive shortfall`);
         }
-        if (tuningLane(row) !== 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION') {
-          errors.push(`${label}: target recalibration candidate from risk geometry must route to STOP_TARGET_RISK_GEOMETRY_RECALCULATION`);
+        if (Number(row.riskGeometryTargetShortfallPct) > Number(row.riskGeometryTargetRecalibrationGapPolicyPct)) {
+          errors.push(`${label}: target recalibration candidate exceeds risk geometry gap policy`);
+        }
+        if (!['STOP_TARGET_RISK_GEOMETRY_RECALCULATION', 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'].includes(tuningLane(row))) {
+          errors.push(`${label}: target recalibration candidate from risk geometry must route to risk geometry tuning lane`);
+        }
+      }
+      if (isTrue(row.riskGeometryTargetNoTradeConfirmed)) {
+        if (isTrue(row.riskGeometryTargetRecalibrationCandidate)) {
+          errors.push(`${label}: risk geometry target no-trade cannot also be a target recalibration candidate`);
+        }
+        if (isTrue(row.riskGeometryProofConfirmed)) {
+          errors.push(`${label}: risk geometry target no-trade cannot also be proof confirmed`);
+        }
+        if (!['TARGET_NO_TRADE', 'TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE'].includes(row.riskGeometryRepairLane)) {
+          errors.push(`${label}: risk geometry target no-trade must declare target no-trade repair lane`);
+        }
+        if (tuningLane(row) !== 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') {
+          errors.push(`${label}: risk geometry target no-trade must route to RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION`);
         }
       }
       if (isTrue(row.riskGeometryProofConfirmed)) {

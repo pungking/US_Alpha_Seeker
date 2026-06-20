@@ -207,6 +207,8 @@ interface AlphaCandidate {
   riskGeometryTargetGapPct?: number | null;
   riskGeometryTargetShortfallPct?: number | null;
   riskGeometryTargetRecalibrationCandidate?: boolean | null;
+  riskGeometryTargetRecalibrationGapPolicyPct?: number | null;
+  riskGeometryTargetNoTradeConfirmed?: boolean | null;
   riskGeometryTargetBufferPct?: number | null;
   riskGeometryTargetAboveCurrent?: boolean | null;
   riskGeometryRequiredStopValid?: boolean | null;
@@ -783,6 +785,8 @@ type Stage6RiskGeometryPolicyPayload = {
   targetGapPct: number | null;
   targetShortfallPct: number | null;
   targetRecalibrationCandidate: boolean;
+  targetRecalibrationGapPolicyPct: number;
+  targetNoTradeConfirmed: boolean;
   targetBufferPct: number | null;
   targetAboveCurrent: boolean;
   requiredStopValid: boolean;
@@ -1829,6 +1833,8 @@ const deriveRiskGeometryPolicy = (input: {
       targetGapPct: null,
       targetShortfallPct: null,
       targetRecalibrationCandidate: false,
+      targetRecalibrationGapPolicyPct: TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct,
+      targetNoTradeConfirmed: false,
       targetBufferPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
       targetAboveCurrent: false,
       requiredStopValid: false,
@@ -1930,6 +1936,12 @@ const deriveRiskGeometryPolicy = (input: {
       : targetGapPct == null
         ? null
         : 0;
+  const targetRecalibrationGapPolicyPct = TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct;
+  const targetShortfallWithinGapPolicy =
+    targetShortfallPct != null &&
+    Number.isFinite(targetShortfallPct) &&
+    targetShortfallPct > 0 &&
+    targetShortfallPct <= targetRecalibrationGapPolicyPct;
   const recalculatedStopRrOk =
     rrAtRecalculatedStop != null &&
     Number.isFinite(rrAtRecalculatedStop) &&
@@ -1940,17 +1952,34 @@ const deriveRiskGeometryPolicy = (input: {
     requiredStopValid &&
     requiredStopDistanceValid &&
     targetAboveCurrent;
+  const targetNoTradeConfirmed = Boolean(
+    !targetAboveCurrent ||
+    (recalculatedStopCandidate &&
+      targetGapPct != null &&
+      Number.isFinite(targetGapPct) &&
+      targetGapPct < 0 &&
+      targetShortfallPct != null &&
+      targetShortfallPct > targetRecalibrationGapPolicyPct)
+  );
   const targetRecalibrationCandidate = Boolean(
     recalculatedStopCandidate &&
     requiredTargetPrice != null &&
     input.target != null &&
     Number.isFinite(input.target) &&
     targetGapPct != null &&
-    targetGapPct < 0
+    targetGapPct < 0 &&
+    targetShortfallWithinGapPolicy
   );
-  const recalculatedStopProofConfirmed = recalculatedStopCandidate && recalculatedStopRrOk && targetBufferOk && !targetRecalibrationCandidate;
+  const recalculatedStopProofConfirmed =
+    recalculatedStopCandidate &&
+    recalculatedStopRrOk &&
+    targetBufferOk &&
+    !targetRecalibrationCandidate &&
+    !targetNoTradeConfirmed;
   const repairLane = !targetAboveCurrent
     ? 'TARGET_NO_TRADE'
+    : targetNoTradeConfirmed
+      ? 'TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE'
     : targetRecalibrationCandidate
       ? 'TARGET_RECALIBRATION'
       : recalculatedStopProofConfirmed
@@ -1972,7 +2001,11 @@ const deriveRiskGeometryPolicy = (input: {
       input.target < requiredTargetByExpectedReturn
       ? ['target_below_expected_return_required_target']
       : []),
+    ...(targetShortfallPct != null && targetShortfallPct > targetRecalibrationGapPolicyPct
+      ? ['target_recalibration_gap_above_policy']
+      : []),
     ...(targetRecalibrationCandidate ? ['target_below_required_after_recalculated_stop'] : []),
+    ...(targetNoTradeConfirmed ? ['risk_geometry_target_no_trade_confirmed'] : []),
     `risk_geometry_repair_lane:${repairLane}`
   ];
   const proofVerdict = recalculatedStopProofConfirmed
@@ -1994,6 +2027,8 @@ const deriveRiskGeometryPolicy = (input: {
     targetGapPct: roundOrNull(targetGapPct, 2),
     targetShortfallPct: roundOrNull(targetShortfallPct, 2),
     targetRecalibrationCandidate,
+    targetRecalibrationGapPolicyPct: roundOrNull(targetRecalibrationGapPolicyPct, 2) ?? targetRecalibrationGapPolicyPct,
+    targetNoTradeConfirmed,
     targetBufferPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
     targetAboveCurrent,
     requiredStopValid,
@@ -2040,11 +2075,13 @@ const deriveRiskGeometryPolicy = (input: {
   }
   if (reason === 'blocked_stop_too_tight' || reason === 'blocked_stop_too_wide') {
     return {
-      verdict: recalculatedStopCandidate
+      verdict: targetNoTradeConfirmed
+        ? 'STOP_GEOMETRY_TARGET_GAP_TOO_WIDE_NO_TRADE'
+        : recalculatedStopCandidate
         ? 'STOP_GEOMETRY_RECALCULATED_STOP_REVIEW_READY'
         : 'STOP_GEOMETRY_RECALIBRATION_REQUIRED',
       recalibrationRequired: true,
-      noTradeRequired: !recalculatedStopCandidate,
+      noTradeRequired: targetNoTradeConfirmed || !recalculatedStopCandidate,
       recalculatedStopCandidate,
       ...proofEvidence,
       reasons,
@@ -2055,11 +2092,13 @@ const deriveRiskGeometryPolicy = (input: {
   }
   if (reason === 'wait_recalculated_stop_required') {
     return {
-      verdict: recalculatedStopCandidate
+      verdict: targetNoTradeConfirmed
+        ? 'RECALCULATED_STOP_TARGET_GAP_TOO_WIDE_NO_TRADE'
+        : recalculatedStopCandidate
         ? 'RECALCULATED_STOP_POLICY_REVIEW_READY'
         : 'RECALCULATED_STOP_WAIT_JUSTIFIED',
       recalibrationRequired: true,
-      noTradeRequired: !recalculatedStopCandidate,
+      noTradeRequired: targetNoTradeConfirmed || !recalculatedStopCandidate,
       recalculatedStopCandidate,
       ...proofEvidence,
       reasons,
@@ -2069,11 +2108,13 @@ const deriveRiskGeometryPolicy = (input: {
     };
   }
   return {
-    verdict: recalculatedStopCandidate && currentRrOk && targetBufferOk
+    verdict: targetNoTradeConfirmed
+      ? 'RR_GEOMETRY_TARGET_GAP_TOO_WIDE_NO_TRADE'
+      : recalculatedStopCandidate && currentRrOk && targetBufferOk
       ? 'RR_GEOMETRY_RECALCULATED_STOP_REVIEW_READY'
       : 'RR_GEOMETRY_WAIT_JUSTIFIED',
     recalibrationRequired: recalculatedStopCandidate,
-    noTradeRequired: !recalculatedStopProofConfirmed,
+    noTradeRequired: targetNoTradeConfirmed || !recalculatedStopProofConfirmed,
     recalculatedStopCandidate,
     ...proofEvidence,
     reasons,
@@ -2098,6 +2139,15 @@ const deriveZeroExecutableTuningPolicy = (input: {
       primaryTuningTarget: true,
       reasons: input.targetPolicy.reasons,
       recommendedAction: input.targetPolicy.recommendedAction
+    };
+  }
+  if (input.riskGeometryPolicy.recalibrationRequired && input.riskGeometryPolicy.noTradeRequired) {
+    return {
+      lane: 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION',
+      verdict: input.riskGeometryPolicy.verdict,
+      primaryTuningTarget: true,
+      reasons: input.riskGeometryPolicy.reasons,
+      recommendedAction: input.riskGeometryPolicy.recommendedAction
     };
   }
   if (input.riskGeometryPolicy.recalculatedStopCandidate) {
@@ -7449,6 +7499,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryTargetGapPct: riskGeometryPolicy.targetGapPct,
               riskGeometryTargetShortfallPct: riskGeometryPolicy.targetShortfallPct,
               riskGeometryTargetRecalibrationCandidate: riskGeometryPolicy.targetRecalibrationCandidate,
+              riskGeometryTargetRecalibrationGapPolicyPct: riskGeometryPolicy.targetRecalibrationGapPolicyPct,
+              riskGeometryTargetNoTradeConfirmed: riskGeometryPolicy.targetNoTradeConfirmed,
               riskGeometryTargetBufferPct: riskGeometryPolicy.targetBufferPct,
               riskGeometryTargetAboveCurrent: riskGeometryPolicy.targetAboveCurrent,
               riskGeometryRequiredStopValid: riskGeometryPolicy.requiredStopValid,
@@ -7688,6 +7740,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryTargetGapPct: executionContract.riskGeometryTargetGapPct,
               riskGeometryTargetShortfallPct: executionContract.riskGeometryTargetShortfallPct,
               riskGeometryTargetRecalibrationCandidate: executionContract.riskGeometryTargetRecalibrationCandidate,
+              riskGeometryTargetRecalibrationGapPolicyPct: executionContract.riskGeometryTargetRecalibrationGapPolicyPct,
+              riskGeometryTargetNoTradeConfirmed: executionContract.riskGeometryTargetNoTradeConfirmed,
               riskGeometryTargetBufferPct: executionContract.riskGeometryTargetBufferPct,
               riskGeometryTargetAboveCurrent: executionContract.riskGeometryTargetAboveCurrent,
               riskGeometryRequiredStopValid: executionContract.riskGeometryRequiredStopValid,
@@ -8200,6 +8254,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryTargetGapPct: executionContract.riskGeometryTargetGapPct,
               riskGeometryTargetShortfallPct: executionContract.riskGeometryTargetShortfallPct,
               riskGeometryTargetRecalibrationCandidate: executionContract.riskGeometryTargetRecalibrationCandidate,
+              riskGeometryTargetRecalibrationGapPolicyPct: executionContract.riskGeometryTargetRecalibrationGapPolicyPct,
+              riskGeometryTargetNoTradeConfirmed: executionContract.riskGeometryTargetNoTradeConfirmed,
               riskGeometryTargetBufferPct: executionContract.riskGeometryTargetBufferPct,
               riskGeometryTargetAboveCurrent: executionContract.riskGeometryTargetAboveCurrent,
               riskGeometryRequiredStopValid: executionContract.riskGeometryRequiredStopValid,
@@ -8561,6 +8617,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryTargetGapPct: toOptionalFiniteNumber(item.riskGeometryTargetGapPct),
               riskGeometryTargetShortfallPct: toOptionalFiniteNumber(item.riskGeometryTargetShortfallPct),
               riskGeometryTargetRecalibrationCandidate: item.riskGeometryTargetRecalibrationCandidate == null ? null : Boolean(item.riskGeometryTargetRecalibrationCandidate),
+              riskGeometryTargetRecalibrationGapPolicyPct: toOptionalFiniteNumber(item.riskGeometryTargetRecalibrationGapPolicyPct),
+              riskGeometryTargetNoTradeConfirmed: item.riskGeometryTargetNoTradeConfirmed == null ? null : Boolean(item.riskGeometryTargetNoTradeConfirmed),
               riskGeometryTargetBufferPct: toOptionalFiniteNumber(item.riskGeometryTargetBufferPct),
               riskGeometryTargetAboveCurrent: item.riskGeometryTargetAboveCurrent == null ? null : Boolean(item.riskGeometryTargetAboveCurrent),
               riskGeometryRequiredStopValid: item.riskGeometryRequiredStopValid == null ? null : Boolean(item.riskGeometryRequiredStopValid),
@@ -8757,6 +8815,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryTargetGapPct: toOptionalFiniteNumber(item?.riskGeometryTargetGapPct),
               riskGeometryTargetShortfallPct: toOptionalFiniteNumber(item?.riskGeometryTargetShortfallPct),
               riskGeometryTargetRecalibrationCandidate: item?.riskGeometryTargetRecalibrationCandidate == null ? null : Boolean(item.riskGeometryTargetRecalibrationCandidate),
+              riskGeometryTargetRecalibrationGapPolicyPct: toOptionalFiniteNumber(item?.riskGeometryTargetRecalibrationGapPolicyPct),
+              riskGeometryTargetNoTradeConfirmed: item?.riskGeometryTargetNoTradeConfirmed == null ? null : Boolean(item.riskGeometryTargetNoTradeConfirmed),
               riskGeometryTargetBufferPct: toOptionalFiniteNumber(item?.riskGeometryTargetBufferPct),
               riskGeometryTargetAboveCurrent: item?.riskGeometryTargetAboveCurrent == null ? null : Boolean(item.riskGeometryTargetAboveCurrent),
               riskGeometryRequiredStopValid: item?.riskGeometryRequiredStopValid == null ? null : Boolean(item.riskGeometryRequiredStopValid),

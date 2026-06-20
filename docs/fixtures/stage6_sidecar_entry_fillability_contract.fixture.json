@@ -202,7 +202,9 @@
       "zeroExecutableFormulaAdjustmentKnob": "NONE",
       "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
       "zeroExecutableFormulaAdjustmentMagnitude": 0,
-      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
+      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row.",
+      "riskGeometryTargetRecalibrationGapPolicyPct": 20,
+      "riskGeometryTargetNoTradeConfirmed": false
     },
     {
       "symbol": "WAIT1",
@@ -390,14 +392,14 @@
         "structure_proof_gap_count:2"
       ],
       "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly.",
-      "zeroExecutableFormulaObservedValue": 2.0,
+      "zeroExecutableFormulaObservedValue": 2,
       "zeroExecutableFormulaThresholdValue": 0,
-      "zeroExecutableFormulaDeltaValue": 2.0,
+      "zeroExecutableFormulaDeltaValue": 2,
       "zeroExecutableFormulaUnit": "proof_gap_count",
       "zeroExecutableFormulaEvidenceBasis": "structure_proof_gap_count",
       "zeroExecutableFormulaAdjustmentKnob": "CURRENT_ENTRY_STRUCTURE_SUPPORT_PROOF",
       "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE",
-      "zeroExecutableFormulaAdjustmentMagnitude": 2.0,
+      "zeroExecutableFormulaAdjustmentMagnitude": 2,
       "zeroExecutableFormulaAdjustmentRationale": "Structure wait requires stronger support/RR/distance proof; blind structure relaxation remains blocked."
     },
     {
@@ -460,14 +462,14 @@
         "structure_proof_gap_count:1"
       ],
       "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly.",
-      "zeroExecutableFormulaObservedValue": 1.0,
+      "zeroExecutableFormulaObservedValue": 1,
       "zeroExecutableFormulaThresholdValue": 0,
-      "zeroExecutableFormulaDeltaValue": 1.0,
+      "zeroExecutableFormulaDeltaValue": 1,
       "zeroExecutableFormulaUnit": "proof_gap_count",
       "zeroExecutableFormulaEvidenceBasis": "structure_proof_gap_count",
       "zeroExecutableFormulaAdjustmentKnob": "CURRENT_ENTRY_STRUCTURE_SUPPORT_PROOF",
       "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE",
-      "zeroExecutableFormulaAdjustmentMagnitude": 1.0,
+      "zeroExecutableFormulaAdjustmentMagnitude": 1,
       "zeroExecutableFormulaAdjustmentRationale": "Structure wait requires stronger support/RR/distance proof; blind structure relaxation remains blocked."
     },
     {
@@ -542,14 +544,14 @@
         "breakout_proof_gap_count:2"
       ],
       "zeroExecutableFormulaRecommendedAction": "Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable.",
-      "zeroExecutableFormulaObservedValue": 2.0,
+      "zeroExecutableFormulaObservedValue": 2,
       "zeroExecutableFormulaThresholdValue": 0,
-      "zeroExecutableFormulaDeltaValue": 2.0,
+      "zeroExecutableFormulaDeltaValue": 2,
       "zeroExecutableFormulaUnit": "proof_gap_count",
       "zeroExecutableFormulaEvidenceBasis": "breakout_proof_gap_count",
       "zeroExecutableFormulaAdjustmentKnob": "BREAKOUT_PROOF_CONFIRMED_GENERATION",
       "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION",
-      "zeroExecutableFormulaAdjustmentMagnitude": 2.0,
+      "zeroExecutableFormulaAdjustmentMagnitude": 2,
       "zeroExecutableFormulaAdjustmentRationale": "Review-ready breakout is not enough; only proofConfirmed rows may become executable."
     },
     {
@@ -619,14 +621,14 @@
         "breakout_proof_gap_count:1"
       ],
       "zeroExecutableFormulaRecommendedAction": "Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable.",
-      "zeroExecutableFormulaObservedValue": 1.0,
+      "zeroExecutableFormulaObservedValue": 1,
       "zeroExecutableFormulaThresholdValue": 0,
-      "zeroExecutableFormulaDeltaValue": 1.0,
+      "zeroExecutableFormulaDeltaValue": 1,
       "zeroExecutableFormulaUnit": "proof_gap_count",
       "zeroExecutableFormulaEvidenceBasis": "breakout_proof_gap_count",
       "zeroExecutableFormulaAdjustmentKnob": "BREAKOUT_PROOF_CONFIRMED_GENERATION",
       "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION",
-      "zeroExecutableFormulaAdjustmentMagnitude": 1.0,
+      "zeroExecutableFormulaAdjustmentMagnitude": 1,
       "zeroExecutableFormulaAdjustmentRationale": "Review-ready breakout is not enough; only proofConfirmed rows may become executable."
     },
     {
@@ -746,7 +748,9 @@
       "zeroExecutableFormulaAdjustmentKnob": "TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE",
       "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_WITH_FRESH_THESIS",
       "zeroExecutableFormulaAdjustmentMagnitude": 7.22,
-      "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion."
+      "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion.",
+      "riskGeometryTargetRecalibrationGapPolicyPct": 20,
+      "riskGeometryTargetNoTradeConfirmed": false
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -868,7 +872,9 @@
       "zeroExecutableFormulaAdjustmentKnob": "TARGET_RECALIBRATION_SOURCE_REFRESH",
       "zeroExecutableFormulaAdjustmentDirection": "NO_TRADE_UNTIL_FRESH_TARGET_SOURCE",
       "zeroExecutableFormulaAdjustmentMagnitude": 25.74,
-      "zeroExecutableFormulaAdjustmentRationale": "Current target shortfall is not safely repairable by execution-side chase; require fresh target source/thesis."
+      "zeroExecutableFormulaAdjustmentRationale": "Current target shortfall is not safely repairable by execution-side chase; require fresh target source/thesis.",
+      "riskGeometryTargetRecalibrationGapPolicyPct": 20,
+      "riskGeometryTargetNoTradeConfirmed": false
     },
     {
       "symbol": "TARGET_REACHED_NO_TRADE",
@@ -987,7 +993,9 @@
       "zeroExecutableFormulaAdjustmentKnob": "TARGET_RECALIBRATION_SOURCE_REFRESH",
       "zeroExecutableFormulaAdjustmentDirection": "NO_TRADE_UNTIL_FRESH_TARGET_SOURCE",
       "zeroExecutableFormulaAdjustmentMagnitude": 10.65,
-      "zeroExecutableFormulaAdjustmentRationale": "Current target shortfall is not safely repairable by execution-side chase; require fresh target source/thesis."
+      "zeroExecutableFormulaAdjustmentRationale": "Current target shortfall is not safely repairable by execution-side chase; require fresh target source/thesis.",
+      "riskGeometryTargetRecalibrationGapPolicyPct": 20,
+      "riskGeometryTargetNoTradeConfirmed": false
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -1049,7 +1057,7 @@
       "zeroExecutableFormulaBottleneck": "RISK_GEOMETRY_RECALCULATION_FORMULA",
       "zeroExecutableFormulaSeverity": 1,
       "zeroExecutableTargetShortfallPct": null,
-      "zeroExecutableRiskTargetShortfallPct": 0.0,
+      "zeroExecutableRiskTargetShortfallPct": 0,
       "zeroExecutableBreakoutProofGapCount": 0,
       "zeroExecutableStructureProofGapCount": 0,
       "zeroExecutableFormulaReasons": [
@@ -1063,15 +1071,17 @@
         "risk_target_shortfall_pct:0.0"
       ],
       "zeroExecutableFormulaRecommendedAction": "Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion.",
-      "zeroExecutableFormulaObservedValue": 1.0,
+      "zeroExecutableFormulaObservedValue": 1,
       "zeroExecutableFormulaThresholdValue": 0,
-      "zeroExecutableFormulaDeltaValue": 1.0,
+      "zeroExecutableFormulaDeltaValue": 1,
       "zeroExecutableFormulaUnit": "proof_gap_count",
       "zeroExecutableFormulaEvidenceBasis": "risk_geometry_proof_gap_count",
       "zeroExecutableFormulaAdjustmentKnob": "CURRENT_ENTRY_RECALCULATED_STOP_PROOF",
       "zeroExecutableFormulaAdjustmentDirection": "COMPLETE_STOP_RR_TARGET_BUFFER_PROOF",
-      "zeroExecutableFormulaAdjustmentMagnitude": 1.0,
-      "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop path lacks enough stop/RR/target-buffer proof; do not relax sidecar gates."
+      "zeroExecutableFormulaAdjustmentMagnitude": 1,
+      "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop path lacks enough stop/RR/target-buffer proof; do not relax sidecar gates.",
+      "riskGeometryTargetRecalibrationGapPolicyPct": 20,
+      "riskGeometryTargetNoTradeConfirmed": false
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_RECALC_WAIT",
@@ -1175,7 +1185,9 @@
       "zeroExecutableFormulaAdjustmentKnob": "RISK_GEOMETRY_REQUIRED_TARGET_PRICE",
       "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_OR_KEEP_NO_TRADE",
       "zeroExecutableFormulaAdjustmentMagnitude": 13.6,
-      "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop still requires a higher target; producer must refresh target/stop geometry before promotion."
+      "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop still requires a higher target; producer must refresh target/stop geometry before promotion.",
+      "riskGeometryTargetRecalibrationGapPolicyPct": 20,
+      "riskGeometryTargetNoTradeConfirmed": false
     },
     {
       "symbol": "WEAK_PILLAR_WAIT",
@@ -1254,6 +1266,116 @@
       "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
       "zeroExecutableFormulaAdjustmentMagnitude": 0,
       "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
+    },
+    {
+      "symbol": "RISK_GEOMETRY_TARGET_GAP_NO_TRADE",
+      "aiVerdict": "BUY",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_recalculated_stop_required",
+      "executionActionableVerdict": true,
+      "price": 100,
+      "entryExecPrice": 100,
+      "targetPrice": 106,
+      "stopPrice": 94,
+      "stopLoss": 94,
+      "currentEntryRecalcFeasible": true,
+      "currentEntryStructureConfirmed": true,
+      "currentEntryStructureVerdict": "STRUCTURE_CONFIRMED_RECALC_CANDIDATE",
+      "currentEntryRequiredStopPrice": 94,
+      "currentEntryRequiredStopDistancePct": 6,
+      "rrAtCurrentPrice": 1.33,
+      "entryDistancePct": 0,
+      "targetBufferFromCurrentPct": 8,
+      "executionFeasibilityAtCurrent": "BLOCKED",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_RR_BELOW_MIN",
+      "executionFeasibilityAtCurrentReason": "wait_current_rr_below_min",
+      "executionFeasibilityAtCurrentReasons": [
+        "current_rr_below_min"
+      ],
+      "executionFeasibilityAtCurrentRr": 1.33,
+      "executionFeasibilityAtCurrentDistancePct": 0,
+      "executionFeasibilityAtCurrentMinRr": 1.8,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
+      "executionFeasibilityAtCurrentBasis": "RECALCULATED_STOP_CURRENT_ENTRY_CONTRACT",
+      "riskGeometryPolicyVerdict": "RECALCULATED_STOP_TARGET_GAP_TOO_WIDE_NO_TRADE",
+      "riskGeometryRecalibrationRequired": true,
+      "riskGeometryNoTradeRequired": true,
+      "riskGeometryRecalculatedStopCandidate": true,
+      "riskGeometryProofVerdict": "RECALCULATED_STOP_PROOF_RR_OR_TARGET_BUFFER_WEAK",
+      "riskGeometryRecalculatedStopPrice": 94,
+      "riskGeometryRecalculatedStopDistancePct": 6,
+      "riskGeometryRrAtRecalculatedStop": 1.33,
+      "riskGeometryRequiredTargetPrice": 140,
+      "riskGeometryRequiredTargetByStopPrice": 110.8,
+      "riskGeometryRequiredTargetByBufferPrice": 103,
+      "riskGeometryRequiredTargetByExpectedReturnPrice": 140,
+      "riskGeometryRequiredTargetSource": "expected_return",
+      "riskGeometryRequiredTargetBufferPct": 40,
+      "riskGeometryTargetGapPct": -24.29,
+      "riskGeometryTargetShortfallPct": 24.29,
+      "riskGeometryTargetRecalibrationCandidate": false,
+      "riskGeometryTargetBufferPct": 8,
+      "riskGeometryTargetAboveCurrent": true,
+      "riskGeometryRequiredStopValid": true,
+      "riskGeometryRequiredStopDistanceValid": true,
+      "riskGeometryRecalculatedStopRrOk": false,
+      "riskGeometryTargetBufferOk": true,
+      "riskGeometryRepairLane": "TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE",
+      "riskGeometryProofConfirmed": false,
+      "riskGeometryProofReasons": [
+        "recalculated_stop_rr_below_min",
+        "target_below_expected_return_required_target",
+        "target_recalibration_gap_above_policy",
+        "risk_geometry_target_no_trade_confirmed",
+        "risk_geometry_repair_lane:TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE"
+      ],
+      "riskGeometryReasons": [
+        "current_rr_below_min",
+        "recalculated_stop_candidate",
+        "target_recalibration_gap_above_policy",
+        "risk_geometry_target_no_trade_confirmed"
+      ],
+      "riskGeometryRecommendedAction": "Keep no-trade. Recalculated-stop path requires a target gap above policy; require fresh target/stop thesis before any executable promotion.",
+      "zeroExecutableTuningLane": "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION",
+      "zeroExecutableTuningVerdict": "RECALCULATED_STOP_TARGET_GAP_TOO_WIDE_NO_TRADE",
+      "zeroExecutablePrimaryTuningTarget": true,
+      "zeroExecutableTuningReasons": [
+        "current_rr_below_min",
+        "recalculated_stop_candidate",
+        "target_recalibration_gap_above_policy",
+        "risk_geometry_target_no_trade_confirmed"
+      ],
+      "zeroExecutableTuningRecommendedAction": "Keep no-trade. Recalculated-stop path requires a target gap above policy; require fresh target/stop thesis before any executable promotion.",
+      "zeroExecutableFormulaBottleneck": "RISK_GEOMETRY_RECALCULATION_FORMULA",
+      "zeroExecutableFormulaSeverity": 24.29,
+      "zeroExecutableTargetShortfallPct": null,
+      "zeroExecutableRiskTargetShortfallPct": 24.29,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION",
+        "primary_formula_bottleneck:RISK_GEOMETRY_RECALCULATION_FORMULA",
+        "formula_evidence_basis:risk_geometry_target_shortfall",
+        "formula_observed:24.29",
+        "formula_threshold:0",
+        "formula_delta:24.29",
+        "formula_adjustment_knob:RISK_GEOMETRY_REQUIRED_TARGET_PRICE",
+        "formula_adjustment_direction:RECALIBRATE_TARGET_OR_KEEP_NO_TRADE",
+        "risk_target_shortfall_pct:24.29"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion.",
+      "zeroExecutableFormulaObservedValue": 24.29,
+      "zeroExecutableFormulaThresholdValue": 0,
+      "zeroExecutableFormulaDeltaValue": 24.29,
+      "zeroExecutableFormulaUnit": "pct_shortfall",
+      "zeroExecutableFormulaEvidenceBasis": "risk_geometry_target_shortfall",
+      "zeroExecutableFormulaAdjustmentKnob": "RISK_GEOMETRY_REQUIRED_TARGET_PRICE",
+      "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_OR_KEEP_NO_TRADE",
+      "zeroExecutableFormulaAdjustmentMagnitude": 24.29,
+      "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop still requires a target gap above policy; producer must refresh target/stop geometry or keep no-trade.",
+      "riskGeometryTargetRecalibrationGapPolicyPct": 20,
+      "riskGeometryTargetNoTradeConfirmed": true
     }
   ]
 }

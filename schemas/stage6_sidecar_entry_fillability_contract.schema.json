@@ -179,6 +179,8 @@
         "riskGeometryTargetGapPct": { "$ref": "#/$defs/nullableNumber" },
         "riskGeometryTargetShortfallPct": { "$ref": "#/$defs/nullableNumber" },
         "riskGeometryTargetRecalibrationCandidate": { "$ref": "#/$defs/nullableBoolean" },
+        "riskGeometryTargetRecalibrationGapPolicyPct": { "$ref": "#/$defs/nullableNumber" },
+        "riskGeometryTargetNoTradeConfirmed": { "$ref": "#/$defs/nullableBoolean" },
         "riskGeometryTargetBufferPct": { "$ref": "#/$defs/nullableNumber" },
         "riskGeometryTargetAboveCurrent": { "$ref": "#/$defs/nullableBoolean" },
         "riskGeometryRequiredStopValid": { "$ref": "#/$defs/nullableBoolean" },

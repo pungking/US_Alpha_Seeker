@@ -66,15 +66,29 @@ lane explicitly.
    - Recalculated stop is structurally valid, but the current target is below
      the target required by stop risk, target buffer, or expected return.
    - The row must expose a negative `riskGeometryTargetGapPct`, positive
-     `riskGeometryTargetShortfallPct`, and `riskGeometryTargetRecalibrationCandidate=true`.
+     `riskGeometryTargetShortfallPct`, finite `riskGeometryTargetRecalibrationGapPolicyPct`,
+     and `riskGeometryTargetRecalibrationCandidate=true`.
+   - The shortfall must be within the same producer target gap policy used by
+     target-near-current rows. If the gap is wider than policy, it is not a
+     repair candidate.
    - This is producer-side target recalibration, not a sidecar chase/reprice.
    - The row must expose `zeroExecutableFormulaBottleneck=RISK_GEOMETRY_RECALCULATION_FORMULA`
      when the required target shortfall is caused by the recalculated stop/target
      geometry rather than by a simple near-target condition.
 
-3. `RISK_GEOMETRY_PROOF_INCOMPLETE`
+3. `TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE`
+   - Recalculated stop may be structurally valid, but the required target gap
+     exceeds `riskGeometryTargetRecalibrationGapPolicyPct`.
+   - The row must expose `riskGeometryTargetNoTradeConfirmed=true`,
+     `riskGeometryTargetRecalibrationCandidate=false`, and
+     `riskGeometryRepairLane=TARGET_RECALIBRATION_GAP_TOO_WIDE_NO_TRADE`.
+   - The zero-executable lane must be `RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION`.
+   - This prevents a very large required-target jump from being mistaken for a
+     normal recalibration candidate.
+
+4. `RISK_GEOMETRY_PROOF_INCOMPLETE`
    - Recalculated stop, structure proof, target, or distance evidence is
-     incomplete.
+   incomplete.
    - Keep `WAIT_PRICE` or `BLOCKED_RISK`.
 
 ## Done-When
@@ -83,6 +97,8 @@ lane explicitly.
 - Validator fails if structure overblock rows are promoted or marked as primary relaxation targets.
 - Validator fails if target-at/below-current rows are not no-trade confirmed.
 - Validator fails if a recalculated-stop target shortfall is marked proof-confirmed instead of target-recalibration required.
+- Validator fails if a recalculated-stop target shortfall above gap policy is
+  marked as a normal target recalibration candidate instead of no-trade.
 - Zero-executable rows expose `zeroExecutableFormulaBottleneck` and severity
   fields so tuning is directed at target recalibration, risk geometry,
   breakout proof, or structure proof instead of lowering sidecar fillability.
