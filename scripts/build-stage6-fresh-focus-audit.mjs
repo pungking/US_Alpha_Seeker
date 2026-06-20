@@ -343,8 +343,12 @@ function main() {
   const requiredFormulaFields = [
     'zeroExecutableFormulaBottleneck',
     'zeroExecutableFormulaSeverity',
+    'zeroExecutableTargetShortfallPct',
+    'zeroExecutableRiskTargetShortfallPct',
     'zeroExecutableBreakoutProofGapCount',
-    'zeroExecutableStructureProofGapCount'
+    'zeroExecutableStructureProofGapCount',
+    'zeroExecutableFormulaReasons',
+    'zeroExecutableFormulaRecommendedAction'
   ];
   const fieldCoverage = {
     zeroExecutableTuningLane: requiredFieldCoverage(rows, 'zeroExecutableTuningLane'),
@@ -385,6 +389,8 @@ function main() {
     zeroExecutableRiskTargetShortfallPct: requiredFieldCoverage(rows, 'zeroExecutableRiskTargetShortfallPct'),
     zeroExecutableBreakoutProofGapCount: requiredFieldCoverage(rows, 'zeroExecutableBreakoutProofGapCount'),
     zeroExecutableStructureProofGapCount: requiredFieldCoverage(rows, 'zeroExecutableStructureProofGapCount'),
+    zeroExecutableFormulaReasons: requiredFieldCoverage(rows, 'zeroExecutableFormulaReasons'),
+    zeroExecutableFormulaRecommendedAction: requiredFieldCoverage(rows, 'zeroExecutableFormulaRecommendedAction'),
     currentEntryStructureSupportReference: requiredFieldCoverage(rows, 'currentEntryStructureSupportReference'),
     currentEntryStructureSupportGapAtr: requiredFieldCoverage(rows, 'currentEntryStructureSupportGapAtr'),
     currentEntryStructureStopAlignedSupportGapAtr: requiredFieldCoverage(rows, 'currentEntryStructureStopAlignedSupportGapAtr')

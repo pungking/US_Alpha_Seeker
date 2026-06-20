@@ -30,6 +30,16 @@ const CASES = [
     expectedLaneConsistencyIssues: 1
   }
 ];
+const REQUIRED_FORMULA_FIELDS = [
+  'zeroExecutableFormulaBottleneck',
+  'zeroExecutableFormulaSeverity',
+  'zeroExecutableTargetShortfallPct',
+  'zeroExecutableRiskTargetShortfallPct',
+  'zeroExecutableBreakoutProofGapCount',
+  'zeroExecutableStructureProofGapCount',
+  'zeroExecutableFormulaReasons',
+  'zeroExecutableFormulaRecommendedAction'
+];
 
 function runCase(testCase) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `stage6-fresh-focus-${testCase.name}-`));
@@ -53,15 +63,23 @@ function runCase(testCase) {
   if (report.overall !== testCase.expectedOverall) {
     throw new Error(`${testCase.name}: expected overall=${testCase.expectedOverall}, got ${report.overall}`);
   }
-  const coverage = report.fieldCoverage?.zeroExecutableFormulaBottleneck;
-  if (!coverage || coverage.present !== testCase.expectedCoverage.present || coverage.total !== testCase.expectedCoverage.total) {
-    throw new Error(`${testCase.name}: unexpected formula coverage ${JSON.stringify(coverage)}`);
+  for (const field of REQUIRED_FORMULA_FIELDS) {
+    const coverage = report.fieldCoverage?.[field];
+    if (!coverage || coverage.present !== testCase.expectedCoverage.present || coverage.total !== testCase.expectedCoverage.total) {
+      throw new Error(`${testCase.name}: unexpected ${field} coverage ${JSON.stringify(coverage)}`);
+    }
   }
   const laneIssues = Number(report.summary?.formulaLaneConsistencyIssues || 0);
   if (laneIssues !== testCase.expectedLaneConsistencyIssues) {
     throw new Error(`${testCase.name}: expected formulaLaneConsistencyIssues=${testCase.expectedLaneConsistencyIssues}, got ${laneIssues}`);
   }
-  return { name: testCase.name, overall: report.overall, coverage, laneIssues };
+  return {
+    name: testCase.name,
+    overall: report.overall,
+    coverage: report.fieldCoverage?.zeroExecutableFormulaBottleneck,
+    requiredFormulaFields: report.requiredFormulaFields,
+    laneIssues
+  };
 }
 
 const results = CASES.map(runCase);

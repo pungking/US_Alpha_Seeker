@@ -75,6 +75,8 @@ Done when the Stage6 row evidence includes:
 - `zeroExecutableRiskTargetShortfallPct`
 - `zeroExecutableBreakoutProofGapCount`
 - `zeroExecutableStructureProofGapCount`
+- `zeroExecutableFormulaReasons`
+- `zeroExecutableFormulaRecommendedAction`
 
 Interpretation:
 
