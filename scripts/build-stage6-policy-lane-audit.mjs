@@ -649,6 +649,11 @@ function compactRow(row) {
     zeroExecutableRiskTargetShortfallPct: row.zeroExecutableRiskTargetShortfallPct ?? null,
     zeroExecutableBreakoutProofGapCount: row.zeroExecutableBreakoutProofGapCount ?? null,
     zeroExecutableStructureProofGapCount: row.zeroExecutableStructureProofGapCount ?? null,
+    zeroExecutableFormulaObservedValue: row.zeroExecutableFormulaObservedValue ?? null,
+    zeroExecutableFormulaThresholdValue: row.zeroExecutableFormulaThresholdValue ?? null,
+    zeroExecutableFormulaDeltaValue: row.zeroExecutableFormulaDeltaValue ?? null,
+    zeroExecutableFormulaUnit: row.zeroExecutableFormulaUnit || null,
+    zeroExecutableFormulaEvidenceBasis: row.zeroExecutableFormulaEvidenceBasis || null,
     zeroExecutableFormulaReasons: row.zeroExecutableFormulaReasons || [],
     zeroExecutableFormulaRecommendedAction: row.zeroExecutableFormulaRecommendedAction || null,
     qualityGateLane: row.qualityGateLane || null,
@@ -739,10 +744,11 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Latest Rows');
   lines.push('');
-  lines.push('| Symbol | Verdict | Lane | Formula Bottleneck | Severity | Stage6 Reason | Lane Decision | Promotion Policy | Blocked By | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |');
-  lines.push('| --- | --- | --- | --- | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
+  lines.push('| Symbol | Verdict | Lane | Formula Bottleneck | Severity | Formula Evidence | Stage6 Reason | Lane Decision | Promotion Policy | Blocked By | ER% | RR@Cur | Dist% | TargetBuf% | Geometry | CurRR | Recommended Action |');
+  lines.push('| --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |');
   for (const row of report.latestRows) {
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.lane)} | ${esc(row.zeroExecutableFormulaBottleneck || 'missing')} | ${fmt(row.zeroExecutableFormulaSeverity)} | ${esc(row.decisionReason)} | ${esc(row.laneDecision)} | ${esc(row.breakoutRetestPromotionPolicyDecision || 'N/A')} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${fmt(row.expectedReturnPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${fmt(row.targetBufferFromCurrentPct)} | ${esc(row.geometryStatus)} | ${esc(row.currentRrStatus)} | ${esc(row.recommendedAction)} |`);
+    const formulaEvidence = `${row.zeroExecutableFormulaEvidenceBasis || 'missing'}:${fmt(row.zeroExecutableFormulaObservedValue)}>${fmt(row.zeroExecutableFormulaThresholdValue)} delta=${fmt(row.zeroExecutableFormulaDeltaValue)} ${row.zeroExecutableFormulaUnit || ''}`;
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.lane)} | ${esc(row.zeroExecutableFormulaBottleneck || 'missing')} | ${fmt(row.zeroExecutableFormulaSeverity)} | ${esc(formulaEvidence)} | ${esc(row.decisionReason)} | ${esc(row.laneDecision)} | ${esc(row.breakoutRetestPromotionPolicyDecision || 'N/A')} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${fmt(row.expectedReturnPct)} | ${fmt(row.rrAtCurrentPrice)} | ${fmt(row.entryDistancePct)} | ${fmt(row.targetBufferFromCurrentPct)} | ${esc(row.geometryStatus)} | ${esc(row.currentRrStatus)} | ${esc(row.recommendedAction)} |`);
   }
   lines.push('');
   lines.push('## Policy Interpretation');

@@ -12,7 +12,7 @@
       "currentEntryMinRr": 2,
       "currentEntryMinTargetBufferPct": 3,
       "zeroExecutableFormulaContract": {
-        "version": "zero_executable_formula_v1",
+        "version": "zero_executable_formula_v2",
         "requiredRowFields": [
           "zeroExecutableFormulaBottleneck",
           "zeroExecutableFormulaSeverity",
@@ -20,6 +20,11 @@
           "zeroExecutableRiskTargetShortfallPct",
           "zeroExecutableBreakoutProofGapCount",
           "zeroExecutableStructureProofGapCount",
+          "zeroExecutableFormulaObservedValue",
+          "zeroExecutableFormulaThresholdValue",
+          "zeroExecutableFormulaDeltaValue",
+          "zeroExecutableFormulaUnit",
+          "zeroExecutableFormulaEvidenceBasis",
           "zeroExecutableFormulaReasons",
           "zeroExecutableFormulaRecommendedAction"
         ],
@@ -32,12 +37,12 @@
           "NO_ZERO_EXECUTABLE_TUNING_ACTION": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK"
         },
         "evidenceRules": {
-          "TARGET_RECALIBRATION": "zeroExecutableTargetShortfallPct must be positive",
-          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": "zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence",
-          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": "zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence",
-          "BREAKOUT_PROOF_CONFIRMED_GENERATION": "zeroExecutableBreakoutProofGapCount must be positive",
-          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "zeroExecutableStructureProofGapCount must be positive",
-          "NO_ZERO_EXECUTABLE_TUNING_ACTION": "neutral bottleneck, zero severity, and no positive formula gaps"
+          "TARGET_RECALIBRATION": "zeroExecutableTargetShortfallPct and formula observed/delta values must be positive",
+          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": "zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence",
+          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": "zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence",
+          "BREAKOUT_PROOF_CONFIRMED_GENERATION": "zeroExecutableBreakoutProofGapCount and formula observed/delta values must be positive",
+          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "zeroExecutableStructureProofGapCount and formula observed/delta values must be positive",
+          "NO_ZERO_EXECUTABLE_TUNING_ACTION": "neutral bottleneck, zero severity, zero observed/delta, and no positive formula gaps"
         }
       }
     }
@@ -60,9 +65,18 @@
         "zeroExecutableBreakoutProofGapCount": 2,
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
-          "intentional_mismatch_fixture"
+          "intentional_mismatch_fixture",
+          "formula_evidence_basis:breakout_proof_gap_count",
+          "formula_observed:2.0",
+          "formula_threshold:0",
+          "formula_delta:2.0"
         ],
-        "zeroExecutableFormulaRecommendedAction": "Mismatch fixture."
+        "zeroExecutableFormulaRecommendedAction": "Mismatch fixture.",
+        "zeroExecutableFormulaObservedValue": 2.0,
+        "zeroExecutableFormulaThresholdValue": 0,
+        "zeroExecutableFormulaDeltaValue": 2.0,
+        "zeroExecutableFormulaUnit": "proof_gap_count",
+        "zeroExecutableFormulaEvidenceBasis": "breakout_proof_gap_count"
       },
       {
         "symbol": "FORMNOBAD",
@@ -80,9 +94,18 @@
         "zeroExecutableBreakoutProofGapCount": 0,
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
-          "intentional_no_lane_mismatch_fixture"
+          "intentional_no_lane_mismatch_fixture",
+          "formula_evidence_basis:target_recalibration_shortfall",
+          "formula_observed:1.0",
+          "formula_threshold:0",
+          "formula_delta:1.0"
         ],
-        "zeroExecutableFormulaRecommendedAction": "Mismatch fixture."
+        "zeroExecutableFormulaRecommendedAction": "Mismatch fixture.",
+        "zeroExecutableFormulaObservedValue": 1.0,
+        "zeroExecutableFormulaThresholdValue": 0,
+        "zeroExecutableFormulaDeltaValue": 1.0,
+        "zeroExecutableFormulaUnit": "pct_shortfall",
+        "zeroExecutableFormulaEvidenceBasis": "target_recalibration_shortfall"
       }
     ],
     "watchlistTop": [],

@@ -12,7 +12,7 @@
       "currentEntryMinRr": 2,
       "currentEntryMinTargetBufferPct": 3,
       "zeroExecutableFormulaContract": {
-        "version": "zero_executable_formula_v1",
+        "version": "zero_executable_formula_v2",
         "requiredRowFields": [
           "zeroExecutableFormulaBottleneck",
           "zeroExecutableFormulaSeverity",
@@ -20,6 +20,11 @@
           "zeroExecutableRiskTargetShortfallPct",
           "zeroExecutableBreakoutProofGapCount",
           "zeroExecutableStructureProofGapCount",
+          "zeroExecutableFormulaObservedValue",
+          "zeroExecutableFormulaThresholdValue",
+          "zeroExecutableFormulaDeltaValue",
+          "zeroExecutableFormulaUnit",
+          "zeroExecutableFormulaEvidenceBasis",
           "zeroExecutableFormulaReasons",
           "zeroExecutableFormulaRecommendedAction"
         ],
@@ -32,12 +37,12 @@
           "NO_ZERO_EXECUTABLE_TUNING_ACTION": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK"
         },
         "evidenceRules": {
-          "TARGET_RECALIBRATION": "zeroExecutableTargetShortfallPct must be positive",
-          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": "zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence",
-          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": "zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence",
-          "BREAKOUT_PROOF_CONFIRMED_GENERATION": "zeroExecutableBreakoutProofGapCount must be positive",
-          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "zeroExecutableStructureProofGapCount must be positive",
-          "NO_ZERO_EXECUTABLE_TUNING_ACTION": "neutral bottleneck, zero severity, and no positive formula gaps"
+          "TARGET_RECALIBRATION": "zeroExecutableTargetShortfallPct and formula observed/delta values must be positive",
+          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": "zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence",
+          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": "zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence",
+          "BREAKOUT_PROOF_CONFIRMED_GENERATION": "zeroExecutableBreakoutProofGapCount and formula observed/delta values must be positive",
+          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "zeroExecutableStructureProofGapCount and formula observed/delta values must be positive",
+          "NO_ZERO_EXECUTABLE_TUNING_ACTION": "neutral bottleneck, zero severity, zero observed/delta, and no positive formula gaps"
         }
       }
     }
@@ -60,9 +65,18 @@
         "zeroExecutableBreakoutProofGapCount": 0,
         "zeroExecutableStructureProofGapCount": 2,
         "zeroExecutableFormulaReasons": [
-          "structure_proof_gap_count:2"
+          "structure_proof_gap_count:2",
+          "formula_evidence_basis:structure_proof_gap_count",
+          "formula_observed:2.0",
+          "formula_threshold:0",
+          "formula_delta:2.0"
         ],
-        "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly."
+        "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly.",
+        "zeroExecutableFormulaObservedValue": 2.0,
+        "zeroExecutableFormulaThresholdValue": 0,
+        "zeroExecutableFormulaDeltaValue": 2.0,
+        "zeroExecutableFormulaUnit": "proof_gap_count",
+        "zeroExecutableFormulaEvidenceBasis": "structure_proof_gap_count"
       },
       {
         "symbol": "FORMBRK",
@@ -80,9 +94,18 @@
         "zeroExecutableBreakoutProofGapCount": 2,
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
-          "breakout_proof_gap_count:2"
+          "breakout_proof_gap_count:2",
+          "formula_evidence_basis:breakout_proof_gap_count",
+          "formula_observed:2.0",
+          "formula_threshold:0",
+          "formula_delta:2.0"
         ],
-        "zeroExecutableFormulaRecommendedAction": "Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable."
+        "zeroExecutableFormulaRecommendedAction": "Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable.",
+        "zeroExecutableFormulaObservedValue": 2.0,
+        "zeroExecutableFormulaThresholdValue": 0,
+        "zeroExecutableFormulaDeltaValue": 2.0,
+        "zeroExecutableFormulaUnit": "proof_gap_count",
+        "zeroExecutableFormulaEvidenceBasis": "breakout_proof_gap_count"
       },
       {
         "symbol": "FORMTGT",
@@ -100,9 +123,18 @@
         "zeroExecutableBreakoutProofGapCount": 0,
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
-          "target_shortfall_pct:7.5"
+          "target_shortfall_pct:7.5",
+          "formula_evidence_basis:target_recalibration_shortfall",
+          "formula_observed:7.5",
+          "formula_threshold:0",
+          "formula_delta:7.5"
         ],
-        "zeroExecutableFormulaRecommendedAction": "Tune Stage6 target recalibration evidence or keep no-trade; do not solve with sidecar reprice."
+        "zeroExecutableFormulaRecommendedAction": "Tune Stage6 target recalibration evidence or keep no-trade; do not solve with sidecar reprice.",
+        "zeroExecutableFormulaObservedValue": 7.5,
+        "zeroExecutableFormulaThresholdValue": 0,
+        "zeroExecutableFormulaDeltaValue": 7.5,
+        "zeroExecutableFormulaUnit": "pct_shortfall",
+        "zeroExecutableFormulaEvidenceBasis": "target_recalibration_shortfall"
       },
       {
         "symbol": "FORMRISK",
@@ -120,9 +152,18 @@
         "zeroExecutableBreakoutProofGapCount": 0,
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
-          "risk_target_shortfall_pct:13.6"
+          "risk_target_shortfall_pct:13.6",
+          "formula_evidence_basis:risk_geometry_target_shortfall",
+          "formula_observed:13.6",
+          "formula_threshold:0",
+          "formula_delta:13.6"
         ],
-        "zeroExecutableFormulaRecommendedAction": "Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion."
+        "zeroExecutableFormulaRecommendedAction": "Tune Stage6 stop/target risk geometry recalculation evidence before any executable promotion.",
+        "zeroExecutableFormulaObservedValue": 13.6,
+        "zeroExecutableFormulaThresholdValue": 0,
+        "zeroExecutableFormulaDeltaValue": 13.6,
+        "zeroExecutableFormulaUnit": "pct_shortfall",
+        "zeroExecutableFormulaEvidenceBasis": "risk_geometry_target_shortfall"
       },
       {
         "symbol": "FORMNO",
@@ -140,9 +181,18 @@
         "zeroExecutableBreakoutProofGapCount": 0,
         "zeroExecutableStructureProofGapCount": 0,
         "zeroExecutableFormulaReasons": [
-          "tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION"
+          "tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION",
+          "formula_evidence_basis:no_zero_executable_formula_bottleneck",
+          "formula_observed:0",
+          "formula_threshold:0",
+          "formula_delta:0"
         ],
-        "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row."
+        "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row.",
+        "zeroExecutableFormulaObservedValue": 0,
+        "zeroExecutableFormulaThresholdValue": 0,
+        "zeroExecutableFormulaDeltaValue": 0,
+        "zeroExecutableFormulaUnit": "none",
+        "zeroExecutableFormulaEvidenceBasis": "no_zero_executable_formula_bottleneck"
       }
     ],
     "watchlistTop": [],

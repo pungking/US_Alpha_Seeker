@@ -13,8 +13,19 @@
       "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
       "zeroExecutableFormulaBottleneck": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
       "zeroExecutableFormulaSeverity": 0,
-      "zeroExecutableFormulaReasons": ["tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION"],
-      "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row."
+      "zeroExecutableFormulaReasons": [
+        "tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION",
+        "formula_evidence_basis:no_zero_executable_formula_bottleneck",
+        "formula_observed:0",
+        "formula_threshold:0",
+        "formula_delta:0"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row.",
+      "zeroExecutableFormulaObservedValue": 0,
+      "zeroExecutableFormulaThresholdValue": 0,
+      "zeroExecutableFormulaDeltaValue": 0,
+      "zeroExecutableFormulaUnit": "none",
+      "zeroExecutableFormulaEvidenceBasis": "no_zero_executable_formula_bottleneck"
     }
   ]
 }

@@ -240,6 +240,11 @@ interface AlphaCandidate {
   zeroExecutableRiskTargetShortfallPct?: number | null;
   zeroExecutableBreakoutProofGapCount?: number | null;
   zeroExecutableStructureProofGapCount?: number | null;
+  zeroExecutableFormulaObservedValue?: number | null;
+  zeroExecutableFormulaThresholdValue?: number | null;
+  zeroExecutableFormulaDeltaValue?: number | null;
+  zeroExecutableFormulaUnit?: string | null;
+  zeroExecutableFormulaEvidenceBasis?: string | null;
   zeroExecutableFormulaReasons?: string[] | null;
   zeroExecutableFormulaRecommendedAction?: string | null;
   tradePlanDecision?: string | null;
@@ -802,6 +807,11 @@ type Stage6ZeroExecutableFormulaProfilePayload = {
   riskTargetShortfallPct: number | null;
   breakoutProofGapCount: number;
   structureProofGapCount: number;
+  observedValue: number;
+  thresholdValue: number;
+  deltaValue: number;
+  unit: string;
+  evidenceBasis: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -833,7 +843,7 @@ const TARGET_RECALIBRATION_POLICY = {
 };
 
 const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
-  version: 'zero_executable_formula_v1',
+  version: 'zero_executable_formula_v2',
   requiredRowFields: [
     'zeroExecutableFormulaBottleneck',
     'zeroExecutableFormulaSeverity',
@@ -841,6 +851,11 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
     'zeroExecutableRiskTargetShortfallPct',
     'zeroExecutableBreakoutProofGapCount',
     'zeroExecutableStructureProofGapCount',
+    'zeroExecutableFormulaObservedValue',
+    'zeroExecutableFormulaThresholdValue',
+    'zeroExecutableFormulaDeltaValue',
+    'zeroExecutableFormulaUnit',
+    'zeroExecutableFormulaEvidenceBasis',
     'zeroExecutableFormulaReasons',
     'zeroExecutableFormulaRecommendedAction'
   ],
@@ -853,12 +868,12 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
     NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
   },
   evidenceRules: {
-    TARGET_RECALIBRATION: 'zeroExecutableTargetShortfallPct must be positive',
-    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence',
-    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'zeroExecutableFormulaSeverity must be positive and reasons must name risk/stop/target geometry evidence',
-    BREAKOUT_PROOF_CONFIRMED_GENERATION: 'zeroExecutableBreakoutProofGapCount must be positive',
-    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'zeroExecutableStructureProofGapCount must be positive',
-    NO_ZERO_EXECUTABLE_TUNING_ACTION: 'neutral bottleneck, zero severity, and no positive formula gaps'
+    TARGET_RECALIBRATION: 'zeroExecutableTargetShortfallPct and formula observed/delta values must be positive',
+    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence',
+    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence',
+    BREAKOUT_PROOF_CONFIRMED_GENERATION: 'zeroExecutableBreakoutProofGapCount and formula observed/delta values must be positive',
+    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'zeroExecutableStructureProofGapCount and formula observed/delta values must be positive',
+    NO_ZERO_EXECUTABLE_TUNING_ACTION: 'neutral bottleneck, zero severity, zero observed/delta, and no positive formula gaps'
   }
 };
 
@@ -2189,9 +2204,67 @@ const deriveZeroExecutableFormulaProfile = (input: {
     preferredWinner ||
     [...candidates].sort((a, b) => b.severity - a.severity)[0] ||
     { key: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK', severity: 0 };
+  const formulaEvidence = (() => {
+    if (winner.key === 'TARGET_RECALIBRATION_FORMULA') {
+      const observedValue = roundOrNull(targetShortfallPct, 2) ?? 0;
+      return {
+        observedValue,
+        thresholdValue: 0,
+        deltaValue: observedValue,
+        unit: 'pct_shortfall',
+        evidenceBasis: 'target_recalibration_shortfall'
+      };
+    }
+    if (winner.key === 'RISK_GEOMETRY_RECALCULATION_FORMULA') {
+      const observedValue = roundOrNull(
+        riskTargetShortfallPct != null && riskTargetShortfallPct > 0 ? riskTargetShortfallPct : riskSeverity,
+        2
+      ) ?? 0;
+      return {
+        observedValue,
+        thresholdValue: 0,
+        deltaValue: observedValue,
+        unit: riskTargetShortfallPct != null && riskTargetShortfallPct > 0 ? 'pct_shortfall' : 'proof_gap_count',
+        evidenceBasis: riskTargetShortfallPct != null && riskTargetShortfallPct > 0
+          ? 'risk_geometry_target_shortfall'
+          : 'risk_geometry_proof_gap_count'
+      };
+    }
+    if (winner.key === 'BREAKOUT_PROOF_FORMULA') {
+      const observedValue = breakoutProofGaps.size;
+      return {
+        observedValue,
+        thresholdValue: 0,
+        deltaValue: observedValue,
+        unit: 'proof_gap_count',
+        evidenceBasis: 'breakout_proof_gap_count'
+      };
+    }
+    if (winner.key === 'STRUCTURE_PROOF_FORMULA') {
+      const observedValue = structureProofGaps.size;
+      return {
+        observedValue,
+        thresholdValue: 0,
+        deltaValue: observedValue,
+        unit: 'proof_gap_count',
+        evidenceBasis: 'structure_proof_gap_count'
+      };
+    }
+    return {
+      observedValue: 0,
+      thresholdValue: 0,
+      deltaValue: 0,
+      unit: 'none',
+      evidenceBasis: 'no_zero_executable_formula_bottleneck'
+    };
+  })();
   const reasons = [
     `tuning_lane:${input.tuningPolicy.lane}`,
     ...(preferredFormulaBottleneck ? [`primary_formula_bottleneck:${preferredFormulaBottleneck}`] : []),
+    `formula_evidence_basis:${formulaEvidence.evidenceBasis}`,
+    `formula_observed:${formulaEvidence.observedValue}`,
+    `formula_threshold:${formulaEvidence.thresholdValue}`,
+    `formula_delta:${formulaEvidence.deltaValue}`,
     ...(targetSeverity > 0 ? [`target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`] : []),
     ...(riskSeverity > 0 ? [`risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`] : []),
     ...(breakoutSeverity > 0 ? [`breakout_proof_gap_count:${breakoutProofGaps.size}`] : []),
@@ -2204,6 +2277,11 @@ const deriveZeroExecutableFormulaProfile = (input: {
     riskTargetShortfallPct: roundOrNull(riskTargetShortfallPct, 2),
     breakoutProofGapCount: breakoutProofGaps.size,
     structureProofGapCount: structureProofGaps.size,
+    observedValue: formulaEvidence.observedValue,
+    thresholdValue: formulaEvidence.thresholdValue,
+    deltaValue: formulaEvidence.deltaValue,
+    unit: formulaEvidence.unit,
+    evidenceBasis: formulaEvidence.evidenceBasis,
     reasons,
     recommendedAction:
       winner.key === 'TARGET_RECALIBRATION_FORMULA'
@@ -7332,6 +7410,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               zeroExecutableRiskTargetShortfallPct: zeroExecutableFormulaProfile.riskTargetShortfallPct,
               zeroExecutableBreakoutProofGapCount: zeroExecutableFormulaProfile.breakoutProofGapCount,
               zeroExecutableStructureProofGapCount: zeroExecutableFormulaProfile.structureProofGapCount,
+              zeroExecutableFormulaObservedValue: zeroExecutableFormulaProfile.observedValue,
+              zeroExecutableFormulaThresholdValue: zeroExecutableFormulaProfile.thresholdValue,
+              zeroExecutableFormulaDeltaValue: zeroExecutableFormulaProfile.deltaValue,
+              zeroExecutableFormulaUnit: zeroExecutableFormulaProfile.unit,
+              zeroExecutableFormulaEvidenceBasis: zeroExecutableFormulaProfile.evidenceBasis,
               zeroExecutableFormulaReasons: zeroExecutableFormulaProfile.reasons,
               zeroExecutableFormulaRecommendedAction: zeroExecutableFormulaProfile.recommendedAction,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,

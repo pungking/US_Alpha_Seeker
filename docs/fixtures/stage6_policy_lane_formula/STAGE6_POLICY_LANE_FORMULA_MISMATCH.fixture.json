@@ -13,8 +13,19 @@
       "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
       "zeroExecutableFormulaBottleneck": "TARGET_RECALIBRATION_FORMULA",
       "zeroExecutableFormulaSeverity": 1,
-      "zeroExecutableFormulaReasons": ["intentional_mismatch_fixture"],
-      "zeroExecutableFormulaRecommendedAction": "Mismatch fixture."
+      "zeroExecutableFormulaReasons": [
+        "intentional_mismatch_fixture",
+        "formula_evidence_basis:target_recalibration_shortfall",
+        "formula_observed:0.0",
+        "formula_threshold:0",
+        "formula_delta:0.0"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Mismatch fixture.",
+      "zeroExecutableFormulaObservedValue": 0.0,
+      "zeroExecutableFormulaThresholdValue": 0,
+      "zeroExecutableFormulaDeltaValue": 0.0,
+      "zeroExecutableFormulaUnit": "pct_shortfall",
+      "zeroExecutableFormulaEvidenceBasis": "target_recalibration_shortfall"
     }
   ]
 }

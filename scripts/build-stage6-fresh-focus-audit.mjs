@@ -14,11 +14,16 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableRiskTargetShortfallPct',
   'zeroExecutableBreakoutProofGapCount',
   'zeroExecutableStructureProofGapCount',
+  'zeroExecutableFormulaObservedValue',
+  'zeroExecutableFormulaThresholdValue',
+  'zeroExecutableFormulaDeltaValue',
+  'zeroExecutableFormulaUnit',
+  'zeroExecutableFormulaEvidenceBasis',
   'zeroExecutableFormulaReasons',
   'zeroExecutableFormulaRecommendedAction'
 ];
 const EXPECTED_FORMULA_CONTRACT = {
-  version: 'zero_executable_formula_v1',
+  version: 'zero_executable_formula_v2',
   laneToBottleneck: {
     TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
@@ -215,16 +220,29 @@ function formulaEvidenceQualityIssue(row) {
   const riskShortfall = numberOrNull(row?.zeroExecutableRiskTargetShortfallPct);
   const breakoutGaps = numberOrNull(row?.zeroExecutableBreakoutProofGapCount);
   const structureGaps = numberOrNull(row?.zeroExecutableStructureProofGapCount);
+  const observedValue = numberOrNull(row?.zeroExecutableFormulaObservedValue);
+  const thresholdValue = numberOrNull(row?.zeroExecutableFormulaThresholdValue);
+  const deltaValue = numberOrNull(row?.zeroExecutableFormulaDeltaValue);
+  const unit = String(row?.zeroExecutableFormulaUnit || '').trim();
+  const evidenceBasis = String(row?.zeroExecutableFormulaEvidenceBasis || '').trim();
   const reasons = stringArray(row?.zeroExecutableFormulaReasons);
   const action = String(row?.zeroExecutableFormulaRecommendedAction || '').trim();
   const issueReasons = [];
 
   if (!Number.isFinite(severity)) issueReasons.push('formula_severity_missing');
+  if (!Number.isFinite(observedValue)) issueReasons.push('formula_observed_value_missing');
+  if (!Number.isFinite(thresholdValue)) issueReasons.push('formula_threshold_value_missing');
+  if (!Number.isFinite(deltaValue)) issueReasons.push('formula_delta_value_missing');
+  if (!unit) issueReasons.push('formula_unit_missing');
+  if (!evidenceBasis) issueReasons.push('formula_evidence_basis_missing');
   if (reasons.length === 0) issueReasons.push('formula_reasons_missing');
   if (!action) issueReasons.push('formula_recommended_action_missing');
 
   if (lane === 'TARGET_RECALIBRATION' && !(targetShortfall != null && targetShortfall > 0)) {
     issueReasons.push('target_shortfall_not_positive');
+  }
+  if (lane === 'TARGET_RECALIBRATION' && !(observedValue != null && observedValue > 0 && deltaValue != null && deltaValue > 0)) {
+    issueReasons.push('target_observed_delta_not_positive');
   }
   if (
     (lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' || lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') &&
@@ -232,15 +250,28 @@ function formulaEvidenceQualityIssue(row) {
   ) {
     issueReasons.push('risk_geometry_formula_evidence_weak');
   }
+  if (
+    (lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' || lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') &&
+    !(observedValue != null && observedValue > 0 && deltaValue != null && deltaValue > 0)
+  ) {
+    issueReasons.push('risk_geometry_observed_delta_not_positive');
+  }
   if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION' && !(breakoutGaps != null && breakoutGaps > 0)) {
     issueReasons.push('breakout_proof_gap_count_not_positive');
+  }
+  if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION' && !(observedValue != null && observedValue > 0 && deltaValue != null && deltaValue > 0)) {
+    issueReasons.push('breakout_observed_delta_not_positive');
   }
   if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION' && !(structureGaps != null && structureGaps > 0)) {
     issueReasons.push('structure_proof_gap_count_not_positive');
   }
+  if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION' && !(observedValue != null && observedValue > 0 && deltaValue != null && deltaValue > 0)) {
+    issueReasons.push('structure_observed_delta_not_positive');
+  }
   if (lane === 'NO_ZERO_EXECUTABLE_TUNING_ACTION') {
     if (bottleneck !== 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK') issueReasons.push('no_action_bottleneck_not_neutral');
     if (severity !== 0) issueReasons.push('no_action_severity_not_zero');
+    if (observedValue !== 0 || deltaValue !== 0) issueReasons.push('no_action_observed_delta_not_zero');
     if ((targetShortfall != null && targetShortfall > 0) || (riskShortfall != null && riskShortfall > 0) || (breakoutGaps != null && breakoutGaps > 0) || (structureGaps != null && structureGaps > 0)) {
       issueReasons.push('no_action_has_positive_formula_gap');
     }
@@ -251,6 +282,11 @@ function formulaEvidenceQualityIssue(row) {
     zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
     zeroExecutableFormulaBottleneck: row?.zeroExecutableFormulaBottleneck || null,
     zeroExecutableFormulaSeverity: severity,
+    zeroExecutableFormulaObservedValue: observedValue,
+    zeroExecutableFormulaThresholdValue: thresholdValue,
+    zeroExecutableFormulaDeltaValue: deltaValue,
+    zeroExecutableFormulaUnit: unit || null,
+    zeroExecutableFormulaEvidenceBasis: evidenceBasis || null,
     issueReasons,
     finalDecision: decisionOf(row),
     decisionReason: reasonOf(row)
@@ -320,6 +356,11 @@ function compactRow(row) {
     zeroExecutableRiskTargetShortfallPct: numberOrNull(row?.zeroExecutableRiskTargetShortfallPct),
     zeroExecutableBreakoutProofGapCount: numberOrNull(row?.zeroExecutableBreakoutProofGapCount),
     zeroExecutableStructureProofGapCount: numberOrNull(row?.zeroExecutableStructureProofGapCount),
+    zeroExecutableFormulaObservedValue: numberOrNull(row?.zeroExecutableFormulaObservedValue),
+    zeroExecutableFormulaThresholdValue: numberOrNull(row?.zeroExecutableFormulaThresholdValue),
+    zeroExecutableFormulaDeltaValue: numberOrNull(row?.zeroExecutableFormulaDeltaValue),
+    zeroExecutableFormulaUnit: row?.zeroExecutableFormulaUnit || null,
+    zeroExecutableFormulaEvidenceBasis: row?.zeroExecutableFormulaEvidenceBasis || null,
     breakoutRetestProofConfirmed: row?.breakoutRetestProofConfirmed ?? null,
     breakoutRetestProofReviewReady: row?.breakoutRetestProofReviewReady ?? null,
     breakoutRetestProofContinuationConfirmed: row?.breakoutRetestProofContinuationConfirmed ?? null,
@@ -416,8 +457,8 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Row Focus');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Formula Bottleneck | Severity | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Formula Bottleneck | Severity | Formula Evidence | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
   for (const row of report.rows) {
     const riskChecks = [
       `target=${row.riskGeometryTargetAboveCurrent}`,
@@ -431,7 +472,8 @@ function buildMarkdown(report) {
       `buf=${row.structurePolicyTargetBufferOk}`,
       `dist=${row.structurePolicyDistanceWithinReviewBand}`
     ].join(',');
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
+    const formulaEvidence = `${row.zeroExecutableFormulaEvidenceBasis || 'missing'}:${row.zeroExecutableFormulaObservedValue ?? 'N/A'}>${row.zeroExecutableFormulaThresholdValue ?? 'N/A'} delta=${row.zeroExecutableFormulaDeltaValue ?? 'N/A'} ${row.zeroExecutableFormulaUnit || ''}`;
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(formulaEvidence)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
   lines.push('## Track Separation');
@@ -500,6 +542,11 @@ function main() {
     zeroExecutableRiskTargetShortfallPct: requiredFieldCoverage(rows, 'zeroExecutableRiskTargetShortfallPct'),
     zeroExecutableBreakoutProofGapCount: requiredFieldCoverage(rows, 'zeroExecutableBreakoutProofGapCount'),
     zeroExecutableStructureProofGapCount: requiredFieldCoverage(rows, 'zeroExecutableStructureProofGapCount'),
+    zeroExecutableFormulaObservedValue: requiredFieldCoverage(rows, 'zeroExecutableFormulaObservedValue'),
+    zeroExecutableFormulaThresholdValue: requiredFieldCoverage(rows, 'zeroExecutableFormulaThresholdValue'),
+    zeroExecutableFormulaDeltaValue: requiredFieldCoverage(rows, 'zeroExecutableFormulaDeltaValue'),
+    zeroExecutableFormulaUnit: requiredFieldCoverage(rows, 'zeroExecutableFormulaUnit'),
+    zeroExecutableFormulaEvidenceBasis: requiredFieldCoverage(rows, 'zeroExecutableFormulaEvidenceBasis'),
     zeroExecutableFormulaReasons: requiredFieldCoverage(rows, 'zeroExecutableFormulaReasons'),
     zeroExecutableFormulaRecommendedAction: requiredFieldCoverage(rows, 'zeroExecutableFormulaRecommendedAction'),
     currentEntryStructureSupportReference: requiredFieldCoverage(rows, 'currentEntryStructureSupportReference'),

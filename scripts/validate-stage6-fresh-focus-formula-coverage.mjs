@@ -62,6 +62,11 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableRiskTargetShortfallPct',
   'zeroExecutableBreakoutProofGapCount',
   'zeroExecutableStructureProofGapCount',
+  'zeroExecutableFormulaObservedValue',
+  'zeroExecutableFormulaThresholdValue',
+  'zeroExecutableFormulaDeltaValue',
+  'zeroExecutableFormulaUnit',
+  'zeroExecutableFormulaEvidenceBasis',
   'zeroExecutableFormulaReasons',
   'zeroExecutableFormulaRecommendedAction'
 ];
@@ -86,7 +91,11 @@ function validateProducerSourceContract() {
     'RISK_GEOMETRY_RECALCULATION_FORMULA',
     'BREAKOUT_PROOF_FORMULA',
     'STRUCTURE_PROOF_FORMULA',
-    'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
+    'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK',
+    'formulaEvidence',
+    'formula_observed',
+    'formula_threshold',
+    'formula_delta'
   ]) {
     if (!block.includes(token)) {
       throw new Error(`producer formula contract missing token: ${token}`);

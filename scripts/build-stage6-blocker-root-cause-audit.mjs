@@ -80,6 +80,11 @@ function formulaProfile(row) {
     riskTargetShortfallPct: round(row?.zeroExecutableRiskTargetShortfallPct),
     breakoutProofGapCount: numberOrNull(row?.zeroExecutableBreakoutProofGapCount),
     structureProofGapCount: numberOrNull(row?.zeroExecutableStructureProofGapCount),
+    observedValue: round(row?.zeroExecutableFormulaObservedValue),
+    thresholdValue: round(row?.zeroExecutableFormulaThresholdValue),
+    deltaValue: round(row?.zeroExecutableFormulaDeltaValue),
+    unit: text(row?.zeroExecutableFormulaUnit),
+    evidenceBasis: text(row?.zeroExecutableFormulaEvidenceBasis),
     reasons: arr(row?.zeroExecutableFormulaReasons),
     recommendedAction: text(row?.zeroExecutableFormulaRecommendedAction)
   };
