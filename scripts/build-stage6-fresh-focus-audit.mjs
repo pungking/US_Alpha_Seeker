@@ -162,6 +162,7 @@ function expectedFormulaBottleneck(row) {
   }
   if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION') return 'BREAKOUT_PROOF_FORMULA';
   if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') return 'STRUCTURE_PROOF_FORMULA';
+  if (lane === 'NO_ZERO_EXECUTABLE_TUNING_ACTION') return 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK';
   return null;
 }
 

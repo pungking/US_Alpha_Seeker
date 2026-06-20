@@ -4,7 +4,11 @@
   "manifest": {
     "stage6Hash": "fixture-formula-mismatch",
     "decisionGate": {
-      "actionableVerdicts": ["BUY", "STRONG_BUY", "STRONGBUY"],
+      "actionableVerdicts": [
+        "BUY",
+        "STRONG_BUY",
+        "STRONGBUY"
+      ],
       "currentEntryMinRr": 2,
       "currentEntryMinTargetBufferPct": 3
     }
@@ -26,7 +30,29 @@
         "zeroExecutableRiskTargetShortfallPct": null,
         "zeroExecutableBreakoutProofGapCount": 2,
         "zeroExecutableStructureProofGapCount": 0,
-        "zeroExecutableFormulaReasons": ["intentional_mismatch_fixture"],
+        "zeroExecutableFormulaReasons": [
+          "intentional_mismatch_fixture"
+        ],
+        "zeroExecutableFormulaRecommendedAction": "Mismatch fixture."
+      },
+      {
+        "symbol": "FORMNOBAD",
+        "verdict": "BUY",
+        "finalDecision": "EXECUTABLE_NOW",
+        "decisionReason": "executable_pullback",
+        "executionBucket": "EXECUTABLE",
+        "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+        "breakoutRetestProofConfirmed": true,
+        "targetRecalibrationViabilityVerdict": "TARGET_VIABILITY_NOT_APPLICABLE",
+        "zeroExecutableFormulaBottleneck": "TARGET_RECALIBRATION_FORMULA",
+        "zeroExecutableFormulaSeverity": 1,
+        "zeroExecutableTargetShortfallPct": 1,
+        "zeroExecutableRiskTargetShortfallPct": null,
+        "zeroExecutableBreakoutProofGapCount": 0,
+        "zeroExecutableStructureProofGapCount": 0,
+        "zeroExecutableFormulaReasons": [
+          "intentional_no_lane_mismatch_fixture"
+        ],
         "zeroExecutableFormulaRecommendedAction": "Mismatch fixture."
       }
     ],

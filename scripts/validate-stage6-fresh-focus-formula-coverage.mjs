@@ -19,16 +19,16 @@ const CASES = [
   {
     name: 'formula_fields_present_passes',
     fixture: 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json',
-    expectedOverall: 'pass_zero_executable_focus_fields_ok',
-    expectedCoverage: { present: 4, total: 4 },
+    expectedOverall: 'pass_executable_present_focus_fields_ok',
+    expectedCoverage: { present: 5, total: 5 },
     expectedLaneConsistencyIssues: 0
   },
   {
     name: 'formula_lane_mismatch_warns',
     fixture: 'STAGE6_ALPHA_FINAL_FORMULA_MISMATCH.fixture.json',
     expectedOverall: 'warn_formula_bottleneck_lane_mismatch',
-    expectedCoverage: { present: 1, total: 1 },
-    expectedLaneConsistencyIssues: 1
+    expectedCoverage: { present: 2, total: 2 },
+    expectedLaneConsistencyIssues: 2
   }
 ];
 const REQUIRED_FORMULA_FIELDS = [
@@ -56,7 +56,8 @@ function validateProducerSourceContract() {
     'TARGET_RECALIBRATION_FORMULA',
     'RISK_GEOMETRY_RECALCULATION_FORMULA',
     'BREAKOUT_PROOF_FORMULA',
-    'STRUCTURE_PROOF_FORMULA'
+    'STRUCTURE_PROOF_FORMULA',
+    'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
   ]) {
     if (!block.includes(token)) {
       throw new Error(`producer formula contract missing token: ${token}`);
