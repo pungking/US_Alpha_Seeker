@@ -27,7 +27,10 @@ const stringArray = (value) => (Array.isArray(value) ? value.map((item) => Strin
 const positiveNumber = (value) => isFiniteNumber(value) && Number(value) > 0;
 const riskFormulaReasonPattern = /risk|stop|target|geometry|recalculated|proof/i;
 const schemaCandidateProperties = schema?.$defs?.stage6Candidate?.properties || {};
-for (const field of [
+const requiredSchemaFields = [
+  'zeroExecutableTuningLane',
+  'zeroExecutableTuningVerdict',
+  'zeroExecutablePrimaryTuningTarget',
   'zeroExecutableFormulaBottleneck',
   'zeroExecutableFormulaSeverity',
   'zeroExecutableTargetShortfallPct',
@@ -35,10 +38,44 @@ for (const field of [
   'zeroExecutableBreakoutProofGapCount',
   'zeroExecutableStructureProofGapCount',
   'zeroExecutableFormulaReasons',
-  'zeroExecutableFormulaRecommendedAction'
-]) {
+  'zeroExecutableFormulaRecommendedAction',
+  'targetRecalibrationRequired',
+  'targetNoChaseRequired',
+  'targetRecalibrationRequiredTargetByBufferPrice',
+  'targetRecalibrationRequiredTargetByRrPrice',
+  'targetRecalibrationSourcePrice',
+  'targetRecalibrationSourceStopPrice',
+  'targetRecalibrationStopDistanceAtCurrent',
+  'targetRecalibrationRequiredTargetSource',
+  'riskGeometryPolicyVerdict',
+  'riskGeometryRecalibrationRequired',
+  'riskGeometryNoTradeRequired',
+  'riskGeometryRecalculatedStopCandidate',
+  'riskGeometryRequiredTargetBufferPct',
+  'riskGeometryTargetRecalibrationCandidate',
+  'breakoutRetestProofConfirmed',
+  'breakoutRetestProofReviewReady',
+  'breakoutRetestProofContinuationConfirmed',
+  'breakoutRetestProofContinuationExtensionOk',
+  'breakoutRetestPromotionReady',
+  'breakoutRetestPromotionEligible',
+  'breakoutRetestPromotionEnabled',
+  'breakoutRetestPromotionVerdict',
+  'breakoutRetestPromotionEntryBasis',
+  'breakoutRetestPromotionPolicyDecision',
+  'breakoutRetestPromotionBlockedBy',
+  'structurePolicyVerdict',
+  'structurePolicyReviewReady',
+  'currentEntryStructureVerdict',
+  'currentEntryRecalcFeasible',
+  'currentEntryStructureConfirmed',
+  'currentEntryRequiredStopPrice',
+  'currentEntryRequiredStopDistancePct',
+  'executionActionableVerdict'
+];
+for (const field of requiredSchemaFields) {
   if (!Object.prototype.hasOwnProperty.call(schemaCandidateProperties, field)) {
-    errors.push(`schema missing formula bottleneck field: ${field}`);
+    errors.push(`schema missing Stage6 fillability contract field: ${field}`);
   }
 }
 const riskGeometryReasons = new Set([
