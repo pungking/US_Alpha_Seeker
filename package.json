@@ -61,7 +61,8 @@
     "ops:stage3-5:quant:audit": "node scripts/build-stage3-5-quant-quality-audit.mjs",
     "ops:stage3:score-bounds:validate": "node scripts/validate-stage3-score-bounds.mjs",
     "ops:stage3-5:methodology:audit": "node scripts/build-stage3-5-methodology-audit.mjs",
-    "ops:stage-artifacts:export": "node scripts/export-stage-artifacts-from-drive.mjs"
+    "ops:stage-artifacts:export": "node scripts/export-stage-artifacts-from-drive.mjs",
+    "ops:stage6:policy-lane:formula-consistency": "node scripts/validate-stage6-policy-lane-formula-consistency.mjs"
   },
   "dependencies": {
     "@sentry/node": "^10.17.0",

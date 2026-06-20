@@ -38,6 +38,34 @@ function countBy(rows, keyFn) {
   }, {});
 }
 
+function expectedFormulaBottleneck(row) {
+  const lane = String(row?.zeroExecutableTuningLane || '').trim().toUpperCase();
+  if (lane === 'TARGET_RECALIBRATION') return 'TARGET_RECALIBRATION_FORMULA';
+  if (lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION' || lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION') {
+    return 'RISK_GEOMETRY_RECALCULATION_FORMULA';
+  }
+  if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION') return 'BREAKOUT_PROOF_FORMULA';
+  if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') return 'STRUCTURE_PROOF_FORMULA';
+  if (lane === 'NO_ZERO_EXECUTABLE_TUNING_ACTION') return 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK';
+  return null;
+}
+
+function formulaLaneConsistencyIssue(row) {
+  const expected = expectedFormulaBottleneck(row);
+  if (!expected) return null;
+  const actual = String(row?.zeroExecutableFormulaBottleneck || '').trim().toUpperCase();
+  if (actual === expected) return null;
+  return {
+    stage6File: row?.stage6File || null,
+    symbol: row?.symbol || null,
+    finalDecision: row?.finalDecision || null,
+    decisionReason: row?.decisionReason || null,
+    zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
+    expectedFormulaBottleneck: expected,
+    actualFormulaBottleneck: row?.zeroExecutableFormulaBottleneck || null
+  };
+}
+
 function isLatestRow(row, latestStage6File) {
   return !latestStage6File || row.stage6File === latestStage6File;
 }
@@ -385,6 +413,8 @@ function buildReport(input) {
     .filter(isBuyOrStrongBuy)
     .map((row) => ({ ...row, lane: laneName(row), ...classifyPolicyLane(row) }));
   const latestRows = watchlistRows.filter((row) => isLatestRow(row, latestStage6File));
+  const formulaLaneConsistencyIssues = rows.map(formulaLaneConsistencyIssue).filter(Boolean);
+  const latestFormulaLaneConsistencyIssues = latestAllRows.map(formulaLaneConsistencyIssue).filter(Boolean);
   const lanes = {
     breakoutRetest: watchlistRows.filter((row) => row.lane === 'breakoutRetest'),
     currentDistance: watchlistRows.filter((row) => row.lane === 'currentDistance'),
@@ -448,6 +478,9 @@ function buildReport(input) {
     latestQualityGateLaneCounts: countBy(latestQualityGateRows, (row) => row.qualityGateLane),
     latestQualityGateDecisionCounts: countBy(latestQualityGateRows, (row) => row.laneDecision),
     latestZeroExecutableFormulaBottleneckCounts: countBy(latestRows, (row) => row.zeroExecutableFormulaBottleneck || 'missing'),
+    latestAllZeroExecutableFormulaBottleneckCounts: countBy(latestAllRows, (row) => row.zeroExecutableFormulaBottleneck || 'missing'),
+    formulaLaneConsistencyIssues: formulaLaneConsistencyIssues.length,
+    latestFormulaLaneConsistencyIssues: latestFormulaLaneConsistencyIssues.length,
     confirmationProofQuality: {
       all: proofStats(watchlistRows),
       latest: proofStats(latestRows),
@@ -468,7 +501,9 @@ function buildReport(input) {
     executionPolicyChanged: false
   };
   const latestVerdict =
-    latestPromotionReviewReadyRows.length > 0
+    latestFormulaLaneConsistencyIssues.length > 0
+      ? 'STAGE6_FORMULA_LANE_CONTRACT_MISMATCH'
+      : latestPromotionReviewReadyRows.length > 0
       ? 'STAGE6_PRODUCER_POLICY_REVIEW_REQUIRED'
       : latestRows.length > 0
         ? 'WATCHLIST_WAIT_JUSTIFIED_OR_DATA_REPAIR_REQUIRED'
@@ -484,6 +519,8 @@ function buildReport(input) {
     summary: { ...summary, latestVerdict },
     latestReviewReadyRows: latestReviewReadyRows.map(compactRow),
     latestQualityGateRows: latestQualityGateRows.map(compactRow),
+    formulaLaneConsistencyIssues,
+    latestFormulaLaneConsistencyIssues,
     latestRows: latestRows.map(compactRow),
     laneSummary: Object.fromEntries(
       Object.entries(lanes).map(([key, laneRows]) => [
@@ -633,10 +670,23 @@ function buildMarkdown(report) {
   lines.push(`- Latest Promotion-Review Rows: ${report.summary.latestPromotionReviewReadyRows}`);
   lines.push(`- Latest Quality-Gate Rows: ${report.summary.latestQualityGateRows}`);
   lines.push(`- Latest Formula Bottlenecks: ${esc(JSON.stringify(report.summary.latestZeroExecutableFormulaBottleneckCounts || {}))}`);
+  lines.push(`- Latest All-Row Formula Bottlenecks: ${esc(JSON.stringify(report.summary.latestAllZeroExecutableFormulaBottleneckCounts || {}))}`);
+  lines.push(`- Latest Formula Lane Consistency Issues: ${report.summary.latestFormulaLaneConsistencyIssues}`);
   lines.push(`- Broker Mutation Authorized: ${report.safety.brokerMutationAuthorized}`);
   lines.push(`- Execution Policy Changed: ${report.safety.executionPolicyChanged}`);
   lines.push(`- Safety Reason: ${report.safety.reason}`);
   lines.push(`- Promotion Rule: ${report.summary.confirmationProofQuality?.promotionRule || 'N/A'}`);
+  lines.push('');
+  lines.push('## Formula Lane Consistency');
+  lines.push('');
+  lines.push('| Symbol | Stage6 | Decision | Tuning Lane | Expected Formula | Actual Formula |');
+  lines.push('| --- | --- | --- | --- | --- | --- |');
+  for (const issue of report.latestFormulaLaneConsistencyIssues || []) {
+    lines.push(`| ${esc(issue.symbol)} | ${esc(issue.stage6File)} | ${esc(`${issue.finalDecision}/${issue.decisionReason}`)} | ${esc(issue.zeroExecutableTuningLane)} | ${esc(issue.expectedFormulaBottleneck)} | ${esc(issue.actualFormulaBottleneck)} |`);
+  }
+  if ((report.latestFormulaLaneConsistencyIssues || []).length === 0) {
+    lines.push('| none | none | none | none | none | none |');
+  }
   lines.push('');
   lines.push('## Latest Lane Summary');
   lines.push('');

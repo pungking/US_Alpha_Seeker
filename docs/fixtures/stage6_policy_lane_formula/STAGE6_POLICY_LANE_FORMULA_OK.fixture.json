@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-06-20T00:00:00.000Z",
+  "latestRun": {
+    "stage6File": "STAGE6_POLICY_LANE_FORMULA_OK.json"
+  },
+  "rows": [
+    {
+      "stage6File": "STAGE6_POLICY_LANE_FORMULA_OK.json",
+      "symbol": "FORMNO",
+      "verdict": "BUY",
+      "finalDecision": "EXECUTABLE_NOW",
+      "decisionReason": "executable_pullback",
+      "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutableFormulaBottleneck": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+      "zeroExecutableFormulaSeverity": 0,
+      "zeroExecutableFormulaReasons": ["tuning_lane:NO_ZERO_EXECUTABLE_TUNING_ACTION"],
+      "zeroExecutableFormulaRecommendedAction": "No formula bottleneck detected for this row."
+    }
+  ]
+}

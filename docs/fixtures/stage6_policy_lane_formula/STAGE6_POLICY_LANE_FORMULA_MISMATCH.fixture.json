@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-06-20T00:00:00.000Z",
+  "latestRun": {
+    "stage6File": "STAGE6_POLICY_LANE_FORMULA_MISMATCH.json"
+  },
+  "rows": [
+    {
+      "stage6File": "STAGE6_POLICY_LANE_FORMULA_MISMATCH.json",
+      "symbol": "FORMBAD",
+      "verdict": "BUY",
+      "finalDecision": "EXECUTABLE_NOW",
+      "decisionReason": "executable_pullback",
+      "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutableFormulaBottleneck": "TARGET_RECALIBRATION_FORMULA",
+      "zeroExecutableFormulaSeverity": 1,
+      "zeroExecutableFormulaReasons": ["intentional_mismatch_fixture"],
+      "zeroExecutableFormulaRecommendedAction": "Mismatch fixture."
+    }
+  ]
+}
