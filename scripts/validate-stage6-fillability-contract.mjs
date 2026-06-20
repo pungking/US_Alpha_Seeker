@@ -83,6 +83,11 @@ const requiredSchemaFields = [
   'breakoutRetestProofRetestLowGapPct',
   'breakoutRetestProofRetestCloseGapPct',
   'breakoutRetestProofRetestCloseReclaimed',
+  'breakoutRetestProofFormulaEvidenceBasis',
+  'breakoutRetestProofFormulaObservedValue',
+  'breakoutRetestProofFormulaThresholdValue',
+  'breakoutRetestProofFormulaDeltaValue',
+  'breakoutRetestProofFormulaUnit',
   'breakoutRetestPromotionReady',
   'breakoutRetestPromotionEligible',
   'breakoutRetestPromotionEnabled',
@@ -326,9 +331,39 @@ for (const [idx, row] of candidates.entries()) {
       'breakoutRetestProofMaxBarsSinceRetest',
       'breakoutRetestProofMaxExtensionPct',
       'breakoutRetestProofRetestLowGapPct',
-      'breakoutRetestProofRetestCloseGapPct'
+      'breakoutRetestProofRetestCloseGapPct',
+      'breakoutRetestProofFormulaObservedValue',
+      'breakoutRetestProofFormulaThresholdValue',
+      'breakoutRetestProofFormulaDeltaValue'
     ]) {
       if (!isFiniteNumber(row[field])) errors.push(`${label}: breakout retest proof missing numeric ${field}`);
+    }
+    if (!String(row.breakoutRetestProofFormulaEvidenceBasis || '').trim()) {
+      errors.push(`${label}: breakout retest proof missing breakoutRetestProofFormulaEvidenceBasis`);
+    }
+    if (!String(row.breakoutRetestProofFormulaUnit || '').trim()) {
+      errors.push(`${label}: breakout retest proof missing breakoutRetestProofFormulaUnit`);
+    }
+    if (String(row.zeroExecutableFormulaEvidenceBasis || '') !== String(row.breakoutRetestProofFormulaEvidenceBasis || '')) {
+      errors.push(`${label}: breakout formula evidence basis must match breakoutRetestProofFormulaEvidenceBasis`);
+    }
+    const breakoutBasis = String(row.breakoutRetestProofFormulaEvidenceBasis || '');
+    const breakoutKnob = String(row.zeroExecutableFormulaAdjustmentKnob || '');
+    const expectedBreakoutKnob = breakoutBasis.includes('freshness')
+      ? 'BREAKOUT_RETEST_FRESHNESS_WINDOW'
+      : breakoutBasis.includes('extension')
+        ? 'BREAKOUT_EXTENSION_POLICY'
+        : breakoutBasis.includes('close_reclaim') || breakoutBasis.includes('latest_close')
+          ? 'BREAKOUT_CLOSE_RECLAIM_PROOF'
+          : breakoutBasis.includes('continuation_rr')
+            ? 'BREAKOUT_CONTINUATION_RR_FLOOR'
+            : breakoutBasis.includes('target_buffer')
+              ? 'BREAKOUT_CONTINUATION_TARGET_BUFFER_FLOOR'
+              : breakoutBasis.includes('undercut') || breakoutBasis.includes('touch')
+                ? 'BREAKOUT_RETEST_TOUCH_DETECTION'
+                : 'BREAKOUT_PROOF_CONFIRMED_GENERATION';
+    if (breakoutKnob !== expectedBreakoutKnob) {
+      errors.push(`${label}: breakout formula knob ${breakoutKnob || 'missing'} must match ${expectedBreakoutKnob} for ${breakoutBasis}`);
     }
     for (const field of [
       'breakoutRetestProofRetestTouchFound',

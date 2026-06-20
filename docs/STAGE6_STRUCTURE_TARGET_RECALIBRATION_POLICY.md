@@ -102,6 +102,27 @@ lane explicitly.
    incomplete.
    - Keep `WAIT_PRICE` or `BLOCKED_RISK`.
 
+## Breakout Retest Proof Policy
+
+`wait_breakout_retest_required` rows must expose formula evidence for the
+dominant proof blocker. `reviewReady` remains diagnostic only; it must not
+promote unless `breakoutRetestProofConfirmed=true` and a separate producer
+promotion policy is enabled.
+
+Breakout formula evidence should name the measurable blocker when available:
+
+- `breakout_current_extension_excess_pct`
+- `breakout_retest_freshness_bars_excess`
+- `breakout_retest_close_reclaim_gap_pct`
+- `breakout_latest_close_reclaim_gap_pct`
+- `breakout_retest_low_undercut_excess_pct`
+- `breakout_continuation_rr_shortfall`
+- `breakout_continuation_target_buffer_shortfall_pct`
+
+Only use a generic proof-gap basis such as
+`breakout_retest_touch_missing_gap` or `breakout_proof_condition_gap_count`
+when no numeric proof blocker is available.
+
 ## Done-When
 
 - Contract fixture includes structure justified, structure overblock-review, target recalibration candidate, target gap no-trade, target already reached no-trade, and stop/target risk-geometry target recalibration rows.
@@ -113,6 +134,8 @@ lane explicitly.
 - Validator fails if a recalculated-stop target shortfall is marked proof-confirmed instead of target-recalibration required.
 - Validator fails if a recalculated-stop target shortfall above gap policy is
   marked as a normal target recalibration candidate instead of no-trade.
+- Validator fails if breakout rows do not expose formula evidence or if the
+  formula evidence basis diverges from the zero-executable formula basis.
 - Zero-executable rows expose `zeroExecutableFormulaBottleneck` and severity
   fields so tuning is directed at target recalibration, risk geometry,
   breakout proof, or structure proof instead of lowering sidecar fillability.

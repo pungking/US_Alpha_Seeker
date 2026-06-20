@@ -171,6 +171,11 @@ interface AlphaCandidate {
   breakoutRetestProofMaxContinuationExtensionPct?: number | null;
   breakoutRetestProofContinuationMinRr?: number | null;
   breakoutRetestProofContinuationMinTargetBufferPct?: number | null;
+  breakoutRetestProofFormulaEvidenceBasis?: string | null;
+  breakoutRetestProofFormulaObservedValue?: number | null;
+  breakoutRetestProofFormulaThresholdValue?: number | null;
+  breakoutRetestProofFormulaDeltaValue?: number | null;
+  breakoutRetestProofFormulaUnit?: string | null;
   breakoutRetestPromotionVerdict?: string | null;
   breakoutRetestPromotionEligible?: boolean | null;
   breakoutRetestPromotionEnabled?: boolean | null;
@@ -726,6 +731,11 @@ type BreakoutRetestProofPayload = {
   continuationMinTargetBufferPct: number | null;
   rrAtCurrentPrice: number | null;
   targetBufferFromCurrentPct: number | null;
+  formulaEvidenceBasis: string;
+  formulaObservedValue: number;
+  formulaThresholdValue: number;
+  formulaDeltaValue: number;
+  formulaUnit: string;
 };
 
 type Stage6PolicyReviewPayload = {
@@ -768,6 +778,11 @@ type Stage6BreakoutPromotionPayload = {
   policyDecision: string;
   entryBasis: string | null;
   blockedBy: string[];
+  formulaEvidenceBasis: string;
+  formulaObservedValue: number;
+  formulaThresholdValue: number;
+  formulaDeltaValue: number;
+  formulaUnit: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -1183,7 +1198,12 @@ const deriveBreakoutRetestProof = (input: {
     continuationMinRr: roundOrNull(continuationMinRr, 2),
     continuationMinTargetBufferPct: roundOrNull(continuationMinTargetBufferPct, 2),
     rrAtCurrentPrice: roundOrNull(input.rrAtCurrentPrice, 2),
-    targetBufferFromCurrentPct: roundOrNull(input.targetBufferFromCurrentPct, 2)
+    targetBufferFromCurrentPct: roundOrNull(input.targetBufferFromCurrentPct, 2),
+    formulaEvidenceBasis: 'breakout_retest_input_gap',
+    formulaObservedValue: 1,
+    formulaThresholdValue: 0,
+    formulaDeltaValue: 1,
+    formulaUnit: 'proof_gap_count'
   };
 
   if (!bars.length) {
@@ -1221,6 +1241,11 @@ const deriveBreakoutRetestProof = (input: {
   const retestCloseReclaimed = Boolean(latestRetest && latestRetest.bar.close >= entry);
   const retestLowGapPct = latestRetest ? ((entry - latestRetest.bar.low) / entry) * 100 : null;
   const retestCloseGapPct = latestRetest ? ((latestRetest.bar.close - entry) / entry) * 100 : null;
+  const latestCloseGapPct = latest ? ((latest.close - entry) / entry) * 100 : null;
+  const retestUndercutExcessPct =
+    latestRetestUndercut && !latestRetest
+      ? Math.max(0, ((entry - latestRetestUndercut.bar.low) / entry) * 100 - policy.retestTolerancePct)
+      : 0;
   const currentExtensionOk = currentExtensionFromRetestPct <= policy.maxCurrentExtensionFromRetestPct;
   const latestCloseAboveRetest = Boolean(latest && latest.close >= entry);
   const continuationExtensionOk = currentExtensionFromRetestPct <= policy.maxContinuationExtensionPct;
@@ -1249,6 +1274,82 @@ const deriveBreakoutRetestProof = (input: {
   if (!continuationExtensionOk) reasons.push('continuation_extension_high');
   if (!continuationCurrentRrOk) reasons.push('continuation_rr_below_strong_floor');
   if (!continuationTargetBufferOk) reasons.push('continuation_target_buffer_below_strong_floor');
+  const breakoutFormulaCandidates = [
+    {
+      basis: 'breakout_retest_close_reclaim_gap_pct',
+      observed: roundOrNull(retestCloseGapPct, 2) ?? 0,
+      threshold: 0,
+      delta: roundOrNull(retestCloseGapPct != null ? Math.max(0, -retestCloseGapPct) : 0, 2) ?? 0,
+      unit: 'pct'
+    },
+    {
+      basis: 'breakout_retest_freshness_bars_excess',
+      observed: barsSinceRetest ?? 0,
+      threshold: policy.maxBarsSinceRetest,
+      delta: barsSinceRetest != null ? Math.max(0, barsSinceRetest - policy.maxBarsSinceRetest) : 0,
+      unit: 'bars'
+    },
+    {
+      basis: 'breakout_current_extension_excess_pct',
+      observed: roundOrNull(currentExtensionFromRetestPct, 2) ?? 0,
+      threshold: roundOrNull(policy.maxCurrentExtensionFromRetestPct, 2) ?? policy.maxCurrentExtensionFromRetestPct,
+      delta: roundOrNull(Math.max(0, currentExtensionFromRetestPct - policy.maxCurrentExtensionFromRetestPct), 2) ?? 0,
+      unit: 'pct'
+    },
+    {
+      basis: 'breakout_latest_close_reclaim_gap_pct',
+      observed: roundOrNull(latestCloseGapPct, 2) ?? 0,
+      threshold: 0,
+      delta: roundOrNull(latestCloseGapPct != null ? Math.max(0, -latestCloseGapPct) : 0, 2) ?? 0,
+      unit: 'pct'
+    },
+    {
+      basis: 'breakout_retest_low_undercut_excess_pct',
+      observed: roundOrNull(
+        latestRetestUndercut ? ((entry - latestRetestUndercut.bar.low) / entry) * 100 : 0,
+        2
+      ) ?? 0,
+      threshold: roundOrNull(policy.retestTolerancePct, 2) ?? policy.retestTolerancePct,
+      delta: roundOrNull(retestUndercutExcessPct, 2) ?? 0,
+      unit: 'pct'
+    },
+    {
+      basis: 'breakout_continuation_rr_shortfall',
+      observed: roundOrNull(input.rrAtCurrentPrice, 2) ?? 0,
+      threshold: roundOrNull(continuationMinRr, 2) ?? continuationMinRr,
+      delta: roundOrNull(
+        input.rrAtCurrentPrice != null ? Math.max(0, continuationMinRr - input.rrAtCurrentPrice) : continuationMinRr,
+        2
+      ) ?? 0,
+      unit: 'rr'
+    },
+    {
+      basis: 'breakout_continuation_target_buffer_shortfall_pct',
+      observed: roundOrNull(input.targetBufferFromCurrentPct, 2) ?? 0,
+      threshold: roundOrNull(continuationMinTargetBufferPct, 2) ?? continuationMinTargetBufferPct,
+      delta: roundOrNull(
+        input.targetBufferFromCurrentPct != null
+          ? Math.max(0, continuationMinTargetBufferPct - input.targetBufferFromCurrentPct)
+          : continuationMinTargetBufferPct,
+        2
+      ) ?? 0,
+      unit: 'pct'
+    }
+  ].sort((a, b) => b.delta - a.delta);
+  const topBreakoutFormulaEvidence = breakoutFormulaCandidates[0];
+  const fallbackBreakoutBasis = !retestTouchFound
+    ? 'breakout_retest_touch_missing_gap'
+    : 'breakout_proof_condition_gap_count';
+  const breakoutFormulaEvidence =
+    topBreakoutFormulaEvidence && topBreakoutFormulaEvidence.delta > 0
+      ? topBreakoutFormulaEvidence
+      : {
+          basis: fallbackBreakoutBasis,
+          observed: Math.max(1, reasons.length),
+          threshold: 0,
+          delta: Math.max(1, reasons.length),
+          unit: 'proof_gap_count'
+        };
 
   const retestConfirmed = retestTouchFound && retestCloseReclaimed && retestFresh && currentExtensionOk && latestCloseAboveRetest;
   const confirmed = retestConfirmed || continuationConfirmed;
@@ -1286,7 +1387,12 @@ const deriveBreakoutRetestProof = (input: {
     continuationExtensionOk,
     maxContinuationExtensionPct: roundOrNull(policy.maxContinuationExtensionPct, 2),
     continuationMinRr: roundOrNull(continuationMinRr, 2),
-    continuationMinTargetBufferPct: roundOrNull(continuationMinTargetBufferPct, 2)
+    continuationMinTargetBufferPct: roundOrNull(continuationMinTargetBufferPct, 2),
+    formulaEvidenceBasis: breakoutFormulaEvidence.basis,
+    formulaObservedValue: breakoutFormulaEvidence.observed,
+    formulaThresholdValue: breakoutFormulaEvidence.threshold,
+    formulaDeltaValue: breakoutFormulaEvidence.delta,
+    formulaUnit: breakoutFormulaEvidence.unit
   };
 };
 
@@ -1514,6 +1620,13 @@ const deriveBreakoutRetestPromotion = (input: {
   promotionEnabled: boolean;
 }): Stage6BreakoutPromotionPayload => {
   const entryBasis = 'BREAKOUT_RETEST_CURRENT_ENTRY_CONTRACT';
+  const formulaEvidencePayload = {
+    formulaEvidenceBasis: input.proof.formulaEvidenceBasis,
+    formulaObservedValue: input.proof.formulaObservedValue,
+    formulaThresholdValue: input.proof.formulaThresholdValue,
+    formulaDeltaValue: input.proof.formulaDeltaValue,
+    formulaUnit: input.proof.formulaUnit
+  };
   if (input.decisionReason !== 'wait_breakout_retest_required') {
     return {
       verdict: 'BREAKOUT_PROMOTION_NOT_APPLICABLE',
@@ -1523,6 +1636,7 @@ const deriveBreakoutRetestPromotion = (input: {
       policyDecision: 'NOT_APPLICABLE',
       entryBasis: null,
       blockedBy: ['not_breakout_wait'],
+      ...formulaEvidencePayload,
       reasons: ['not_breakout_wait'],
       recommendedAction: 'No breakout promotion action required.'
     };
@@ -1554,6 +1668,7 @@ const deriveBreakoutRetestPromotion = (input: {
       policyDecision: 'PROMOTE_CURRENT_ENTRY',
       entryBasis,
       blockedBy: [],
+      ...formulaEvidencePayload,
       reasons: reasons.length ? reasons : ['proof_confirmed'],
       recommendedAction: 'Producer may emit EXECUTABLE_NOW only because proofConfirmed=true and promotion flag is enabled.'
     };
@@ -1567,6 +1682,7 @@ const deriveBreakoutRetestPromotion = (input: {
       policyDecision: 'WAIT_INPUTS_BLOCKED',
       entryBasis,
       blockedBy,
+      ...formulaEvidencePayload,
       reasons,
       recommendedAction: 'Keep WAIT_PRICE. Proof is confirmed, but current-entry feasibility or stop-distance policy is not ready.'
     };
@@ -1580,6 +1696,7 @@ const deriveBreakoutRetestPromotion = (input: {
       policyDecision: 'WAIT_CONSERVATIVE_DEFAULT',
       entryBasis,
       blockedBy,
+      ...formulaEvidencePayload,
       reasons: reasons.length ? reasons : ['proof_confirmed_promotion_flag_disabled'],
       recommendedAction: 'Keep WAIT_PRICE until a separate Stage6 producer policy change explicitly enables proof-confirmed promotion.'
     };
@@ -1593,6 +1710,7 @@ const deriveBreakoutRetestPromotion = (input: {
       policyDecision: 'WAIT_REVIEW_READY_ONLY',
       entryBasis,
       blockedBy,
+      ...formulaEvidencePayload,
       reasons: reasons.length ? reasons : ['review_ready_without_confirmed_proof'],
       recommendedAction: 'Review-ready is diagnostic only. Promotion requires proofConfirmed=true.'
     };
@@ -1605,6 +1723,7 @@ const deriveBreakoutRetestPromotion = (input: {
     policyDecision: 'WAIT_PROOF_NOT_CONFIRMED',
     entryBasis,
     blockedBy,
+    ...formulaEvidencePayload,
     reasons: reasons.length ? reasons : ['breakout_proof_not_ready'],
     recommendedAction: 'Keep WAIT_PRICE until fresh retest proof is confirmed.'
   };
@@ -2428,13 +2547,12 @@ const deriveZeroExecutableFormulaProfile = (input: {
       };
     }
     if (winner.key === 'BREAKOUT_PROOF_FORMULA') {
-      const observedValue = breakoutProofGaps.size;
       return {
-        observedValue,
-        thresholdValue: 0,
-        deltaValue: observedValue,
-        unit: 'proof_gap_count',
-        evidenceBasis: 'breakout_proof_gap_count'
+        observedValue: input.breakoutPromotion.formulaObservedValue,
+        thresholdValue: input.breakoutPromotion.formulaThresholdValue,
+        deltaValue: input.breakoutPromotion.formulaDeltaValue,
+        unit: input.breakoutPromotion.formulaUnit,
+        evidenceBasis: input.breakoutPromotion.formulaEvidenceBasis
       };
     }
     if (winner.key === 'STRUCTURE_PROOF_FORMULA') {
@@ -2479,11 +2597,18 @@ const deriveZeroExecutableFormulaProfile = (input: {
     }
     if (winner.key === 'BREAKOUT_PROOF_FORMULA') {
       const proofReasons = [...input.breakoutPromotion.blockedBy, ...input.breakoutPromotion.reasons].join('|');
-      const knob = proofReasons.includes('retest_stale')
+      const basis = input.breakoutPromotion.formulaEvidenceBasis;
+      const knob = basis.includes('freshness') || proofReasons.includes('retest_stale')
         ? 'BREAKOUT_RETEST_FRESHNESS_WINDOW'
-        : proofReasons.includes('extension')
+        : basis.includes('extension') || proofReasons.includes('extension')
           ? 'BREAKOUT_EXTENSION_POLICY'
-          : proofReasons.includes('touch') || proofReasons.includes('retest')
+          : basis.includes('close_reclaim') || basis.includes('latest_close')
+            ? 'BREAKOUT_CLOSE_RECLAIM_PROOF'
+          : basis.includes('continuation_rr')
+            ? 'BREAKOUT_CONTINUATION_RR_FLOOR'
+          : basis.includes('target_buffer')
+            ? 'BREAKOUT_CONTINUATION_TARGET_BUFFER_FLOOR'
+          : basis.includes('undercut') || basis.includes('touch') || proofReasons.includes('touch') || proofReasons.includes('retest')
             ? 'BREAKOUT_RETEST_TOUCH_DETECTION'
             : 'BREAKOUT_PROOF_CONFIRMED_GENERATION';
       return {
@@ -2527,7 +2652,11 @@ const deriveZeroExecutableFormulaProfile = (input: {
     `formula_adjustment_direction:${formulaAdjustment.direction}`,
     ...(targetSeverity > 0 ? [`target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`] : []),
     ...(riskSeverity > 0 ? [`risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`] : []),
-    ...(breakoutSeverity > 0 ? [`breakout_proof_gap_count:${breakoutProofGaps.size}`] : []),
+    ...(breakoutSeverity > 0 ? [
+      `breakout_proof_gap_count:${breakoutProofGaps.size}`,
+      `breakout_formula_basis:${input.breakoutPromotion.formulaEvidenceBasis}`,
+      `breakout_formula_delta:${input.breakoutPromotion.formulaDeltaValue}`
+    ] : []),
     ...(structureSeverity > 0 ? [
       `structure_proof_gap_count:${structureProofGaps.size}`,
       `structure_formula_basis:${input.structurePolicy.formulaEvidenceBasis}`,
@@ -7609,6 +7738,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxContinuationExtensionPct: breakoutRetestProof.maxContinuationExtensionPct,
               breakoutRetestProofContinuationMinRr: breakoutRetestProof.continuationMinRr,
               breakoutRetestProofContinuationMinTargetBufferPct: breakoutRetestProof.continuationMinTargetBufferPct,
+              breakoutRetestProofFormulaEvidenceBasis: breakoutRetestProof.formulaEvidenceBasis,
+              breakoutRetestProofFormulaObservedValue: breakoutRetestProof.formulaObservedValue,
+              breakoutRetestProofFormulaThresholdValue: breakoutRetestProof.formulaThresholdValue,
+              breakoutRetestProofFormulaDeltaValue: breakoutRetestProof.formulaDeltaValue,
+              breakoutRetestProofFormulaUnit: breakoutRetestProof.formulaUnit,
               breakoutRetestPromotionVerdict: breakoutRetestPromotion.verdict,
               breakoutRetestPromotionEligible: breakoutRetestPromotion.eligible,
               breakoutRetestPromotionEnabled: breakoutRetestPromotion.enabled,
@@ -7864,6 +7998,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxContinuationExtensionPct: executionContract.breakoutRetestProofMaxContinuationExtensionPct,
               breakoutRetestProofContinuationMinRr: executionContract.breakoutRetestProofContinuationMinRr,
               breakoutRetestProofContinuationMinTargetBufferPct: executionContract.breakoutRetestProofContinuationMinTargetBufferPct,
+              breakoutRetestProofFormulaEvidenceBasis: executionContract.breakoutRetestProofFormulaEvidenceBasis,
+              breakoutRetestProofFormulaObservedValue: executionContract.breakoutRetestProofFormulaObservedValue,
+              breakoutRetestProofFormulaThresholdValue: executionContract.breakoutRetestProofFormulaThresholdValue,
+              breakoutRetestProofFormulaDeltaValue: executionContract.breakoutRetestProofFormulaDeltaValue,
+              breakoutRetestProofFormulaUnit: executionContract.breakoutRetestProofFormulaUnit,
               breakoutRetestPromotionVerdict: executionContract.breakoutRetestPromotionVerdict,
               breakoutRetestPromotionEligible: executionContract.breakoutRetestPromotionEligible,
               breakoutRetestPromotionEnabled: executionContract.breakoutRetestPromotionEnabled,
@@ -8392,6 +8531,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxContinuationExtensionPct: executionContract.breakoutRetestProofMaxContinuationExtensionPct,
               breakoutRetestProofContinuationMinRr: executionContract.breakoutRetestProofContinuationMinRr,
               breakoutRetestProofContinuationMinTargetBufferPct: executionContract.breakoutRetestProofContinuationMinTargetBufferPct,
+              breakoutRetestProofFormulaEvidenceBasis: executionContract.breakoutRetestProofFormulaEvidenceBasis,
+              breakoutRetestProofFormulaObservedValue: executionContract.breakoutRetestProofFormulaObservedValue,
+              breakoutRetestProofFormulaThresholdValue: executionContract.breakoutRetestProofFormulaThresholdValue,
+              breakoutRetestProofFormulaDeltaValue: executionContract.breakoutRetestProofFormulaDeltaValue,
+              breakoutRetestProofFormulaUnit: executionContract.breakoutRetestProofFormulaUnit,
               breakoutRetestPromotionVerdict: executionContract.breakoutRetestPromotionVerdict,
               breakoutRetestPromotionEligible: executionContract.breakoutRetestPromotionEligible,
               breakoutRetestPromotionEnabled: executionContract.breakoutRetestPromotionEnabled,
@@ -8769,6 +8913,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxContinuationExtensionPct: toOptionalFiniteNumber(item.breakoutRetestProofMaxContinuationExtensionPct),
               breakoutRetestProofContinuationMinRr: toOptionalFiniteNumber(item.breakoutRetestProofContinuationMinRr),
               breakoutRetestProofContinuationMinTargetBufferPct: toOptionalFiniteNumber(item.breakoutRetestProofContinuationMinTargetBufferPct),
+              breakoutRetestProofFormulaEvidenceBasis: normalizeOptionalText(item.breakoutRetestProofFormulaEvidenceBasis),
+              breakoutRetestProofFormulaObservedValue: toOptionalFiniteNumber(item.breakoutRetestProofFormulaObservedValue),
+              breakoutRetestProofFormulaThresholdValue: toOptionalFiniteNumber(item.breakoutRetestProofFormulaThresholdValue),
+              breakoutRetestProofFormulaDeltaValue: toOptionalFiniteNumber(item.breakoutRetestProofFormulaDeltaValue),
+              breakoutRetestProofFormulaUnit: normalizeOptionalText(item.breakoutRetestProofFormulaUnit),
               breakoutRetestPromotionVerdict: normalizeOptionalText(item.breakoutRetestPromotionVerdict),
               breakoutRetestPromotionEligible: Boolean(item.breakoutRetestPromotionEligible),
               breakoutRetestPromotionEnabled: Boolean(item.breakoutRetestPromotionEnabled),
@@ -8981,6 +9130,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               breakoutRetestProofMaxContinuationExtensionPct: toOptionalFiniteNumber(item?.breakoutRetestProofMaxContinuationExtensionPct),
               breakoutRetestProofContinuationMinRr: toOptionalFiniteNumber(item?.breakoutRetestProofContinuationMinRr),
               breakoutRetestProofContinuationMinTargetBufferPct: toOptionalFiniteNumber(item?.breakoutRetestProofContinuationMinTargetBufferPct),
+              breakoutRetestProofFormulaEvidenceBasis: normalizeOptionalText(item?.breakoutRetestProofFormulaEvidenceBasis),
+              breakoutRetestProofFormulaObservedValue: toOptionalFiniteNumber(item?.breakoutRetestProofFormulaObservedValue),
+              breakoutRetestProofFormulaThresholdValue: toOptionalFiniteNumber(item?.breakoutRetestProofFormulaThresholdValue),
+              breakoutRetestProofFormulaDeltaValue: toOptionalFiniteNumber(item?.breakoutRetestProofFormulaDeltaValue),
+              breakoutRetestProofFormulaUnit: normalizeOptionalText(item?.breakoutRetestProofFormulaUnit),
               breakoutRetestPromotionVerdict: normalizeOptionalText(item?.breakoutRetestPromotionVerdict),
               breakoutRetestPromotionEligible: Boolean(item?.breakoutRetestPromotionEligible),
               breakoutRetestPromotionEnabled: Boolean(item?.breakoutRetestPromotionEnabled),
