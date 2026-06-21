@@ -190,7 +190,9 @@ function deriveRequirements(proof, backlog) {
     },
     backlog?.summary?.brokerMutationAllowed === false && backlog?.summary?.sidecarMutationAllowed === false
       ? null
-      : 'restore_report_only_formula_tuning_backlog_safety_flags'
+      : backlogMissing
+        ? 'wait_for_formula_tuning_backlog_artifact'
+        : 'restore_report_only_formula_tuning_backlog_safety_flags'
   ));
 
   return requirements.sort((a, b) => statusRank(b.status) - statusRank(a.status));
