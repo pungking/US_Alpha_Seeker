@@ -154,5 +154,93 @@ function runCase(testCase) {
   };
 }
 
+function validateFreshSourceEnforcementBlocks() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage6-formula-tuning-enforce-'));
+  const outJson = path.join(tmp, 'backlog.json');
+  const outMd = path.join(tmp, 'backlog.md');
+  const fixturePath = path.join(FIXTURE_DIR, 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json');
+  const result = spawnSync(process.execPath, [SCRIPT], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      STAGE6_FORMULA_TUNING_BACKLOG_STAGE6_PATH: fixturePath,
+      STAGE6_FORMULA_TUNING_BACKLOG_OUT_JSON: outJson,
+      STAGE6_FORMULA_TUNING_BACKLOG_OUT_MD: outMd,
+      STAGE6_FORMULA_TUNING_BACKLOG_EXPECTED_SOURCE_SHA: 'expected-fresh-source-sha',
+      STAGE6_FORMULA_TUNING_BACKLOG_ENFORCE_FRESH_SOURCE: 'true'
+    },
+    encoding: 'utf8'
+  });
+  if (result.status === 0) {
+    throw new Error('fresh source enforcement should fail when source SHA is absent/mismatched');
+  }
+  const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
+  if (report.overall !== 'warn_formula_tuning_stale_source') {
+    throw new Error(`fresh source enforcement expected warn_formula_tuning_stale_source, got ${report.overall}`);
+  }
+  if (report.runtimeProof?.status !== 'pending_fresh_stage6_source_sha') {
+    throw new Error(`fresh source enforcement expected pending_fresh_stage6_source_sha, got ${report.runtimeProof?.status}`);
+  }
+  if (report.guardrails?.nextAction !== 'generate_fresh_stage6_after_expected_head') {
+    throw new Error(`fresh source enforcement expected generate_fresh_stage6_after_expected_head, got ${report.guardrails?.nextAction}`);
+  }
+  return {
+    name: 'fresh_source_enforcement_blocks_stale_backlog',
+    overall: report.overall,
+    runtimeProof: report.runtimeProof.status,
+    nextAction: report.guardrails.nextAction
+  };
+}
+
+function validateFreshSourceEnforcementPasses() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage6-formula-tuning-enforce-pass-'));
+  const sourceFixturePath = path.join(FIXTURE_DIR, 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json');
+  const fixture = JSON.parse(fs.readFileSync(sourceFixturePath, 'utf8'));
+  const expectedSha = 'expected-fresh-source-sha';
+  fixture.manifest = {
+    ...(fixture.manifest || {}),
+    sourceRepo: 'pungking/US_Alpha_Seeker',
+    sourceWorkflow: 'US Alpha Seeker Auto-Scheduler',
+    sourceRunId: 'fixture-run',
+    sourceSha: expectedSha,
+    sourceRef: 'main',
+    sourceEventName: 'schedule'
+  };
+  const fixturePath = path.join(tmp, 'STAGE6_ALPHA_FINAL_WITH_FORMULA_SOURCE_SHA.fixture.json');
+  const outJson = path.join(tmp, 'backlog.json');
+  const outMd = path.join(tmp, 'backlog.md');
+  fs.writeFileSync(fixturePath, `${JSON.stringify(fixture, null, 2)}\n`, 'utf8');
+  const result = spawnSync(process.execPath, [SCRIPT], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      STAGE6_FORMULA_TUNING_BACKLOG_STAGE6_PATH: fixturePath,
+      STAGE6_FORMULA_TUNING_BACKLOG_OUT_JSON: outJson,
+      STAGE6_FORMULA_TUNING_BACKLOG_OUT_MD: outMd,
+      STAGE6_FORMULA_TUNING_BACKLOG_EXPECTED_SOURCE_SHA: expectedSha,
+      STAGE6_FORMULA_TUNING_BACKLOG_ENFORCE_FRESH_SOURCE: 'true'
+    },
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    throw new Error(`fresh source enforcement pass fixture failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  }
+  const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
+  if (report.overall !== 'pass_formula_tuning_backlog_ready') {
+    throw new Error(`fresh source enforcement pass expected pass_formula_tuning_backlog_ready, got ${report.overall}`);
+  }
+  if (report.runtimeProof?.status !== 'pass_fresh_stage6_source_sha' || report.runtimeProof?.sourceShaMatchesExpected !== true) {
+    throw new Error('fresh source enforcement pass did not prove matching source SHA');
+  }
+  return {
+    name: 'fresh_source_enforcement_passes_matching_backlog',
+    overall: report.overall,
+    runtimeProof: report.runtimeProof.status,
+    nextAction: report.guardrails.nextAction
+  };
+}
+
 const results = CASES.map(runCase);
+results.push(validateFreshSourceEnforcementBlocks());
+results.push(validateFreshSourceEnforcementPasses());
 console.log(`[STAGE6_FORMULA_TUNING_BACKLOG_VALIDATE] PASS ${JSON.stringify(results)}`);

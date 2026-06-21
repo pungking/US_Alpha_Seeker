@@ -7,6 +7,13 @@ const REPO_ROOT = process.cwd();
 const DEFAULT_STAGE6_DIR = 'state/stage6-audit-source';
 const OUT_JSON = process.env.STAGE6_FORMULA_TUNING_BACKLOG_OUT_JSON || 'state/stage6-formula-tuning-backlog.json';
 const OUT_MD = process.env.STAGE6_FORMULA_TUNING_BACKLOG_OUT_MD || 'state/stage6-formula-tuning-backlog.md';
+const EXPECTED_SOURCE_SHA_ENV =
+  process.env.STAGE6_FORMULA_TUNING_BACKLOG_EXPECTED_SOURCE_SHA ||
+  process.env.STAGE6_EXPECTED_SOURCE_SHA ||
+  '';
+const ENFORCE_FRESH_SOURCE = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.STAGE6_FORMULA_TUNING_BACKLOG_ENFORCE_FRESH_SOURCE || '').trim().toLowerCase()
+);
 const EXPECTED_FORMULA_CONTRACT_VERSION = 'zero_executable_formula_v4';
 const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaBottleneck',
@@ -117,6 +124,8 @@ function normalizeText(value) {
   const text = String(value ?? '').trim();
   return text || null;
 }
+
+const EXPECTED_SOURCE_SHA = normalizeText(EXPECTED_SOURCE_SHA_ENV);
 
 function stage6SourceAudit(stage6) {
   const manifest = stage6?.manifest || {};
@@ -332,7 +341,10 @@ function buildMarkdown(report) {
   lines.push(`| overall | ${esc(report.overall)} |`);
   lines.push(`| stage6 | ${esc(report.stage6.file)} |`);
   lines.push(`| sourceSha | ${esc(report.stage6.source?.sha)} |`);
+  lines.push(`| expectedSourceSha | ${esc(report.runtimeProof.expectedSourceSha)} |`);
+  lines.push(`| sourceShaMatchesExpected | ${esc(report.runtimeProof.sourceShaMatchesExpected)} |`);
   lines.push(`| formulaContractVersion | ${esc(report.stage6.formulaContractVersion)} |`);
+  lines.push(`| runtimeProof.status | ${esc(report.runtimeProof.status)} |`);
   lines.push(`| rows | ${report.summary.rows} |`);
   lines.push(`| producerReviewRows | ${report.summary.producerReviewRows} |`);
   lines.push(`| missingFormulaRows | ${report.summary.missingFormulaRows} |`);
@@ -362,6 +374,7 @@ function buildMarkdown(report) {
   lines.push('## Guardrails');
   lines.push('');
   lines.push('- This backlog is producer-only. It must not enable broker submit, replace, reprice, or sidecar mutation.');
+  lines.push('- If `runtimeProof.status=pending_fresh_stage6_source_sha`, do not tune policy from this artifact; generate a fresh Stage6 from the expected head first.');
   lines.push('- `REFRESH_STAGE6_FORMULA_CONTRACT` means the artifact manifest does not publish the current formula contract; generate a fresh Stage6 or fix manifest propagation before tuning.');
   lines.push('- `REFRESH_STAGE6_WITH_FORMULA_V4` means the artifact predates the current contract; do not infer tuning from stale rows.');
   lines.push('- `REFRESH_STAGE6_FORMULA_LANE_MAPPING` means the row lane and formula bottleneck disagree; fix producer classification before threshold tuning.');
@@ -370,10 +383,29 @@ function buildMarkdown(report) {
   return lines.join('\n') + '\n';
 }
 
+function sourceFreshnessStatus(sourceSha) {
+  if (!EXPECTED_SOURCE_SHA) {
+    return {
+      status: 'not_required',
+      sourceShaMatchesExpected: null,
+      freshSourceViolation: false,
+      nextAction: null
+    };
+  }
+  const matches = sourceSha === EXPECTED_SOURCE_SHA;
+  return {
+    status: matches ? 'pass_fresh_stage6_source_sha' : 'pending_fresh_stage6_source_sha',
+    sourceShaMatchesExpected: matches,
+    freshSourceViolation: !matches,
+    nextAction: matches ? null : 'generate_fresh_stage6_after_expected_head'
+  };
+}
+
 function main() {
   const stage6Path = latestStage6Path();
   const stage6 = readJson(stage6Path);
   const sourceAudit = stage6SourceAudit(stage6);
+  const sourceFreshness = sourceFreshnessStatus(sourceAudit.sha);
   const contractIssues = formulaContractIssues(stage6);
   const rows = uniqueRows(stage6).map((row) => rowBacklog(row, contractIssues.length > 0));
   const missingFormulaRows = rows.filter((row) => row.missingFormulaFields.length > 0);
@@ -388,6 +420,8 @@ function main() {
   const topAdjustmentKnob = Object.entries(adjustmentKnobAggregation).sort((a, b) => b[1].totalMagnitude - a[1].totalMagnitude || b[1].count - a[1].count)[0]?.[0] || 'none';
   const overall = rows.length === 0
     ? 'fail_no_rows'
+    : sourceFreshness.freshSourceViolation
+      ? 'warn_formula_tuning_stale_source'
     : contractIssues.length > 0
       ? 'warn_formula_tuning_contract_incomplete'
     : missingFormulaRows.length > 0 || missingLaneSpecificRows.length > 0
@@ -408,6 +442,14 @@ function main() {
       hash: stage6?.manifest?.stage6Hash || stage6?.stage6Hash || sha256(stage6Path),
       formulaContractVersion: contractVersion(stage6),
       source: sourceAudit
+    },
+    runtimeProof: {
+      status: sourceFreshness.status,
+      expectedSourceSha: EXPECTED_SOURCE_SHA,
+      sourceSha: sourceAudit.sha,
+      sourceShaMatchesExpected: sourceFreshness.sourceShaMatchesExpected,
+      enforceFreshSource: ENFORCE_FRESH_SOURCE,
+      freshSourceViolation: sourceFreshness.freshSourceViolation
     },
     summary: {
       rows: rows.length,
@@ -432,7 +474,9 @@ function main() {
       producerOnly: true,
       brokerSubmitReplaceRepriceAllowed: false,
       sidecarMutationAllowed: false,
-      nextAction: contractIssues.length > 0
+      nextAction: sourceFreshness.nextAction
+        ? sourceFreshness.nextAction
+        : contractIssues.length > 0
         ? 'generate_fresh_stage6_after_formula_v4_head_or_fix_manifest_contract'
         : missingFormulaRows.length > 0 || missingLaneSpecificRows.length > 0
         ? 'generate_fresh_stage6_after_formula_v4_head'
@@ -450,6 +494,10 @@ function main() {
   ensureParent(OUT_MD);
   fs.writeFileSync(resolveRepo(OUT_MD), buildMarkdown(report));
   console.log(`[STAGE6_FORMULA_TUNING_BACKLOG] overall=${report.overall} rows=${rows.length} producerReview=${producerRows.length} topTrack=${topProducerTrack} json=${OUT_JSON}`);
+  if (ENFORCE_FRESH_SOURCE && sourceFreshness.freshSourceViolation) {
+    console.error(`[STAGE6_FORMULA_TUNING_BACKLOG] fresh source enforcement failed expected=${EXPECTED_SOURCE_SHA || 'none'} actual=${sourceAudit.sha || 'missing'}`);
+    process.exit(1);
+  }
 }
 
 main();
