@@ -332,6 +332,102 @@ function aggregate(rows, key) {
   }]));
 }
 
+function recommendationForGroup(groupRows) {
+  const first = groupRows[0] || {};
+  const producerTrack = first.producerTrack || 'unknown';
+  const adjustmentKnob = first.adjustmentKnob || 'missing';
+  const magnitudes = groupRows.map((row) => Number(row.adjustmentMagnitude || row.deltaValue || row.severity || 0));
+  const observedValues = groupRows.map((row) => Number(row.observedValue || 0));
+  const thresholdValues = groupRows.map((row) => Number(row.thresholdValue || 0));
+  const maxMagnitude = round(Math.max(...magnitudes, 0));
+  const avgMagnitude = round(magnitudes.reduce((sum, value) => sum + value, 0) / Math.max(1, magnitudes.length));
+  const maxObservedValue = round(Math.max(...observedValues, 0));
+  const maxThresholdValue = round(Math.max(...thresholdValues, 0));
+  const unit = first.unit || 'unknown';
+  const base = {
+    producerTrack,
+    adjustmentKnob,
+    symbols: groupRows.map((row) => row.symbol).sort(),
+    count: groupRows.length,
+    maxMagnitude,
+    avgMagnitude,
+    maxObservedValue,
+    maxThresholdValue,
+    unit,
+    producerOnly: true,
+    brokerMutationAllowed: false,
+    sidecarMutationAllowed: false
+  };
+  if (producerTrack === 'target_recalibration') {
+    return {
+      ...base,
+      formulaDecision: 'RECALIBRATE_TARGET_OR_CONFIRM_NO_TRADE',
+      recommendedProducerChange: 'Refresh the Stage6 target thesis/expected-return target and keep sidecar reprice blocked. If required target gap stays above policy, emit no-trade.',
+      candidateThresholdField: 'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+      candidateThresholdValue: null,
+      doneWhen: 'Rows either emit a fresh target above current with viable RR/buffer evidence or explicit TARGET_NO_TRADE_CONFIRMED.'
+    };
+  }
+  if (producerTrack === 'risk_geometry_recalculation') {
+    return {
+      ...base,
+      formulaDecision: 'RECALCULATE_STOP_TARGET_GEOMETRY_OR_CONFIRM_NO_TRADE',
+      recommendedProducerChange: 'Recompute stop/target together from current-entry risk. Do not lower RR/fillability floors to make this pass.',
+      candidateThresholdField: 'riskGeometryRequiredTargetPrice / riskGeometryTargetShortfallPct',
+      candidateThresholdValue: maxMagnitude,
+      doneWhen: 'Rows provide targetAboveCurrent, stopValid, stopDistanceValid, recalculatedStopRrOk, and targetBufferOk evidence or stay no-trade.'
+    };
+  }
+  if (producerTrack === 'breakout_proof_confirmed_generation') {
+    return {
+      ...base,
+      formulaDecision: 'IMPROVE_BREAKOUT_PROOF_CONFIRMED_GENERATION',
+      recommendedProducerChange: 'Tune proof generation only. reviewReady remains diagnostic; promotion requires proofConfirmed plus RR/distance/target-buffer pass.',
+      candidateThresholdField: adjustmentKnob === 'BREAKOUT_EXTENSION_POLICY'
+        ? 'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct'
+        : adjustmentKnob === 'BREAKOUT_RETEST_FRESHNESS_WINDOW'
+          ? 'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest'
+          : 'BREAKOUT_RETEST_PROOF_POLICY.proofConfirmed criteria',
+      candidateThresholdValue: adjustmentKnob === 'BREAKOUT_EXTENSION_POLICY' ? maxObservedValue : null,
+      doneWhen: 'Rows expose proofConfirmed=true only when retest touch/freshness/close reclaim/extension/continuation evidence all pass.'
+    };
+  }
+  if (producerTrack === 'structure_proof_generation') {
+    return {
+      ...base,
+      formulaDecision: 'IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE',
+      recommendedProducerChange: 'Improve support/RR/distance proof generation. Do not convert structure reject to executable by default.',
+      candidateThresholdField: adjustmentKnob === 'CURRENT_ENTRY_STRUCTURE_RR_EVIDENCE'
+        ? 'executionFeasibilityAtCurrentMinRr'
+        : adjustmentKnob === 'CURRENT_ENTRY_STRUCTURE_DISTANCE_BAND'
+          ? 'CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct'
+          : 'CURRENT_ENTRY_STRUCTURE_POLICY.support proof',
+      candidateThresholdValue: null,
+      doneWhen: 'Rows either produce structure confirmed support-aligned stop evidence with RR/buffer/distance pass or remain WAIT.'
+    };
+  }
+  return {
+    ...base,
+    formulaDecision: 'NO_PRODUCER_TUNING_ACTION',
+    recommendedProducerChange: 'No formula bottleneck is actionable for this group.',
+    candidateThresholdField: null,
+    candidateThresholdValue: null,
+    doneWhen: 'No action.'
+  };
+}
+
+function buildTuningRecommendations(producerRows) {
+  const groups = new Map();
+  for (const row of producerRows) {
+    const key = `${row.producerTrack || 'unknown'}::${row.adjustmentKnob || 'missing'}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()]
+    .map(recommendationForGroup)
+    .sort((a, b) => b.maxMagnitude - a.maxMagnitude || b.count - a.count || a.producerTrack.localeCompare(b.producerTrack));
+}
+
 function buildMarkdown(report) {
   const lines = [];
   lines.push('# Stage6 Formula Tuning Backlog');
@@ -352,6 +448,7 @@ function buildMarkdown(report) {
   lines.push(`| formulaLaneMismatchRows | ${report.summary.formulaLaneMismatchRows} |`);
   lines.push(`| formulaEvidenceWeakRows | ${report.summary.formulaEvidenceWeakRows} |`);
   lines.push(`| formulaContractIssues | ${report.summary.formulaContractIssues} |`);
+  lines.push(`| tuningRecommendationCount | ${report.summary.tuningRecommendationCount} |`);
   lines.push(`| topProducerTrack | ${esc(report.summary.topProducerTrack)} |`);
   lines.push(`| topAdjustmentKnob | ${esc(report.summary.topAdjustmentKnob)} |`);
   lines.push('');
@@ -370,6 +467,15 @@ function buildMarkdown(report) {
     lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(evidence)} | ${esc(laneMismatch)} | ${row.formulaEvidenceWeak ? 'yes' : 'no'} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
   }
   if (!report.backlogRows.length) lines.push('| none | none | none | none | none | N/A | none | no | no | none | none |');
+  lines.push('');
+  lines.push('## Tuning Recommendations');
+  lines.push('');
+  lines.push('| Track | Knob | Symbols | Max Magnitude | Avg Magnitude | Decision | Candidate Field | Candidate Value | Producer Change | Done When |');
+  lines.push('| --- | --- | --- | ---: | ---: | --- | --- | ---: | --- | --- |');
+  for (const row of report.tuningRecommendations) {
+    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(row.maxMagnitude)} | ${esc(row.avgMagnitude)} | ${esc(row.formulaDecision)} | ${esc(row.candidateThresholdField)} | ${esc(row.candidateThresholdValue)} | ${esc(row.recommendedProducerChange)} | ${esc(row.doneWhen)} |`);
+  }
+  if (!report.tuningRecommendations.length) lines.push('| none | none | none | N/A | N/A | none | none | N/A | none | none |');
   lines.push('');
   lines.push('## Guardrails');
   lines.push('');
@@ -416,6 +522,7 @@ function main() {
   const rankedRows = rankRows(rows);
   const producerTrackAggregation = aggregate(producerRows, 'producerTrack');
   const adjustmentKnobAggregation = aggregate(producerRows, 'adjustmentKnob');
+  const tuningRecommendations = buildTuningRecommendations(producerRows);
   const topProducerTrack = Object.entries(producerTrackAggregation).sort((a, b) => b[1].totalMagnitude - a[1].totalMagnitude || b[1].count - a[1].count)[0]?.[0] || 'none';
   const topAdjustmentKnob = Object.entries(adjustmentKnobAggregation).sort((a, b) => b[1].totalMagnitude - a[1].totalMagnitude || b[1].count - a[1].count)[0]?.[0] || 'none';
   const overall = rows.length === 0
@@ -459,6 +566,7 @@ function main() {
       formulaLaneMismatchRows: formulaLaneMismatchRows.length,
       formulaEvidenceWeakRows: formulaEvidenceWeakRows.length,
       formulaContractIssues: contractIssues.length,
+      tuningRecommendationCount: tuningRecommendations.length,
       producerTrackCounts: countBy(rows, (row) => row.producerTrack),
       adjustmentKnobCounts: countBy(rows, (row) => row.adjustmentKnob || 'missing'),
       producerTrackAggregation,
@@ -469,6 +577,7 @@ function main() {
       sidecarMutationAllowed: false
     },
     backlogRows: rankedRows,
+    tuningRecommendations,
     formulaContractIssues: contractIssues,
     guardrails: {
       producerOnly: true,

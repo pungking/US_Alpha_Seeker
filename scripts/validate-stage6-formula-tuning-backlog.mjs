@@ -20,6 +20,7 @@ const CASES = [
     expectLaneMismatch: 0,
     expectEvidenceWeak: 0,
     expectContractIssues: 0,
+    expectedRecommendations: 4,
     expectedNextAction: 'tune_stage6_producer_formula_or_proof_generation'
   },
   {
@@ -34,6 +35,7 @@ const CASES = [
     expectLaneMismatch: 0,
     expectEvidenceWeak: 0,
     expectContractIssues: 1,
+    expectedRecommendations: 0,
     expectedNextAction: 'generate_fresh_stage6_after_formula_v4_head_or_fix_manifest_contract'
   },
   {
@@ -48,6 +50,7 @@ const CASES = [
     expectLaneMismatch: 0,
     expectEvidenceWeak: 0,
     expectContractIssues: 0,
+    expectedRecommendations: 0,
     expectedNextAction: 'generate_fresh_stage6_after_formula_v4_head'
   },
   {
@@ -62,6 +65,7 @@ const CASES = [
     expectLaneMismatch: 0,
     expectEvidenceWeak: 1,
     expectContractIssues: 0,
+    expectedRecommendations: 0,
     expectedNextAction: 'refresh_stage6_formula_evidence_before_tuning_thresholds'
   },
   {
@@ -76,6 +80,7 @@ const CASES = [
     expectLaneMismatch: 2,
     expectEvidenceWeak: 0,
     expectContractIssues: 0,
+    expectedRecommendations: 0,
     expectedNextAction: 'refresh_stage6_formula_lane_mapping'
   }
 ];
@@ -120,6 +125,9 @@ function runCase(testCase) {
   if (Number(report.summary?.formulaContractIssues || 0) !== testCase.expectContractIssues) {
     throw new Error(`${testCase.name}: expected formulaContractIssues=${testCase.expectContractIssues}, got ${report.summary?.formulaContractIssues}`);
   }
+  if (Number(report.summary?.tuningRecommendationCount || 0) !== testCase.expectedRecommendations) {
+    throw new Error(`${testCase.name}: expected tuningRecommendationCount=${testCase.expectedRecommendations}, got ${report.summary?.tuningRecommendationCount}`);
+  }
   if (report.summary?.topProducerTrack !== testCase.expectedTopTrack) {
     throw new Error(`${testCase.name}: expected topProducerTrack=${testCase.expectedTopTrack}, got ${report.summary?.topProducerTrack}`);
   }
@@ -136,7 +144,7 @@ function runCase(testCase) {
   for (const token of ['Stage6 Formula Tuning Backlog', 'producer-only', 'broker submit, replace, reprice']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing token ${token}`);
   }
-  for (const token of ['missingLaneSpecificRows', 'formulaLaneMismatchRows', 'formulaEvidenceWeakRows', 'Lane Mismatch', 'Weak Evidence', 'Missing Lane Fields']) {
+  for (const token of ['missingLaneSpecificRows', 'formulaLaneMismatchRows', 'formulaEvidenceWeakRows', 'tuningRecommendationCount', 'Lane Mismatch', 'Weak Evidence', 'Missing Lane Fields', 'Tuning Recommendations']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing lane-specific token ${token}`);
   }
   return {
@@ -148,6 +156,7 @@ function runCase(testCase) {
     formulaLaneMismatchRows: report.summary.formulaLaneMismatchRows,
     formulaEvidenceWeakRows: report.summary.formulaEvidenceWeakRows,
     formulaContractIssues: report.summary.formulaContractIssues,
+    tuningRecommendationCount: report.summary.tuningRecommendationCount,
     topProducerTrack: report.summary.topProducerTrack,
     topAdjustmentKnob: report.summary.topAdjustmentKnob,
     nextAction: report.guardrails?.nextAction
@@ -231,6 +240,9 @@ function validateFreshSourceEnforcementPasses() {
   }
   if (report.runtimeProof?.status !== 'pass_fresh_stage6_source_sha' || report.runtimeProof?.sourceShaMatchesExpected !== true) {
     throw new Error('fresh source enforcement pass did not prove matching source SHA');
+  }
+  if (Number(report.summary?.tuningRecommendationCount || 0) !== 4) {
+    throw new Error(`fresh source enforcement pass expected tuningRecommendationCount=4, got ${report.summary?.tuningRecommendationCount}`);
   }
   return {
     name: 'fresh_source_enforcement_passes_matching_backlog',
