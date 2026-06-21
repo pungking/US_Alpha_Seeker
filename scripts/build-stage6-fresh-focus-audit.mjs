@@ -7,6 +7,9 @@ const REPO_ROOT = process.cwd();
 const DEFAULT_STAGE6_DIR = 'state/stage6-audit-source';
 const OUT_JSON = process.env.STAGE6_FOCUS_AUDIT_OUT_JSON || 'state/stage6-fresh-focus-audit.json';
 const OUT_MD = process.env.STAGE6_FOCUS_AUDIT_OUT_MD || 'docs/STAGE6_FRESH_FOCUS_AUDIT.md';
+const ENFORCE_FRESH_CONTRACT = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.STAGE6_FOCUS_AUDIT_ENFORCE_FRESH_CONTRACT || '').trim().toLowerCase()
+);
 const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaBottleneck',
   'zeroExecutableFormulaSeverity',
@@ -648,6 +651,8 @@ function buildMarkdown(report) {
   lines.push(`| formulaEvidenceQualityIssues | ${esc(report.runtimeProof.formulaEvidenceQualityIssues)} |`);
   lines.push(`| laneSpecificFormulaEvidenceIssues | ${esc(report.runtimeProof.laneSpecificFormulaEvidenceIssues)} |`);
   lines.push(`| nextAction | ${esc(report.guardrails.nextAction)} |`);
+  lines.push(`| enforceFreshContract | ${esc(report.guardrails.enforceFreshContract)} |`);
+  lines.push(`| freshContractViolation | ${esc(report.guardrails.freshContractViolation)} |`);
   lines.push('');
   lines.push('## Field Coverage');
   lines.push('');
@@ -740,6 +745,14 @@ function runtimeProof(overall, checks) {
       ? 'monitor_next_sidecar_fresh_hash_consumption'
       : 'tune_stage6_target_risk_breakout_formulas'
   };
+}
+
+function freshContractViolationStatus(status) {
+  return new Set([
+    'fail_no_stage6_rows',
+    'pending_fresh_stage6_source_sha',
+    'pending_fresh_stage6_formula_v4_runtime_proof'
+  ]).has(status);
 }
 
 function main() {
@@ -941,7 +954,9 @@ function main() {
       producerOnly: true,
       brokerSubmitReplaceRepriceAllowed: false,
       sidecarMutationAllowed: false,
-      nextAction: proof.nextAction
+      nextAction: proof.nextAction,
+      enforceFreshContract: ENFORCE_FRESH_CONTRACT,
+      freshContractViolation: freshContractViolationStatus(proof.status)
     },
     rows: rows.map(compactRow)
   };
@@ -950,6 +965,10 @@ function main() {
   fs.writeFileSync(resolveRepo(OUT_JSON), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   fs.writeFileSync(resolveRepo(OUT_MD), buildMarkdown(report), 'utf8');
   console.log(`[STAGE6_FRESH_FOCUS_AUDIT] overall=${overall} rows=${rows.length} executable=${executableRows.length} json=${OUT_JSON}`);
+  if (ENFORCE_FRESH_CONTRACT && freshContractViolationStatus(proof.status)) {
+    console.error(`[STAGE6_FRESH_FOCUS_AUDIT] fresh-contract enforcement failed status=${proof.status} nextAction=${proof.nextAction}`);
+    process.exit(1);
+  }
   if (overall.startsWith('fail')) process.exit(1);
 }
 

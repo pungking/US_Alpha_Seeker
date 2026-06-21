@@ -212,6 +212,41 @@ function runCase(testCase) {
   };
 }
 
+function validateFreshContractEnforcement() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage6-fresh-focus-enforce-'));
+  const outJson = path.join(tmp, 'audit.json');
+  const outMd = path.join(tmp, 'audit.md');
+  const fixturePath = path.join(FIXTURE_DIR, 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json');
+  const result = spawnSync(process.execPath, [SCRIPT], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      STAGE6_FOCUS_AUDIT_STAGE6_PATH: fixturePath,
+      STAGE6_FOCUS_AUDIT_OUT_JSON: outJson,
+      STAGE6_FOCUS_AUDIT_OUT_MD: outMd,
+      STAGE6_EXPECTED_SOURCE_SHA: 'expected-fresh-source-sha',
+      STAGE6_FOCUS_AUDIT_ENFORCE_FRESH_CONTRACT: 'true'
+    },
+    encoding: 'utf8'
+  });
+  if (result.status === 0) {
+    throw new Error('fresh-contract enforcement should fail when expected source sha is absent/mismatched');
+  }
+  const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
+  if (report.runtimeProof?.status !== 'pending_fresh_stage6_source_sha') {
+    throw new Error(`fresh-contract enforcement expected pending_fresh_stage6_source_sha, got ${report.runtimeProof?.status}`);
+  }
+  if (report.guardrails?.freshContractViolation !== true || report.guardrails?.enforceFreshContract !== true) {
+    throw new Error('fresh-contract enforcement guardrails were not persisted in report');
+  }
+  return {
+    name: 'fresh_contract_enforcement_blocks_stale_source',
+    status: report.runtimeProof.status,
+    nextAction: report.guardrails.nextAction
+  };
+}
+
 const results = CASES.map(runCase);
 validateProducerSourceContract();
+results.push(validateFreshContractEnforcement());
 console.log(`[STAGE6_FRESH_FOCUS_FORMULA_COVERAGE] PASS ${JSON.stringify(results)}`);
