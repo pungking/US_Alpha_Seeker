@@ -246,7 +246,55 @@ function validateFreshContractEnforcement() {
   };
 }
 
+function validateFreshContractEnforcementPass() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage6-fresh-focus-enforce-pass-'));
+  const sourceFixturePath = path.join(FIXTURE_DIR, 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json');
+  const fixture = JSON.parse(fs.readFileSync(sourceFixturePath, 'utf8'));
+  const expectedSha = 'expected-fresh-source-sha';
+  fixture.manifest = {
+    ...(fixture.manifest || {}),
+    sourceRepo: 'pungking/US_Alpha_Seeker',
+    sourceWorkflow: 'US Alpha Seeker Auto-Scheduler',
+    sourceRunId: 'fixture-run',
+    sourceSha: expectedSha,
+    sourceRef: 'main',
+    sourceEventName: 'schedule'
+  };
+  const fixturePath = path.join(tmp, 'STAGE6_ALPHA_FINAL_WITH_FORMULA_SOURCE_SHA.fixture.json');
+  const outJson = path.join(tmp, 'audit.json');
+  const outMd = path.join(tmp, 'audit.md');
+  fs.writeFileSync(fixturePath, `${JSON.stringify(fixture, null, 2)}\n`, 'utf8');
+  const result = spawnSync(process.execPath, [SCRIPT], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      STAGE6_FOCUS_AUDIT_STAGE6_PATH: fixturePath,
+      STAGE6_FOCUS_AUDIT_OUT_JSON: outJson,
+      STAGE6_FOCUS_AUDIT_OUT_MD: outMd,
+      STAGE6_EXPECTED_SOURCE_SHA: expectedSha,
+      STAGE6_FOCUS_AUDIT_ENFORCE_FRESH_CONTRACT: 'true'
+    },
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    throw new Error(`fresh-contract enforcement pass fixture failed\nstdout=${result.stdout}\nstderr=${result.stderr}`);
+  }
+  const report = JSON.parse(fs.readFileSync(outJson, 'utf8'));
+  if (report.runtimeProof?.status !== 'pass_formula_v4_runtime_proof') {
+    throw new Error(`fresh-contract enforcement expected pass_formula_v4_runtime_proof, got ${report.runtimeProof?.status}`);
+  }
+  if (report.runtimeProof?.sourceShaMatchesExpected !== true || report.guardrails?.freshContractViolation !== false) {
+    throw new Error('fresh-contract enforcement pass fixture did not prove source SHA match and no violation');
+  }
+  return {
+    name: 'fresh_contract_enforcement_passes_matching_source',
+    status: report.runtimeProof.status,
+    nextAction: report.guardrails.nextAction
+  };
+}
+
 const results = CASES.map(runCase);
 validateProducerSourceContract();
 results.push(validateFreshContractEnforcement());
+results.push(validateFreshContractEnforcementPass());
 console.log(`[STAGE6_FRESH_FOCUS_FORMULA_COVERAGE] PASS ${JSON.stringify(results)}`);
