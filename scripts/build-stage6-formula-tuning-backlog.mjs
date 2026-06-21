@@ -27,6 +27,40 @@ const PRODUCER_TRACK_BY_BOTTLENECK = {
   STRUCTURE_PROOF_FORMULA: 'structure_proof_generation',
   NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK: 'no_action'
 };
+const EXPECTED_LANE_SPECIFIC_ROW_FIELDS = {
+  TARGET_RECALIBRATION: [
+    'targetRecalibrationFormulaEvidenceBasis',
+    'targetRecalibrationFormulaObservedValue',
+    'targetRecalibrationFormulaThresholdValue',
+    'targetRecalibrationFormulaDeltaValue',
+    'targetRecalibrationFormulaUnit'
+  ],
+  STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
+    'riskGeometryFormulaEvidenceBasis',
+    'riskGeometryFormulaObservedValue',
+    'riskGeometryFormulaThresholdValue',
+    'riskGeometryFormulaDeltaValue',
+    'riskGeometryFormulaUnit'
+  ],
+  RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
+    'riskGeometryFormulaEvidenceBasis',
+    'riskGeometryFormulaObservedValue',
+    'riskGeometryFormulaThresholdValue',
+    'riskGeometryFormulaDeltaValue',
+    'riskGeometryFormulaUnit'
+  ],
+  BREAKOUT_PROOF_CONFIRMED_GENERATION: [
+    'breakoutRetestProofFormulaEvidenceBasis',
+    'breakoutRetestProofFormulaObservedValue',
+    'breakoutRetestProofFormulaThresholdValue',
+    'breakoutRetestProofFormulaDeltaValue',
+    'breakoutRetestProofFormulaUnit'
+  ],
+  STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
+    'structurePolicyFormulaEvidenceBasis'
+  ],
+  NO_ZERO_EXECUTABLE_TUNING_ACTION: []
+};
 
 function resolveRepo(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(REPO_ROOT, filePath);
@@ -130,8 +164,36 @@ function contractVersion(stage6) {
   return normalizeText(stage6?.manifest?.decisionGate?.zeroExecutableFormulaContract?.version) || normalizeText(stage6?.decisionGate?.zeroExecutableFormulaContract?.version);
 }
 
+function formulaContract(stage6) {
+  return stage6?.manifest?.decisionGate?.zeroExecutableFormulaContract || stage6?.decisionGate?.zeroExecutableFormulaContract || null;
+}
+
+function formulaContractIssues(stage6) {
+  const contract = formulaContract(stage6);
+  if (!contract || typeof contract !== 'object') return ['formula_contract_missing'];
+  const issues = [];
+  const laneSpecificRowFields = contract.laneSpecificRowFields || {};
+  for (const [lane, fields] of Object.entries(EXPECTED_LANE_SPECIFIC_ROW_FIELDS)) {
+    if (!Array.isArray(laneSpecificRowFields[lane])) {
+      issues.push(`lane_specific_contract_missing:${lane}`);
+      continue;
+    }
+    const actualFields = new Set(laneSpecificRowFields[lane]);
+    for (const field of fields) {
+      if (!actualFields.has(field)) issues.push(`lane_specific_contract_missing:${lane}.${field}`);
+    }
+  }
+  return issues;
+}
+
 function missingV3Fields(row) {
   return REQUIRED_V3_FIELDS.filter((field) => !Object.prototype.hasOwnProperty.call(row, field));
+}
+
+function missingLaneSpecificFields(row) {
+  const lane = String(row?.zeroExecutableTuningLane || '').trim().toUpperCase();
+  const fields = EXPECTED_LANE_SPECIFIC_ROW_FIELDS[lane] || [];
+  return fields.filter((field) => !Object.prototype.hasOwnProperty.call(row, field));
 }
 
 function rowBacklog(row) {
@@ -139,10 +201,11 @@ function rowBacklog(row) {
   const bottleneck = normalizeText(row?.zeroExecutableFormulaBottleneck) || 'missing';
   const producerTrack = PRODUCER_TRACK_BY_BOTTLENECK[bottleneck] || 'unknown';
   const missingFields = missingV3Fields(row);
+  const missingLaneFields = missingLaneSpecificFields(row);
   const delta = round(row?.zeroExecutableFormulaDeltaValue) ?? 0;
   const magnitude = round(row?.zeroExecutableFormulaAdjustmentMagnitude) ?? delta;
   const severity = round(row?.zeroExecutableFormulaSeverity) ?? 0;
-  const actionRequired = missingFields.length > 0
+  const actionRequired = missingFields.length > 0 || missingLaneFields.length > 0
     ? 'REFRESH_STAGE6_WITH_FORMULA_V3'
     : producerTrack === 'no_action'
       ? 'NO_PRODUCER_TUNING_ACTION'
@@ -167,6 +230,7 @@ function rowBacklog(row) {
     severity,
     actionRequired,
     missingV3Fields: missingFields,
+    missingLaneSpecificFields: missingLaneFields,
     producerOnly: true,
     sidecarMutationAllowed: false
   };
@@ -207,6 +271,8 @@ function buildMarkdown(report) {
   lines.push(`| rows | ${report.summary.rows} |`);
   lines.push(`| producerReviewRows | ${report.summary.producerReviewRows} |`);
   lines.push(`| missingV3Rows | ${report.summary.missingV3Rows} |`);
+  lines.push(`| missingLaneSpecificRows | ${report.summary.missingLaneSpecificRows} |`);
+  lines.push(`| formulaContractIssues | ${report.summary.formulaContractIssues} |`);
   lines.push(`| topProducerTrack | ${esc(report.summary.topProducerTrack)} |`);
   lines.push(`| topAdjustmentKnob | ${esc(report.summary.topAdjustmentKnob)} |`);
   lines.push('');
@@ -217,13 +283,13 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Backlog Rows');
   lines.push('');
-  lines.push('| Symbol | Decision | Track | Knob | Direction | Magnitude | Evidence | Action |');
-  lines.push('| --- | --- | --- | --- | --- | ---: | --- | --- |');
+  lines.push('| Symbol | Decision | Track | Knob | Direction | Magnitude | Evidence | Missing Lane Fields | Action |');
+  lines.push('| --- | --- | --- | --- | --- | ---: | --- | --- | --- |');
   for (const row of report.backlogRows) {
     const evidence = `${row.evidenceBasis || 'missing'}:${row.observedValue ?? 'N/A'}>${row.thresholdValue ?? 'N/A'} delta=${row.deltaValue ?? 'N/A'} ${row.unit || ''}`;
-    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(evidence)} | ${esc(row.actionRequired)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(evidence)} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
   }
-  if (!report.backlogRows.length) lines.push('| none | none | none | none | none | N/A | none | none |');
+  if (!report.backlogRows.length) lines.push('| none | none | none | none | none | N/A | none | none | none |');
   lines.push('');
   lines.push('## Guardrails');
   lines.push('');
@@ -238,6 +304,8 @@ function main() {
   const stage6 = readJson(stage6Path);
   const rows = uniqueRows(stage6).map(rowBacklog);
   const missingV3Rows = rows.filter((row) => row.missingV3Fields.length > 0);
+  const missingLaneSpecificRows = rows.filter((row) => row.missingLaneSpecificFields.length > 0);
+  const contractIssues = formulaContractIssues(stage6);
   const producerRows = rows.filter((row) => row.actionRequired === 'PRODUCER_TUNING_REVIEW');
   const rankedRows = rankRows(rows);
   const producerTrackAggregation = aggregate(producerRows, 'producerTrack');
@@ -246,7 +314,9 @@ function main() {
   const topAdjustmentKnob = Object.entries(adjustmentKnobAggregation).sort((a, b) => b[1].totalMagnitude - a[1].totalMagnitude || b[1].count - a[1].count)[0]?.[0] || 'none';
   const overall = rows.length === 0
     ? 'fail_no_rows'
-    : missingV3Rows.length > 0
+    : contractIssues.length > 0
+      ? 'warn_formula_tuning_contract_incomplete'
+    : missingV3Rows.length > 0 || missingLaneSpecificRows.length > 0
       ? 'warn_formula_tuning_v3_fields_missing'
       : producerRows.length > 0
         ? 'pass_formula_tuning_backlog_ready'
@@ -264,6 +334,8 @@ function main() {
       rows: rows.length,
       producerReviewRows: producerRows.length,
       missingV3Rows: missingV3Rows.length,
+      missingLaneSpecificRows: missingLaneSpecificRows.length,
+      formulaContractIssues: contractIssues.length,
       producerTrackCounts: countBy(rows, (row) => row.producerTrack),
       adjustmentKnobCounts: countBy(rows, (row) => row.adjustmentKnob || 'missing'),
       producerTrackAggregation,
@@ -274,11 +346,14 @@ function main() {
       sidecarMutationAllowed: false
     },
     backlogRows: rankedRows,
+    formulaContractIssues: contractIssues,
     guardrails: {
       producerOnly: true,
       brokerSubmitReplaceRepriceAllowed: false,
       sidecarMutationAllowed: false,
-      nextAction: missingV3Rows.length > 0
+      nextAction: contractIssues.length > 0
+        ? 'publish_stage6_formula_lane_specific_contract'
+        : missingV3Rows.length > 0 || missingLaneSpecificRows.length > 0
         ? 'generate_fresh_stage6_after_formula_v3_head'
         : producerRows.length > 0
           ? 'tune_stage6_producer_formula_or_proof_generation'

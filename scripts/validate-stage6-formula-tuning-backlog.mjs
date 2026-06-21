@@ -15,7 +15,9 @@ const CASES = [
     expectedProducerRows: 5,
     expectedTopTrack: 'risk_geometry_recalculation',
     expectedTopKnob: 'RISK_GEOMETRY_REQUIRED_TARGET_PRICE',
-    expectMissingV3: 0
+    expectMissingV3: 0,
+    expectMissingLaneSpecific: 0,
+    expectContractIssues: 0
   },
   {
     name: 'missing_formula_backlog_requires_refresh',
@@ -24,7 +26,9 @@ const CASES = [
     expectedProducerRows: 0,
     expectedTopTrack: 'none',
     expectedTopKnob: 'none',
-    expectMissingV3: 1
+    expectMissingV3: 1,
+    expectMissingLaneSpecific: 1,
+    expectContractIssues: 0
   }
 ];
 
@@ -56,6 +60,12 @@ function runCase(testCase) {
   if (Number(report.summary?.missingV3Rows || 0) !== testCase.expectMissingV3) {
     throw new Error(`${testCase.name}: expected missingV3Rows=${testCase.expectMissingV3}, got ${report.summary?.missingV3Rows}`);
   }
+  if (Number(report.summary?.missingLaneSpecificRows || 0) !== testCase.expectMissingLaneSpecific) {
+    throw new Error(`${testCase.name}: expected missingLaneSpecificRows=${testCase.expectMissingLaneSpecific}, got ${report.summary?.missingLaneSpecificRows}`);
+  }
+  if (Number(report.summary?.formulaContractIssues || 0) !== testCase.expectContractIssues) {
+    throw new Error(`${testCase.name}: expected formulaContractIssues=${testCase.expectContractIssues}, got ${report.summary?.formulaContractIssues}`);
+  }
   if (report.summary?.topProducerTrack !== testCase.expectedTopTrack) {
     throw new Error(`${testCase.name}: expected topProducerTrack=${testCase.expectedTopTrack}, got ${report.summary?.topProducerTrack}`);
   }
@@ -69,11 +79,16 @@ function runCase(testCase) {
   for (const token of ['Stage6 Formula Tuning Backlog', 'producer-only', 'broker submit, replace, reprice']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing token ${token}`);
   }
+  for (const token of ['missingLaneSpecificRows', 'Missing Lane Fields']) {
+    if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing lane-specific token ${token}`);
+  }
   return {
     name: testCase.name,
     overall: report.overall,
     producerReviewRows: report.summary.producerReviewRows,
     missingV3Rows: report.summary.missingV3Rows,
+    missingLaneSpecificRows: report.summary.missingLaneSpecificRows,
+    formulaContractIssues: report.summary.formulaContractIssues,
     topProducerTrack: report.summary.topProducerTrack,
     topAdjustmentKnob: report.summary.topAdjustmentKnob
   };
