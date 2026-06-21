@@ -120,7 +120,12 @@
         "zeroExecutableFormulaAdjustmentKnob": "TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE",
         "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_WITH_FRESH_THESIS",
         "zeroExecutableFormulaAdjustmentMagnitude": 0.0,
-        "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion."
+        "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion.",
+        "targetRecalibrationFormulaEvidenceBasis": "target_recalibration_shortfall",
+        "targetRecalibrationFormulaObservedValue": 0,
+        "targetRecalibrationFormulaThresholdValue": 0,
+        "targetRecalibrationFormulaDeltaValue": 0,
+        "targetRecalibrationFormulaUnit": "pct_shortfall"
       }
     ],
     "watchlistTop": [],

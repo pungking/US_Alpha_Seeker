@@ -17,6 +17,7 @@ const CASES = [
     expectedTopKnob: 'RISK_GEOMETRY_REQUIRED_TARGET_PRICE',
     expectMissingV3: 0,
     expectMissingLaneSpecific: 0,
+    expectEvidenceWeak: 0,
     expectContractIssues: 0
   },
   {
@@ -28,6 +29,19 @@ const CASES = [
     expectedTopKnob: 'none',
     expectMissingV3: 1,
     expectMissingLaneSpecific: 1,
+    expectEvidenceWeak: 0,
+    expectContractIssues: 0
+  },
+  {
+    name: 'weak_formula_evidence_requires_refresh',
+    fixture: 'STAGE6_ALPHA_FINAL_FORMULA_EVIDENCE_WEAK.fixture.json',
+    expectedOverall: 'warn_formula_tuning_evidence_weak',
+    expectedProducerRows: 0,
+    expectedTopTrack: 'none',
+    expectedTopKnob: 'none',
+    expectMissingV3: 0,
+    expectMissingLaneSpecific: 0,
+    expectEvidenceWeak: 1,
     expectContractIssues: 0
   }
 ];
@@ -63,6 +77,9 @@ function runCase(testCase) {
   if (Number(report.summary?.missingLaneSpecificRows || 0) !== testCase.expectMissingLaneSpecific) {
     throw new Error(`${testCase.name}: expected missingLaneSpecificRows=${testCase.expectMissingLaneSpecific}, got ${report.summary?.missingLaneSpecificRows}`);
   }
+  if (Number(report.summary?.formulaEvidenceWeakRows || 0) !== testCase.expectEvidenceWeak) {
+    throw new Error(`${testCase.name}: expected formulaEvidenceWeakRows=${testCase.expectEvidenceWeak}, got ${report.summary?.formulaEvidenceWeakRows}`);
+  }
   if (Number(report.summary?.formulaContractIssues || 0) !== testCase.expectContractIssues) {
     throw new Error(`${testCase.name}: expected formulaContractIssues=${testCase.expectContractIssues}, got ${report.summary?.formulaContractIssues}`);
   }
@@ -79,7 +96,7 @@ function runCase(testCase) {
   for (const token of ['Stage6 Formula Tuning Backlog', 'producer-only', 'broker submit, replace, reprice']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing token ${token}`);
   }
-  for (const token of ['missingLaneSpecificRows', 'Missing Lane Fields']) {
+  for (const token of ['missingLaneSpecificRows', 'formulaEvidenceWeakRows', 'Weak Evidence', 'Missing Lane Fields']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing lane-specific token ${token}`);
   }
   return {
@@ -88,6 +105,7 @@ function runCase(testCase) {
     producerReviewRows: report.summary.producerReviewRows,
     missingV3Rows: report.summary.missingV3Rows,
     missingLaneSpecificRows: report.summary.missingLaneSpecificRows,
+    formulaEvidenceWeakRows: report.summary.formulaEvidenceWeakRows,
     formulaContractIssues: report.summary.formulaContractIssues,
     topProducerTrack: report.summary.topProducerTrack,
     topAdjustmentKnob: report.summary.topAdjustmentKnob

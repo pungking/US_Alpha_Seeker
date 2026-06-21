@@ -18,7 +18,7 @@ const CASES = [
     expectedFreshOverall: 'pass_executable_present_focus_fields_ok',
     expectedBacklogOverall: 'pass_formula_tuning_backlog_ready',
     expectedFreshIssues: { manifest: 0, lane: 0, evidence: 0, laneSpecific: 0 },
-    expectedBacklogIssues: { contract: 0, missingV3: 0, missingLaneSpecific: 0 }
+    expectedBacklogIssues: { contract: 0, missingV3: 0, missingLaneSpecific: 0, evidenceWeak: 0 }
   },
   {
     name: 'missing_formula_fields_routes_to_refresh',
@@ -26,7 +26,7 @@ const CASES = [
     expectedFreshOverall: 'warn_formula_bottleneck_fields_missing',
     expectedBacklogOverall: 'warn_formula_tuning_v3_fields_missing',
     expectedFreshIssues: { manifest: 0, lane: 1, evidence: 1, laneSpecific: 1 },
-    expectedBacklogIssues: { contract: 0, missingV3: 1, missingLaneSpecific: 1 }
+    expectedBacklogIssues: { contract: 0, missingV3: 1, missingLaneSpecific: 1, evidenceWeak: 0 }
   },
   {
     name: 'missing_formula_contract_routes_to_contract_refresh',
@@ -34,7 +34,7 @@ const CASES = [
     expectedFreshOverall: 'warn_formula_contract_missing_or_mismatch',
     expectedBacklogOverall: 'warn_formula_tuning_contract_incomplete',
     expectedFreshIssues: { manifest: 1, lane: 0, evidence: 0, laneSpecific: 4 },
-    expectedBacklogIssues: { contract: 1, missingV3: 0, missingLaneSpecific: 4 }
+    expectedBacklogIssues: { contract: 1, missingV3: 0, missingLaneSpecific: 4, evidenceWeak: 0 }
   },
   {
     name: 'formula_lane_mismatch_blocks_backlog_ready',
@@ -42,7 +42,15 @@ const CASES = [
     expectedFreshOverall: 'warn_formula_bottleneck_lane_mismatch',
     expectedBacklogOverall: 'warn_formula_tuning_v3_fields_missing',
     expectedFreshIssues: { manifest: 0, lane: 2, evidence: 2, laneSpecific: 1 },
-    expectedBacklogIssues: { contract: 0, missingV3: 0, missingLaneSpecific: 1 }
+    expectedBacklogIssues: { contract: 0, missingV3: 0, missingLaneSpecific: 1, evidenceWeak: 0 }
+  },
+  {
+    name: 'weak_formula_evidence_blocks_backlog_ready',
+    fixture: 'STAGE6_ALPHA_FINAL_FORMULA_EVIDENCE_WEAK.fixture.json',
+    expectedFreshOverall: 'warn_formula_bottleneck_evidence_weak',
+    expectedBacklogOverall: 'warn_formula_tuning_evidence_weak',
+    expectedFreshIssues: { manifest: 0, lane: 0, evidence: 1, laneSpecific: 1 },
+    expectedBacklogIssues: { contract: 0, missingV3: 0, missingLaneSpecific: 0, evidenceWeak: 1 }
   }
 ];
 
@@ -110,12 +118,17 @@ function runCase(testCase) {
   assertEqual(`${testCase.name}.backlog.formulaContractIssues`, number(backlog.summary?.formulaContractIssues), testCase.expectedBacklogIssues.contract);
   assertEqual(`${testCase.name}.backlog.missingV3Rows`, number(backlog.summary?.missingV3Rows), testCase.expectedBacklogIssues.missingV3);
   assertEqual(`${testCase.name}.backlog.missingLaneSpecificRows`, number(backlog.summary?.missingLaneSpecificRows), testCase.expectedBacklogIssues.missingLaneSpecific);
+  assertEqual(`${testCase.name}.backlog.formulaEvidenceWeakRows`, number(backlog.summary?.formulaEvidenceWeakRows), testCase.expectedBacklogIssues.evidenceWeak);
 
   if (fresh.summary?.formulaManifestContractIssues > 0 && backlog.summary?.formulaContractIssues === 0) {
     throw new Error(`${testCase.name}: fresh contract issue must be visible in backlog`);
   }
-  if (fresh.summary?.laneSpecificFormulaEvidenceIssues > 0 && backlog.summary?.missingLaneSpecificRows === 0) {
-    throw new Error(`${testCase.name}: lane-specific evidence issue must be visible in backlog`);
+  if (
+    fresh.summary?.laneSpecificFormulaEvidenceIssues > 0 &&
+    backlog.summary?.missingLaneSpecificRows === 0 &&
+    backlog.summary?.formulaEvidenceWeakRows === 0
+  ) {
+    throw new Error(`${testCase.name}: lane-specific evidence issue must be visible in backlog as missing or weak evidence`);
   }
   if (fresh.overall.startsWith('pass') && !backlog.overall.startsWith('pass')) {
     throw new Error(`${testCase.name}: fresh pass cannot map to backlog warning`);
@@ -135,7 +148,8 @@ function runCase(testCase) {
     backlogIssues: {
       contract: number(backlog.summary?.formulaContractIssues),
       missingV3: number(backlog.summary?.missingV3Rows),
-      missingLaneSpecific: number(backlog.summary?.missingLaneSpecificRows)
+      missingLaneSpecific: number(backlog.summary?.missingLaneSpecificRows),
+      evidenceWeak: number(backlog.summary?.formulaEvidenceWeakRows)
     },
     safety: {
       brokerMutationAllowed: backlog.summary?.brokerMutationAllowed === false,
