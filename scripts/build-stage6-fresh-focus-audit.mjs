@@ -746,7 +746,7 @@ function main() {
   const stage6Path = latestStage6Path();
   const stage6 = readJson(stage6Path);
   const sourceAudit = stage6SourceAudit(stage6);
-  const expectedSourceSha = normalizeText(process.env.STAGE6_EXPECTED_SOURCE_SHA || process.env.GITHUB_SHA);
+  const expectedSourceSha = normalizeText(process.env.STAGE6_EXPECTED_SOURCE_SHA);
   const rows = uniqueRows(stage6);
   const contract = stage6?.execution_contract || {};
   const contractExecutablePicks = Array.isArray(contract.executablePicks) ? contract.executablePicks : [];
