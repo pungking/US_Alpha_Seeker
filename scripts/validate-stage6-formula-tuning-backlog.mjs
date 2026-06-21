@@ -135,6 +135,25 @@ function runCase(testCase) {
     if (missingContractFields.length > 0) {
       throw new Error(`${testCase.name}: tuning recommendations missing contractTunablePolicyFields`);
     }
+    const missingProducerFieldRecommendations = (report.tuningRecommendations || []).filter(
+      (row) => !Array.isArray(row.producerFieldRecommendations) || row.producerFieldRecommendations.length === 0
+    );
+    if (missingProducerFieldRecommendations.length > 0) {
+      throw new Error(`${testCase.name}: tuning recommendations missing direct producerFieldRecommendations`);
+    }
+    const producerFields = new Set(
+      (report.tuningRecommendations || []).flatMap((row) =>
+        (row.producerFieldRecommendations || []).map((item) => item.field)
+      )
+    );
+    for (const field of ['targetRecalibrationRequiredTargetPrice', 'riskGeometryRequiredTargetPrice', 'breakoutRetestProofConfirmed', 'currentEntryStructureVerdict']) {
+      if (!producerFields.has(field)) {
+        throw new Error(`${testCase.name}: producerFieldRecommendations missing ${field}`);
+      }
+    }
+    if (Number(report.summary?.producerFieldRecommendationCount || 0) <= 0) {
+      throw new Error(`${testCase.name}: expected producerFieldRecommendationCount > 0`);
+    }
   }
   if (report.summary?.topProducerTrack !== testCase.expectedTopTrack) {
     throw new Error(`${testCase.name}: expected topProducerTrack=${testCase.expectedTopTrack}, got ${report.summary?.topProducerTrack}`);
@@ -152,11 +171,14 @@ function runCase(testCase) {
   for (const token of ['Stage6 Formula Tuning Backlog', 'producer-only', 'broker submit, replace, reprice']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing token ${token}`);
   }
-  for (const token of ['missingLaneSpecificRows', 'formulaLaneMismatchRows', 'formulaEvidenceWeakRows', 'tuningRecommendationCount', 'Lane Mismatch', 'Weak Evidence', 'Missing Lane Fields', 'Tuning Recommendations']) {
+  for (const token of ['missingLaneSpecificRows', 'formulaLaneMismatchRows', 'formulaEvidenceWeakRows', 'tuningRecommendationCount', 'producerFieldRecommendationCount', 'Lane Mismatch', 'Weak Evidence', 'Missing Lane Fields', 'Tuning Recommendations']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing lane-specific token ${token}`);
   }
   if (testCase.expectedRecommendations > 0 && !md.includes('Contract fields')) {
     throw new Error(`${testCase.name}: markdown missing tuning contract fields`);
+  }
+  if (testCase.expectedRecommendations > 0 && !md.includes('Producer Field Recommendations')) {
+    throw new Error(`${testCase.name}: markdown missing direct producer field recommendations`);
   }
   return {
     name: testCase.name,
@@ -168,6 +190,7 @@ function runCase(testCase) {
     formulaEvidenceWeakRows: report.summary.formulaEvidenceWeakRows,
     formulaContractIssues: report.summary.formulaContractIssues,
     tuningRecommendationCount: report.summary.tuningRecommendationCount,
+    producerFieldRecommendationCount: report.summary.producerFieldRecommendationCount,
     topProducerTrack: report.summary.topProducerTrack,
     topAdjustmentKnob: report.summary.topAdjustmentKnob,
     nextAction: report.guardrails?.nextAction

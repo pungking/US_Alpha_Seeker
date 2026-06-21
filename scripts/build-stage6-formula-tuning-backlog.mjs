@@ -407,6 +407,172 @@ function aggregate(rows, key) {
   }]));
 }
 
+function producerFieldRecommendation(field, purpose, action, context = {}) {
+  return {
+    field,
+    purpose,
+    action,
+    observedValue: context.observedValue ?? null,
+    thresholdValue: context.thresholdValue ?? null,
+    candidateValue: context.candidateValue ?? null,
+    evidenceBasis: context.evidenceBasis ?? null,
+    guardrail: context.guardrail || 'producer_only_no_broker_or_sidecar_mutation'
+  };
+}
+
+function producerFieldRecommendationsForGroup(groupRows, base) {
+  const first = groupRows[0] || {};
+  const observed = base.maxObservedValue;
+  const threshold = base.maxThresholdValue;
+  const evidenceBasis = first.evidenceBasis || null;
+  const commonContext = { observedValue: observed, thresholdValue: threshold, evidenceBasis };
+
+  if (base.producerTrack === 'target_recalibration') {
+    return [
+      producerFieldRecommendation(
+        'targetRecalibrationRequiredTargetPrice',
+        'Recompute the Stage6 target required by stop-risk, target-buffer, execution-floor, and expected-return evidence.',
+        'recompute_or_mark_no_trade',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationRequiredTargetByExecutionFloorPrice',
+        'Prove whether current entry still has enough upside after recalibration.',
+        'populate_execution_floor_evidence',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationExecutionFloorViable',
+        'Boolean proof gate for whether target recalibration can produce an executable entry.',
+        'set_true_only_with_rr_and_buffer_pass',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationViabilityVerdict',
+        'Explicitly separate recalibration candidate from no-trade target geometry.',
+        'emit_recalibration_or_no_trade_verdict',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+        'Policy threshold to review only after evidence proves recurrent target shortfall.',
+        'review_threshold_do_not_blindly_relax',
+        { ...commonContext, candidateValue: null }
+      )
+    ];
+  }
+
+  if (base.producerTrack === 'risk_geometry_recalculation') {
+    return [
+      producerFieldRecommendation(
+        'riskGeometryRequiredTargetPrice',
+        'Recompute the minimum target needed for the recalculated stop path.',
+        'recompute_required_target',
+        { ...commonContext, candidateValue: base.maxMagnitude }
+      ),
+      producerFieldRecommendation(
+        'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
+        'Prove RR at required target and recalculated stop before any executable promotion.',
+        'populate_rr_proof',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'riskGeometryTargetRecalibrationProofReady',
+        'Final proof flag that stop, target, RR, and buffer checks are all coherent.',
+        'set_true_only_when_all_geometry_checks_pass',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'riskGeometryRequiredStopValid',
+        'Validate recalculated stop remains below current/entry and is finite.',
+        'populate_stop_validity_proof',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'riskGeometryRecalculatedStopRrOk',
+        'Validate recalculated stop reaches minimum RR without target chasing.',
+        'populate_rr_gate_result',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'riskGeometryTargetBufferOk',
+        'Validate current target buffer after recalculation.',
+        'populate_target_buffer_gate_result',
+        commonContext
+      )
+    ];
+  }
+
+  if (base.producerTrack === 'breakout_proof_confirmed_generation') {
+    const policyField = base.adjustmentKnob === 'BREAKOUT_EXTENSION_POLICY'
+      ? 'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct'
+      : base.adjustmentKnob === 'BREAKOUT_RETEST_FRESHNESS_WINDOW'
+        ? 'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest'
+        : base.adjustmentKnob === 'BREAKOUT_CONTINUATION_RR_FLOOR'
+          ? 'BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier'
+          : base.adjustmentKnob === 'BREAKOUT_CONTINUATION_TARGET_BUFFER_FLOOR'
+            ? 'BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier'
+            : 'BREAKOUT_RETEST_PROOF_POLICY.maxReclaimUndercutExcessPct';
+    return [
+      producerFieldRecommendation(
+        'breakoutRetestProofConfirmed',
+        'Promotion blocker: only true proof can move breakout candidates toward executable.',
+        'set_true_only_with_retest_freshness_reclaim_extension_and_rr_pass',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'breakoutRetestProofUndercutReclaimFound',
+        'Detect bounded undercut-reclaim retests rather than treating all review-ready breakouts as executable.',
+        'populate_undercut_reclaim_evidence',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        policyField,
+        'Policy field implied by the current breakout formula bottleneck.',
+        'review_threshold_after_evidence_distribution_not_for_auto_promotion',
+        { ...commonContext, candidateValue: base.adjustmentKnob === 'BREAKOUT_EXTENSION_POLICY' ? base.maxObservedValue : null }
+      ),
+      producerFieldRecommendation(
+        'breakoutRetestPromotionPolicyDecision',
+        'Keep reviewReady diagnostic separate from proofConfirmed promotion.',
+        'emit_wait_until_proof_confirmed',
+        commonContext
+      )
+    ];
+  }
+
+  if (base.producerTrack === 'structure_proof_generation') {
+    return [
+      producerFieldRecommendation(
+        'currentEntryStructureVerdict',
+        'Primary structure proof verdict for support-aligned recalculated-stop entries.',
+        'improve_structure_proof_or_keep_wait',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'structurePolicyCurrentRrOk',
+        'Do not promote structure candidates unless current RR evidence passes.',
+        'populate_rr_gate_result',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'structurePolicyTargetBufferOk',
+        'Do not promote structure candidates unless target buffer evidence passes.',
+        'populate_target_buffer_gate_result',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct',
+        'Review distance band only if repeated evidence shows the band is overly restrictive.',
+        'review_threshold_do_not_blindly_relax',
+        commonContext
+      )
+    ];
+  }
+
+  return [];
+}
+
 function recommendationForGroup(groupRows) {
   const first = groupRows[0] || {};
   const producerTrack = first.producerTrack || 'unknown';
@@ -440,6 +606,7 @@ function recommendationForGroup(groupRows) {
     brokerMutationAllowed: false,
     sidecarMutationAllowed: false
   };
+  base.producerFieldRecommendations = producerFieldRecommendationsForGroup(groupRows, base);
   if (producerTrack === 'target_recalibration') {
     return {
       ...base,
@@ -531,6 +698,7 @@ function buildMarkdown(report) {
   lines.push(`| formulaEvidenceWeakRows | ${report.summary.formulaEvidenceWeakRows} |`);
   lines.push(`| formulaContractIssues | ${report.summary.formulaContractIssues} |`);
   lines.push(`| tuningRecommendationCount | ${report.summary.tuningRecommendationCount} |`);
+  lines.push(`| producerFieldRecommendationCount | ${report.summary.producerFieldRecommendationCount} |`);
   lines.push(`| topProducerTrack | ${esc(report.summary.topProducerTrack)} |`);
   lines.push(`| topAdjustmentKnob | ${esc(report.summary.topAdjustmentKnob)} |`);
   lines.push('');
@@ -559,6 +727,22 @@ function buildMarkdown(report) {
     lines.push(`| ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(row.maxMagnitude)} | ${esc(row.avgMagnitude)} | ${esc(row.formulaDecision)} | ${esc(row.candidateThresholdField)} | ${esc(row.candidateThresholdValue)} | ${esc(producerChange)} | ${esc(row.doneWhen)} |`);
   }
   if (!report.tuningRecommendations.length) lines.push('| none | none | none | N/A | N/A | none | none | N/A | none | none |');
+  lines.push('');
+  lines.push('## Producer Field Recommendations');
+  lines.push('');
+  lines.push('| Track | Knob | Field | Action | Purpose | Candidate Value | Guardrail |');
+  lines.push('| --- | --- | --- | --- | --- | ---: | --- |');
+  const producerFieldRows = report.tuningRecommendations.flatMap((recommendation) =>
+    (recommendation.producerFieldRecommendations || []).map((fieldRecommendation) => ({
+      producerTrack: recommendation.producerTrack,
+      adjustmentKnob: recommendation.adjustmentKnob,
+      ...fieldRecommendation
+    }))
+  );
+  for (const row of producerFieldRows) {
+    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.field)} | ${esc(row.action)} | ${esc(row.purpose)} | ${esc(row.candidateValue)} | ${esc(row.guardrail)} |`);
+  }
+  if (!producerFieldRows.length) lines.push('| none | none | none | none | none | N/A | none |');
   lines.push('');
   lines.push('## Guardrails');
   lines.push('');
@@ -650,6 +834,10 @@ function main() {
       formulaEvidenceWeakRows: formulaEvidenceWeakRows.length,
       formulaContractIssues: contractIssues.length,
       tuningRecommendationCount: tuningRecommendations.length,
+      producerFieldRecommendationCount: tuningRecommendations.reduce(
+        (sum, recommendation) => sum + (recommendation.producerFieldRecommendations || []).length,
+        0
+      ),
       producerTrackCounts: countBy(rows, (row) => row.producerTrack),
       adjustmentKnobCounts: countBy(rows, (row) => row.adjustmentKnob || 'missing'),
       producerTrackAggregation,
