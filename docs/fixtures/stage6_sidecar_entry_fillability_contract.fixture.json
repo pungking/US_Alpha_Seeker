@@ -103,15 +103,22 @@
       "tunablePolicyFields": {
         "TARGET_RECALIBRATION": [
           "TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct",
+          "TARGET_RECALIBRATION_POLICY.maxExecutionFloorGapPct",
           "targetRecalibrationRequiredTargetPrice",
           "targetRecalibrationRequiredTargetSource",
+          "targetRecalibrationRequiredTargetByExecutionFloorPrice",
           "targetRecalibrationRequiredTargetByExpectedReturnPrice",
+          "targetRecalibrationExecutionFloorGapPct",
+          "targetRecalibrationExecutionFloorViable",
           "targetRecalibrationViabilityVerdict"
         ],
         "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": [
           "riskGeometryRequiredTargetPrice",
           "riskGeometryRequiredTargetSource",
           "riskGeometryTargetShortfallPct",
+          "riskGeometryRrAtRequiredTargetAndRecalculatedStop",
+          "riskGeometryTargetBufferAtRequiredTargetPct",
+          "riskGeometryTargetRecalibrationProofReady",
           "riskGeometryRequiredStopValid",
           "riskGeometryRequiredStopDistanceValid",
           "riskGeometryRecalculatedStopRrOk",
@@ -129,9 +136,11 @@
           "BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest",
           "BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct",
           "BREAKOUT_RETEST_PROOF_POLICY.retestTolerancePct",
+          "BREAKOUT_RETEST_PROOF_POLICY.maxReclaimUndercutExcessPct",
           "BREAKOUT_RETEST_PROOF_POLICY.maxContinuationExtensionPct",
           "BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier",
           "BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier",
+          "breakoutRetestProofUndercutReclaimFound",
           "breakoutRetestProofConfirmed"
         ],
         "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": [
@@ -209,7 +218,17 @@
       "zeroExecutableFormulaAdjustmentKnob": "NONE",
       "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
       "zeroExecutableFormulaAdjustmentMagnitude": 0,
-      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
+      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row.",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "CURRENT_RECALC_EXEC",
@@ -293,7 +312,17 @@
       "zeroExecutableFormulaAdjustmentMagnitude": 0,
       "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row.",
       "riskGeometryTargetRecalibrationGapPolicyPct": 20,
-      "riskGeometryTargetNoTradeConfirmed": false
+      "riskGeometryTargetNoTradeConfirmed": false,
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "WAIT1",
@@ -352,7 +381,17 @@
       "zeroExecutableFormulaAdjustmentKnob": "NONE",
       "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
       "zeroExecutableFormulaAdjustmentMagnitude": 0,
-      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
+      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row.",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "SPEC_WAIT",
@@ -418,7 +457,17 @@
       "zeroExecutableFormulaAdjustmentKnob": "NONE",
       "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
       "zeroExecutableFormulaAdjustmentMagnitude": 0,
-      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
+      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row.",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "STRUCT_REJECT_WAIT",
@@ -505,7 +554,17 @@
       "structurePolicyFormulaObservedValue": 1.25,
       "structurePolicyFormulaThresholdValue": 1.8,
       "structurePolicyFormulaDeltaValue": 0.55,
-      "structurePolicyFormulaUnit": "rr"
+      "structurePolicyFormulaUnit": "rr",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "STRUCT_OVERBLOCK_REVIEW_WAIT",
@@ -591,7 +650,17 @@
       "structurePolicyFormulaObservedValue": 1,
       "structurePolicyFormulaThresholdValue": 0,
       "structurePolicyFormulaDeltaValue": 1,
-      "structurePolicyFormulaUnit": "proof_gap_count"
+      "structurePolicyFormulaUnit": "proof_gap_count",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "BREAKOUT_REVIEW_WAIT",
@@ -686,7 +755,17 @@
       "breakoutRetestProofFormulaObservedValue": 10.5,
       "breakoutRetestProofFormulaThresholdValue": 8,
       "breakoutRetestProofFormulaDeltaValue": 2.5,
-      "breakoutRetestProofFormulaUnit": "pct"
+      "breakoutRetestProofFormulaUnit": "pct",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
@@ -775,7 +854,17 @@
       "breakoutRetestProofFormulaObservedValue": 1,
       "breakoutRetestProofFormulaThresholdValue": 0,
       "breakoutRetestProofFormulaDeltaValue": 1,
-      "breakoutRetestProofFormulaUnit": "policy_gap_count"
+      "breakoutRetestProofFormulaUnit": "policy_gap_count",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "TARGET_NEAR_WAIT",
@@ -909,7 +998,17 @@
       "riskGeometryFormulaObservedValue": 7.22,
       "riskGeometryFormulaThresholdValue": 0,
       "riskGeometryFormulaDeltaValue": 7.22,
-      "riskGeometryFormulaUnit": "pct_shortfall"
+      "riskGeometryFormulaUnit": "pct_shortfall",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -1046,7 +1145,17 @@
       "riskGeometryFormulaObservedValue": 25.74,
       "riskGeometryFormulaThresholdValue": 0,
       "riskGeometryFormulaDeltaValue": 25.74,
-      "riskGeometryFormulaUnit": "pct_shortfall"
+      "riskGeometryFormulaUnit": "pct_shortfall",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "TARGET_REACHED_NO_TRADE",
@@ -1180,7 +1289,17 @@
       "riskGeometryFormulaObservedValue": 10.65,
       "riskGeometryFormulaThresholdValue": 0,
       "riskGeometryFormulaDeltaValue": 10.65,
-      "riskGeometryFormulaUnit": "pct_shortfall"
+      "riskGeometryFormulaUnit": "pct_shortfall",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -1274,7 +1393,17 @@
       "riskGeometryFormulaObservedValue": 3,
       "riskGeometryFormulaThresholdValue": 0,
       "riskGeometryFormulaDeltaValue": 3,
-      "riskGeometryFormulaUnit": "proof_gap_count"
+      "riskGeometryFormulaUnit": "proof_gap_count",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_RECALC_WAIT",
@@ -1388,7 +1517,17 @@
       "riskGeometryFormulaObservedValue": 13.6,
       "riskGeometryFormulaThresholdValue": 0,
       "riskGeometryFormulaDeltaValue": 13.6,
-      "riskGeometryFormulaUnit": "pct_shortfall"
+      "riskGeometryFormulaUnit": "pct_shortfall",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "WEAK_PILLAR_WAIT",
@@ -1466,7 +1605,17 @@
       "zeroExecutableFormulaAdjustmentKnob": "NONE",
       "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
       "zeroExecutableFormulaAdjustmentMagnitude": 0,
-      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
+      "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row.",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_GAP_NO_TRADE",
@@ -1583,7 +1732,17 @@
       "riskGeometryFormulaObservedValue": 24.29,
       "riskGeometryFormulaThresholdValue": 0,
       "riskGeometryFormulaDeltaValue": 24.29,
-      "riskGeometryFormulaUnit": "pct_shortfall"
+      "riskGeometryFormulaUnit": "pct_shortfall",
+      "breakoutRetestProofUndercutReclaimFound": null,
+      "breakoutRetestProofUndercutExcessPct": null,
+      "breakoutRetestProofMaxUndercutExcessPct": null,
+      "targetRecalibrationRequiredTargetByExecutionFloorPrice": null,
+      "targetRecalibrationExecutionFloorGapPct": null,
+      "targetRecalibrationExpectedReturnGapPct": null,
+      "targetRecalibrationExecutionFloorViable": null,
+      "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
+      "riskGeometryTargetBufferAtRequiredTargetPct": null,
+      "riskGeometryTargetRecalibrationProofReady": null
     }
   ]
 }

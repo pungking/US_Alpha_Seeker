@@ -147,9 +147,14 @@ function validateProducerSourceContract() {
   }
   for (const token of [
     'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+    'TARGET_RECALIBRATION_POLICY.maxExecutionFloorGapPct',
     'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest',
     'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct',
+    'BREAKOUT_RETEST_PROOF_POLICY.maxReclaimUndercutExcessPct',
     'CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct',
+    'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
+    'targetRecalibrationExecutionFloorViable',
+    'breakoutRetestProofUndercutReclaimFound',
     'breakout_review_ready_never_promotes',
     'target_already_reached_requires_recalibration_or_no_trade',
     'sidecar_reprice_never_solves_stage6_target_geometry'

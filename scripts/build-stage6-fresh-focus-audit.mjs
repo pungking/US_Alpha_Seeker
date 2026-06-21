@@ -80,15 +80,22 @@ const EXPECTED_FORMULA_CONTRACT = {
   tunablePolicyFields: {
     TARGET_RECALIBRATION: [
       'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+      'TARGET_RECALIBRATION_POLICY.maxExecutionFloorGapPct',
       'targetRecalibrationRequiredTargetPrice',
       'targetRecalibrationRequiredTargetSource',
+      'targetRecalibrationRequiredTargetByExecutionFloorPrice',
       'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+      'targetRecalibrationExecutionFloorGapPct',
+      'targetRecalibrationExecutionFloorViable',
       'targetRecalibrationViabilityVerdict'
     ],
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
       'riskGeometryRequiredTargetPrice',
       'riskGeometryRequiredTargetSource',
       'riskGeometryTargetShortfallPct',
+      'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
+      'riskGeometryTargetBufferAtRequiredTargetPct',
+      'riskGeometryTargetRecalibrationProofReady',
       'riskGeometryRequiredStopValid',
       'riskGeometryRequiredStopDistanceValid',
       'riskGeometryRecalculatedStopRrOk',
@@ -106,9 +113,11 @@ const EXPECTED_FORMULA_CONTRACT = {
       'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest',
       'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct',
       'BREAKOUT_RETEST_PROOF_POLICY.retestTolerancePct',
+      'BREAKOUT_RETEST_PROOF_POLICY.maxReclaimUndercutExcessPct',
       'BREAKOUT_RETEST_PROOF_POLICY.maxContinuationExtensionPct',
       'BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier',
       'BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier',
+      'breakoutRetestProofUndercutReclaimFound',
       'breakoutRetestProofConfirmed'
     ],
     STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [

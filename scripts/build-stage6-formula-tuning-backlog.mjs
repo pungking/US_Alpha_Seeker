@@ -84,15 +84,22 @@ const EXPECTED_LANE_SPECIFIC_ROW_FIELDS = {
 const EXPECTED_TUNABLE_POLICY_FIELDS = {
   TARGET_RECALIBRATION: [
     'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+    'TARGET_RECALIBRATION_POLICY.maxExecutionFloorGapPct',
     'targetRecalibrationRequiredTargetPrice',
     'targetRecalibrationRequiredTargetSource',
+    'targetRecalibrationRequiredTargetByExecutionFloorPrice',
     'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+    'targetRecalibrationExecutionFloorGapPct',
+    'targetRecalibrationExecutionFloorViable',
     'targetRecalibrationViabilityVerdict'
   ],
   STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
     'riskGeometryRequiredTargetPrice',
     'riskGeometryRequiredTargetSource',
     'riskGeometryTargetShortfallPct',
+    'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
+    'riskGeometryTargetBufferAtRequiredTargetPct',
+    'riskGeometryTargetRecalibrationProofReady',
     'riskGeometryRequiredStopValid',
     'riskGeometryRequiredStopDistanceValid',
     'riskGeometryRecalculatedStopRrOk',
@@ -110,9 +117,11 @@ const EXPECTED_TUNABLE_POLICY_FIELDS = {
     'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest',
     'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct',
     'BREAKOUT_RETEST_PROOF_POLICY.retestTolerancePct',
+    'BREAKOUT_RETEST_PROOF_POLICY.maxReclaimUndercutExcessPct',
     'BREAKOUT_RETEST_PROOF_POLICY.maxContinuationExtensionPct',
     'BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier',
     'BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier',
+    'breakoutRetestProofUndercutReclaimFound',
     'breakoutRetestProofConfirmed'
   ],
   STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
@@ -435,34 +444,34 @@ function recommendationForGroup(groupRows) {
     return {
       ...base,
       formulaDecision: 'RECALIBRATE_TARGET_OR_CONFIRM_NO_TRADE',
-      recommendedProducerChange: 'Refresh the Stage6 target thesis/expected-return target and keep sidecar reprice blocked. If required target gap stays above policy, emit no-trade.',
-      candidateThresholdField: 'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+      recommendedProducerChange: 'Refresh the Stage6 target thesis using execution-floor and expected-return evidence. Keep sidecar reprice blocked. If the execution floor is not viable, emit no-trade.',
+      candidateThresholdField: 'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct / TARGET_RECALIBRATION_POLICY.maxExecutionFloorGapPct',
       candidateThresholdValue: null,
-      doneWhen: 'Rows either emit a fresh target above current with viable RR/buffer evidence or explicit TARGET_NO_TRADE_CONFIRMED.'
+      doneWhen: 'Rows either emit a fresh target above current with execution-floor RR/buffer evidence or explicit TARGET_NO_TRADE_CONFIRMED.'
     };
   }
   if (producerTrack === 'risk_geometry_recalculation') {
     return {
       ...base,
       formulaDecision: 'RECALCULATE_STOP_TARGET_GEOMETRY_OR_CONFIRM_NO_TRADE',
-      recommendedProducerChange: 'Recompute stop/target together from current-entry risk. Do not lower RR/fillability floors to make this pass.',
-      candidateThresholdField: 'riskGeometryRequiredTargetPrice / riskGeometryTargetShortfallPct',
+      recommendedProducerChange: 'Recompute stop/target together from current-entry risk and expose required-target RR/buffer proof. Do not lower RR/fillability floors to make this pass.',
+      candidateThresholdField: 'riskGeometryRequiredTargetPrice / riskGeometryRrAtRequiredTargetAndRecalculatedStop',
       candidateThresholdValue: maxMagnitude,
-      doneWhen: 'Rows provide targetAboveCurrent, stopValid, stopDistanceValid, recalculatedStopRrOk, and targetBufferOk evidence or stay no-trade.'
+      doneWhen: 'Rows provide targetAboveCurrent, stopValid, stopDistanceValid, recalculatedStopRrOk, targetBufferOk, and targetRecalibrationProofReady evidence or stay no-trade.'
     };
   }
   if (producerTrack === 'breakout_proof_confirmed_generation') {
     return {
       ...base,
       formulaDecision: 'IMPROVE_BREAKOUT_PROOF_CONFIRMED_GENERATION',
-      recommendedProducerChange: 'Tune proof generation only. reviewReady remains diagnostic; promotion requires proofConfirmed plus RR/distance/target-buffer pass.',
+      recommendedProducerChange: 'Tune proof generation only, including bounded undercut-reclaim retests. reviewReady remains diagnostic; promotion requires proofConfirmed plus RR/distance/target-buffer pass.',
       candidateThresholdField: adjustmentKnob === 'BREAKOUT_EXTENSION_POLICY'
         ? 'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct'
         : adjustmentKnob === 'BREAKOUT_RETEST_FRESHNESS_WINDOW'
           ? 'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest'
-          : 'BREAKOUT_RETEST_PROOF_POLICY.proofConfirmed criteria',
+          : 'BREAKOUT_RETEST_PROOF_POLICY.maxReclaimUndercutExcessPct / proofConfirmed criteria',
       candidateThresholdValue: adjustmentKnob === 'BREAKOUT_EXTENSION_POLICY' ? maxObservedValue : null,
-      doneWhen: 'Rows expose proofConfirmed=true only when retest touch/freshness/close reclaim/extension/continuation evidence all pass.'
+      doneWhen: 'Rows expose proofConfirmed=true only when retest touch or bounded undercut reclaim, freshness, close reclaim, extension, and continuation evidence pass.'
     };
   }
   if (producerTrack === 'structure_proof_generation') {
