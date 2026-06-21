@@ -328,6 +328,10 @@ jobs:
         if: success()
         run: npm run ops:stage3-6:full:audit
 
+      - name: 7.0391 Stage6 runtime formula goal status
+        if: success()
+        run: npm run ops:stage6:runtime-formula-goal:status
+
       - name: 7.04 Stage6 holiday safety audit
         id: stage6_holiday_safety
         if: success()
@@ -625,6 +629,8 @@ jobs:
             state/stage6-formula-tuning-backlog.md
             state/stage6-runtime-formula-contract-proof.json
             state/stage6-runtime-formula-contract-proof.md
+            state/stage6-runtime-formula-goal-status.json
+            state/stage6-runtime-formula-goal-status.md
             state/stage6-formula-audit-backlog-alignment.json
             state/stage6-formula-audit-backlog-alignment.md
             state/stage6-policy-lane-audit.json
