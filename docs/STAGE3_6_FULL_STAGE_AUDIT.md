@@ -1,6 +1,6 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-21T17:50:04.482Z
+- GeneratedAt: 2026-06-21T17:56:04.900Z
 - Overall: **warn_lineage_mismatch**
 - Lineage: **warn_lineage_mismatch**; final quality judgement: **withheld**
 - Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
@@ -63,7 +63,8 @@ Root cause summary: {"structureWaitRootCauses":{"STRUCTURE_EXPLICIT_REJECT_WAIT_
 | stage35QuantQuality | yes | pass_report_only | 2026-06-21T17:41:32.870Z | state/stage3-5-quant-quality-audit.json |
 | stage6FreshFocus | yes | warn_formula_bottleneck_fields_missing | 2026-06-21T17:19:24.259Z | state/stage6-fresh-focus-audit.json |
 | stage6FormulaTuningBacklog | yes | warn_formula_tuning_contract_incomplete | 2026-06-21T17:50:02.861Z | state/stage6-formula-tuning-backlog.json |
-| stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-21T17:41:37.075Z | state/stage6-formula-audit-backlog-alignment.json |
+| stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-21T17:56:01.446Z | state/stage6-runtime-formula-contract-proof.json |
+| stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-21T17:56:04.181Z | state/stage6-formula-audit-backlog-alignment.json |
 | stage6BlockerRootCause | yes | not_available | 2026-06-21T17:42:44.668Z | state/stage6-blocker-root-cause-audit.json |
 | stage6QualityTrend | yes | not_available | 2026-06-21T17:42:45.323Z | state/stage6-quality-trend-audit.json |
 

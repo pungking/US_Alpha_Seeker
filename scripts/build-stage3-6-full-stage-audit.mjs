@@ -47,6 +47,7 @@ const SUBREPORTS = {
   stage35QuantQuality: 'state/stage3-5-quant-quality-audit.json',
   stage6FreshFocus: 'state/stage6-fresh-focus-audit.json',
   stage6FormulaTuningBacklog: 'state/stage6-formula-tuning-backlog.json',
+  stage6RuntimeFormulaContractProof: 'state/stage6-runtime-formula-contract-proof.json',
   stage6FormulaBacklogAlignment: 'state/stage6-formula-audit-backlog-alignment.json',
   stage6BlockerRootCause: 'state/stage6-blocker-root-cause-audit.json',
   stage6QualityTrend: 'state/stage6-quality-trend-audit.json'

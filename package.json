@@ -48,6 +48,7 @@
     "ops:stage6:fillability-contract:validate": "node scripts/validate-stage6-fillability-contract.mjs",
     "ops:stage6:fresh-focus:formula-coverage": "node scripts/validate-stage6-fresh-focus-formula-coverage.mjs",
     "ops:stage6:formula-tuning-backlog": "node scripts/build-stage6-formula-tuning-backlog.mjs",
+    "ops:stage6:runtime-formula-contract:proof": "node scripts/build-stage6-runtime-formula-contract-proof.mjs",
     "ops:stage6:formula-tuning-backlog:validate": "node scripts/validate-stage6-formula-tuning-backlog.mjs",
     "ops:tsc:debt": "node scripts/build-tsc-debt-report.mjs",
     "ops:auto-scheduler:audit": "node scripts/build-auto-scheduler-reliability-audit.mjs",

@@ -33,6 +33,8 @@ jobs:
         run: npm run ops:stage6:policy-lane:formula-consistency
       - name: Stage6 formula tuning backlog fixture
         run: npm run ops:stage6:formula-tuning-backlog:validate
+      - name: Stage6 runtime formula contract proof
+        run: npm run ops:stage6:runtime-formula-contract:proof
       - name: Stage6 formula audit/backlog alignment fixture
         run: npm run ops:stage6:formula-audit-backlog:align
       - name: Stage3-6 full-stage audit
@@ -67,6 +69,7 @@ jobs:
             state/stage6-holiday-safety-audit.*
             state/stage6-quality-trend-audit.*
             state/stage6-formula-tuning-backlog.*
+            state/stage6-runtime-formula-contract-proof.*
             state/stage6-formula-audit-backlog-alignment.*
             state/stage3-6-full-stage-audit.*
             state/stage6-earnings-coverage-audit.*
