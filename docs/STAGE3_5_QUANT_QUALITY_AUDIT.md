@@ -1,8 +1,8 @@
 # Stage3-5 Quant Quality Audit
 
-- GeneratedAt: 2026-06-19T23:35:46.762Z
-- Stage6: STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json
-- Hash: 2ea6fd5b26acbe89c2334543e1a94c10f9629c2b9e7904e353cfebfc0342d207
+- GeneratedAt: 2026-06-21T17:41:32.870Z
+- Stage6: STAGE6_ALPHA_FINAL_2026-06-20_09-26-37.json
+- Hash: ef8e15fc14518dbf513479899161038a94278d42917a3e698cea69eddc3af71a
 - Stage6 finalist rows audited: 3
 - Stage3 rows audited: 300
 - Stage4 rows audited: 300
@@ -37,9 +37,9 @@
 
 | Symbol | Decision | Fund | Quality | Tech | TechFinal | ICT | DataSource | Bars | DataQuality | ICT Zone | Geometry |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | --- |
-| IDCC | EXECUTABLE_NOW/executable_pullback | 64.04 | 98.4 | 99 | 99 | 96.42 | DRIVE | 120 | NORMAL | DISCOUNT | RECENT_SWING_ATR |
-| ANET | EXECUTABLE_NOW/executable_current_recalculated_stop | 67.43 | 95.5 | 89.77 | 89.77 | 90.69 | DRIVE | 120 | NORMAL | PREMIUM | RECENT_SWING_ATR |
-| WSBC | WAIT_PRICE/wait_earnings_data_missing_quality_floor | 71.69 | 79.8 | 99 | 99 | 83.22 | DRIVE | 120 | NORMAL | PREMIUM | RECENT_SWING_ATR |
+| LIF | EXECUTABLE_NOW/executable_current_recalculated_stop | 74.35 | 97.2 | 71.81 | 71.81 | 89.53 | DRIVE | 120 | NORMAL | DISCOUNT | RECENT_SWING_ATR |
+| IDCC | EXECUTABLE_NOW/executable_pullback | 66.04 | 100 | 99 | 99 | 96.42 | DRIVE | 120 | NORMAL | DISCOUNT | RECENT_SWING_ATR |
+| ANET | EXECUTABLE_NOW/executable_current_recalculated_stop | 69.43 | 95.6 | 89.78 | 89.78 | 90.69 | DRIVE | 120 | NORMAL | PREMIUM | RECENT_SWING_ATR |
 
 ## Stage Coverage
 
@@ -88,7 +88,7 @@
 | Stage5 | yes | stage5_risk_on_weights | components/IctAnalysis.tsx | 991 |
 | Stage5 | yes | stage5_data_quality_multiplier | components/IctAnalysis.tsx | 1040 |
 | Stage5 | yes | stage5_geometry_fallback_counter | components/IctAnalysis.tsx | 1138 |
-| Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 5404 |
+| Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 6432 |
 
 ## Interpretation
 

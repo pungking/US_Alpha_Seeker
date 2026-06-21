@@ -35,6 +35,8 @@ jobs:
         run: npm run ops:stage6:formula-tuning-backlog:validate
       - name: Stage6 formula audit/backlog alignment fixture
         run: npm run ops:stage6:formula-audit-backlog:align
+      - name: Stage3-6 full-stage audit
+        run: npm run ops:stage3-6:full:audit
       - name: Stage6 holiday analysis-only fixture
         env:
           STAGE6_HOLIDAY_SAFETY_PAYLOAD: docs/fixtures/stage6_holiday_safety/stage6-dispatch-payload-holiday.fixture.json
@@ -66,6 +68,7 @@ jobs:
             state/stage6-quality-trend-audit.*
             state/stage6-formula-tuning-backlog.*
             state/stage6-formula-audit-backlog-alignment.*
+            state/stage3-6-full-stage-audit.*
             state/stage6-earnings-coverage-audit.*
             state/auto-scheduler-reliability-audit.*
             state/tsc-debt-report.*

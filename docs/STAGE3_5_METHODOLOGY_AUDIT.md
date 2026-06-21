@@ -1,8 +1,8 @@
 # Stage3-5 Methodology Audit
 
-- GeneratedAt: 2026-06-19T23:35:48.451Z
-- Stage6: STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json
-- Stage6Hash: 2ea6fd5b26acbe89c2334543e1a94c10f9629c2b9e7904e353cfebfc0342d207
+- GeneratedAt: 2026-06-21T17:41:31.400Z
+- Stage6: STAGE6_ALPHA_FINAL_2026-06-20_09-26-37.json
+- Stage6Hash: ef8e15fc14518dbf513479899161038a94278d42917a3e698cea69eddc3af71a
 - Overall: **pass_full_artifact_methodology_review**
 - Safety: report-only; no broker/state mutation.
 
@@ -22,7 +22,7 @@
 | Stage3 | full_stage_artifact | STAGE3_FUNDAMENTAL_FULL_2026-06-20_01-37-55.json | 300 | 016e3425e9b3 |
 | Stage4 | full_stage_artifact | STAGE4_TECHNICAL_FULL_2026-06-20_01-59-17.json | 300 | f7bc02461271 |
 | Stage5 | full_stage_artifact | STAGE5_ICT_ELITE_50_2026-06-20_01-59-27.json | 50 | e1cef12e9dc2 |
-| InterStage | stage6_contract | STAGE6_ALPHA_FINAL_2026-06-20_02-03-33.json | 3 | 2ea6fd5b26ac |
+| InterStage | stage6_contract | STAGE6_ALPHA_FINAL_2026-06-20_09-26-37.json | 3 | ef8e15fc1451 |
 
 ## Findings
 
@@ -49,7 +49,7 @@
 | Stage5 | yes | stage5_ict_metric_components | components/IctAnalysis.tsx | 19 |
 | Stage6 | yes | stage6_weak_pillar_gate | components/AlphaAnalysis.tsx | 64 |
 | Stage6 | yes | stage6_non_actionable_verdict_gate | components/AlphaAnalysis.tsx | 63 |
-| Stage6 | yes | stage6_breakout_proof_gate | components/AlphaAnalysis.tsx | 8652 |
+| Stage6 | yes | stage6_breakout_proof_gate | components/AlphaAnalysis.tsx | 9897 |
 
 ## Artifact Audit Snapshot
 
@@ -59,6 +59,7 @@
 | --- | --- |
 | rows | 300 |
 | scoreStats | {"count":300,"min":4.51,"max":100,"avg":59.4} |
+| formulaConsistency | {"compositeFormula":"clamp(qualityScore * 0.3 + fundamentalScore * 0.7)","tolerance":0.15,"mismatches":0,"sample":[]} |
 | dataQualityCounts | {"HIGH":300} |
 
 ### Stage4
@@ -67,6 +68,7 @@
 | --- | --- |
 | rows | 300 |
 | scoreStats | {"count":300,"min":1,"max":99,"avg":53.68} |
+| formulaConsistency | {"finalScoreContract":"technicalScore == scoreBreakdown.finalScore after all Stage4 overlays","tolerance":0.15,"mismatches":0,"sample":[]} |
 | shortHistoryPolicy | {"policyPresent":true,"shortHistoryRows":1,"shortHistoryExecutableRows":0,"status":"short_history_non_executable_observation"} |
 | dataSourceCounts | {"DRIVE":300} |
 
@@ -76,6 +78,7 @@
 | --- | --- |
 | rows | 50 |
 | scoreStats | {"count":50,"min":67.41,"max":100,"avg":85.9} |
+| formulaConsistency | {"baseWeightContract":"baseFundamentalPart=fundamentalScore*0.20; baseTechnicalPart=technicalScore*0.30; baseIctPart=ictScore*0.50","tolerance":0.15,"mismatches":0,"sample":[]} |
 | pdZoneCounts | {"PREMIUM":31,"DISCOUNT":18,"EQUILIBRIUM":1} |
 
 ## Interpretation
