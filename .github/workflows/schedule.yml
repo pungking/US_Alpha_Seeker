@@ -302,6 +302,16 @@ jobs:
           STAGE6_FORMULA_TUNING_BACKLOG_ENFORCE_FRESH_SOURCE: "true"
         run: npm run ops:stage6:formula-tuning-backlog
 
+      - name: 7.0351 Stage6 runtime formula contract proof
+        if: success()
+        env:
+          STAGE6_RUNTIME_FORMULA_PROOF_EXPECTED_SOURCE_SHA: ${{ github.sha }}
+        run: npm run ops:stage6:runtime-formula-contract:proof
+
+      - name: 7.0352 Stage6 formula audit/backlog alignment
+        if: success()
+        run: npm run ops:stage6:formula-audit-backlog:align
+
       - name: 7.036 Stage6 policy lane audit
         if: success()
         run: npm run ops:stage6:policy-lane:audit
@@ -309,6 +319,14 @@ jobs:
       - name: 7.037 Stage6 weak pillar runtime audit
         if: success()
         run: npm run ops:stage6:weak-pillar:audit
+
+      - name: 7.038 Stage6 quality trend audit
+        if: success()
+        run: npm run ops:stage6:quality-trend:audit
+
+      - name: 7.039 Stage3-6 full-stage audit
+        if: success()
+        run: npm run ops:stage3-6:full:audit
 
       - name: 7.04 Stage6 holiday safety audit
         id: stage6_holiday_safety
@@ -605,10 +623,18 @@ jobs:
             docs/STAGE6_FRESH_FOCUS_AUDIT.md
             state/stage6-formula-tuning-backlog.json
             state/stage6-formula-tuning-backlog.md
+            state/stage6-runtime-formula-contract-proof.json
+            state/stage6-runtime-formula-contract-proof.md
+            state/stage6-formula-audit-backlog-alignment.json
+            state/stage6-formula-audit-backlog-alignment.md
             state/stage6-policy-lane-audit.json
             docs/STAGE6_POLICY_LANE_AUDIT_2026-05-29.md
             state/stage6-weak-pillar-runtime-audit.json
             docs/STAGE6_WEAK_PILLAR_RUNTIME_AUDIT.md
+            state/stage6-quality-trend-audit.json
+            state/stage6-quality-trend-audit.md
+            state/stage3-6-full-stage-audit.json
+            docs/STAGE3_6_FULL_STAGE_AUDIT.md
             state/stage3-audit-source/*.json
             state/stage4-audit-source/*.json
             state/stage5-audit-source/*.json
