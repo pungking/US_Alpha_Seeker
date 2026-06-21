@@ -114,6 +114,7 @@ function validateProducerSourceContract() {
     }
   }
   for (const token of [
+    'laneSpecificRowFields',
     'targetRecalibrationFormulaEvidenceBasis',
     'riskGeometryFormulaEvidenceBasis',
     'breakoutRetestProofFormulaEvidenceBasis',

@@ -32,6 +32,40 @@ const EXPECTED_LANE_TO_BOTTLENECK = {
   STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'STRUCTURE_PROOF_FORMULA',
   NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
 };
+const EXPECTED_LANE_SPECIFIC_ROW_FIELDS = {
+  TARGET_RECALIBRATION: [
+    'targetRecalibrationFormulaEvidenceBasis',
+    'targetRecalibrationFormulaObservedValue',
+    'targetRecalibrationFormulaThresholdValue',
+    'targetRecalibrationFormulaDeltaValue',
+    'targetRecalibrationFormulaUnit'
+  ],
+  STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
+    'riskGeometryFormulaEvidenceBasis',
+    'riskGeometryFormulaObservedValue',
+    'riskGeometryFormulaThresholdValue',
+    'riskGeometryFormulaDeltaValue',
+    'riskGeometryFormulaUnit'
+  ],
+  RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
+    'riskGeometryFormulaEvidenceBasis',
+    'riskGeometryFormulaObservedValue',
+    'riskGeometryFormulaThresholdValue',
+    'riskGeometryFormulaDeltaValue',
+    'riskGeometryFormulaUnit'
+  ],
+  BREAKOUT_PROOF_CONFIRMED_GENERATION: [
+    'breakoutRetestProofFormulaEvidenceBasis',
+    'breakoutRetestProofFormulaObservedValue',
+    'breakoutRetestProofFormulaThresholdValue',
+    'breakoutRetestProofFormulaDeltaValue',
+    'breakoutRetestProofFormulaUnit'
+  ],
+  STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
+    'structurePolicyFormulaEvidenceBasis'
+  ],
+  NO_ZERO_EXECUTABLE_TUNING_ACTION: []
+};
 const actionableVerdicts = new Set(
   String(data?.decisionGate?.actionableVerdicts || 'BUY,STRONG_BUY,STRONGBUY')
     .split(',')
@@ -144,6 +178,18 @@ if (!formulaContract || typeof formulaContract !== 'object') {
   for (const [lane, bottleneck] of Object.entries(EXPECTED_LANE_TO_BOTTLENECK)) {
     if (laneMap[lane] !== bottleneck) {
       errors.push(`zeroExecutableFormulaContract.laneToBottleneck mismatch ${lane}: expected ${bottleneck}, got ${laneMap[lane] || 'missing'}`);
+    }
+  }
+  const laneSpecificRowFields = formulaContract.laneSpecificRowFields || {};
+  for (const [lane, fields] of Object.entries(EXPECTED_LANE_SPECIFIC_ROW_FIELDS)) {
+    const actualFields = new Set(Array.isArray(laneSpecificRowFields[lane]) ? laneSpecificRowFields[lane] : []);
+    for (const field of fields) {
+      if (!actualFields.has(field)) {
+        errors.push(`zeroExecutableFormulaContract.laneSpecificRowFields missing ${lane}.${field}`);
+      }
+    }
+    if (fields.length === 0 && !Array.isArray(laneSpecificRowFields[lane])) {
+      errors.push(`zeroExecutableFormulaContract.laneSpecificRowFields missing ${lane} empty contract`);
     }
   }
   const evidenceRules = formulaContract.evidenceRules || {};

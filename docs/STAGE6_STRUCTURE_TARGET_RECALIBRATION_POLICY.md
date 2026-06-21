@@ -74,6 +74,10 @@ gap directly:
 The target formula fields must match the zero-executable formula basis whenever
 `zeroExecutableTuningLane=TARGET_RECALIBRATION`.
 
+`zeroExecutableFormulaContract.laneSpecificRowFields.TARGET_RECALIBRATION`
+must list the target formula fields. They are lane-required, not globally
+required for every Stage6 row.
+
 ## Stop / Target Risk Geometry Policy
 
 Risk-geometry rows are separate from sidecar fillability. If Stage6 can
@@ -137,6 +141,11 @@ The risk formula fields must match the zero-executable formula basis whenever
 the tuning lane is `STOP_TARGET_RISK_GEOMETRY_RECALCULATION` or
 `RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION`.
 
+`zeroExecutableFormulaContract.laneSpecificRowFields` must list the matching
+risk-geometry formula fields for both risk-geometry lanes. This prevents a
+fresh Stage6 artifact from exposing only generic zero-executable evidence while
+omitting the row-level stop/target recalculation basis.
+
 ## Breakout Retest Proof Policy
 
 `wait_breakout_retest_required` rows must expose formula evidence for the
@@ -158,6 +167,14 @@ Only use a generic proof-gap basis such as
 `breakout_retest_touch_missing_gap` or `breakout_proof_condition_gap_count`
 when no numeric proof blocker is available.
 
+`zeroExecutableFormulaContract.laneSpecificRowFields` must also declare the
+breakout and structure formula fields:
+
+- `BREAKOUT_PROOF_CONFIRMED_GENERATION` requires the breakout formula basis,
+  observed value, threshold, delta, and unit fields.
+- `STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION` requires
+  `structurePolicyFormulaEvidenceBasis`.
+
 ## Done-When
 
 - Contract fixture includes structure justified, structure overblock-review, target recalibration candidate, target gap no-trade, target already reached no-trade, and stop/target risk-geometry target recalibration rows.
@@ -168,6 +185,8 @@ when no numeric proof blocker is available.
 - Validator fails if target-at/below-current rows are not no-trade confirmed.
 - Validator fails if target recalibration rows do not expose source-specific
   target formula evidence or if it diverges from the zero-executable basis.
+- Validator fails if the Stage6 formula contract omits lane-specific row-field
+  requirements for target, risk geometry, breakout, or structure lanes.
 - Validator fails if a recalculated-stop target shortfall is marked proof-confirmed instead of target-recalibration required.
 - Validator fails if a recalculated-stop target shortfall above gap policy is
   marked as a normal target recalibration candidate instead of no-trade.

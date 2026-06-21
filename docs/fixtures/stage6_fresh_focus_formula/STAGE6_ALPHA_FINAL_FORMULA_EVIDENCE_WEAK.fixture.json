@@ -47,6 +47,40 @@
           "BREAKOUT_PROOF_CONFIRMED_GENERATION": "zeroExecutableBreakoutProofGapCount and formula observed/delta values must be positive; adjustment must name breakout proof knob",
           "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": "zeroExecutableStructureProofGapCount and formula observed/delta values must be positive; adjustment must name structure proof knob",
           "NO_ZERO_EXECUTABLE_TUNING_ACTION": "neutral bottleneck, zero severity, zero observed/delta, no positive formula gaps, and no adjustment knob"
+        },
+        "laneSpecificRowFields": {
+          "TARGET_RECALIBRATION": [
+            "targetRecalibrationFormulaEvidenceBasis",
+            "targetRecalibrationFormulaObservedValue",
+            "targetRecalibrationFormulaThresholdValue",
+            "targetRecalibrationFormulaDeltaValue",
+            "targetRecalibrationFormulaUnit"
+          ],
+          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": [
+            "riskGeometryFormulaEvidenceBasis",
+            "riskGeometryFormulaObservedValue",
+            "riskGeometryFormulaThresholdValue",
+            "riskGeometryFormulaDeltaValue",
+            "riskGeometryFormulaUnit"
+          ],
+          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": [
+            "riskGeometryFormulaEvidenceBasis",
+            "riskGeometryFormulaObservedValue",
+            "riskGeometryFormulaThresholdValue",
+            "riskGeometryFormulaDeltaValue",
+            "riskGeometryFormulaUnit"
+          ],
+          "BREAKOUT_PROOF_CONFIRMED_GENERATION": [
+            "breakoutRetestProofFormulaEvidenceBasis",
+            "breakoutRetestProofFormulaObservedValue",
+            "breakoutRetestProofFormulaThresholdValue",
+            "breakoutRetestProofFormulaDeltaValue",
+            "breakoutRetestProofFormulaUnit"
+          ],
+          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": [
+            "structurePolicyFormulaEvidenceBasis"
+          ],
+          "NO_ZERO_EXECUTABLE_TUNING_ACTION": []
         }
       }
     }

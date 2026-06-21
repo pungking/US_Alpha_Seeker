@@ -35,6 +35,40 @@ const EXPECTED_FORMULA_CONTRACT = {
     BREAKOUT_PROOF_CONFIRMED_GENERATION: 'BREAKOUT_PROOF_FORMULA',
     STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'STRUCTURE_PROOF_FORMULA',
     NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
+  },
+  laneSpecificRowFields: {
+    TARGET_RECALIBRATION: [
+      'targetRecalibrationFormulaEvidenceBasis',
+      'targetRecalibrationFormulaObservedValue',
+      'targetRecalibrationFormulaThresholdValue',
+      'targetRecalibrationFormulaDeltaValue',
+      'targetRecalibrationFormulaUnit'
+    ],
+    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
+      'riskGeometryFormulaEvidenceBasis',
+      'riskGeometryFormulaObservedValue',
+      'riskGeometryFormulaThresholdValue',
+      'riskGeometryFormulaDeltaValue',
+      'riskGeometryFormulaUnit'
+    ],
+    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
+      'riskGeometryFormulaEvidenceBasis',
+      'riskGeometryFormulaObservedValue',
+      'riskGeometryFormulaThresholdValue',
+      'riskGeometryFormulaDeltaValue',
+      'riskGeometryFormulaUnit'
+    ],
+    BREAKOUT_PROOF_CONFIRMED_GENERATION: [
+      'breakoutRetestProofFormulaEvidenceBasis',
+      'breakoutRetestProofFormulaObservedValue',
+      'breakoutRetestProofFormulaThresholdValue',
+      'breakoutRetestProofFormulaDeltaValue',
+      'breakoutRetestProofFormulaUnit'
+    ],
+    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
+      'structurePolicyFormulaEvidenceBasis'
+    ],
+    NO_ZERO_EXECUTABLE_TUNING_ACTION: []
   }
 };
 
@@ -406,6 +440,18 @@ function formulaManifestContractIssues(stage6) {
         expected,
         actual: laneMap[lane] || null
       });
+    }
+  }
+  const laneSpecificRowFields = contract.laneSpecificRowFields || {};
+  for (const [lane, expectedFields] of Object.entries(EXPECTED_FORMULA_CONTRACT.laneSpecificRowFields)) {
+    const actualFields = new Set(Array.isArray(laneSpecificRowFields[lane]) ? laneSpecificRowFields[lane] : []);
+    if (expectedFields.length === 0 && !Array.isArray(laneSpecificRowFields[lane])) {
+      issues.push({ issue: 'formula_contract_lane_specific_fields_missing', lane, field: 'empty_contract' });
+    }
+    for (const field of expectedFields) {
+      if (!actualFields.has(field)) {
+        issues.push({ issue: 'formula_contract_lane_specific_field_missing', lane, field });
+      }
     }
   }
   const evidenceRules = contract.evidenceRules || {};

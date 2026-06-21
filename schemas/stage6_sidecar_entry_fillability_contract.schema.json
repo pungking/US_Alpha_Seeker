@@ -19,6 +19,10 @@
             "version": { "type": "string" },
             "requiredRowFields": { "type": "array", "items": { "type": "string" } },
             "laneToBottleneck": { "type": "object", "additionalProperties": { "type": "string" } },
+            "laneSpecificRowFields": {
+              "type": "object",
+              "additionalProperties": { "type": "array", "items": { "type": "string" } }
+            },
             "evidenceRules": { "type": "object", "additionalProperties": { "type": "string" } }
           },
           "additionalProperties": true

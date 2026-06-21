@@ -950,6 +950,40 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
     STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'STRUCTURE_PROOF_FORMULA',
     NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
   },
+  laneSpecificRowFields: {
+    TARGET_RECALIBRATION: [
+      'targetRecalibrationFormulaEvidenceBasis',
+      'targetRecalibrationFormulaObservedValue',
+      'targetRecalibrationFormulaThresholdValue',
+      'targetRecalibrationFormulaDeltaValue',
+      'targetRecalibrationFormulaUnit'
+    ],
+    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
+      'riskGeometryFormulaEvidenceBasis',
+      'riskGeometryFormulaObservedValue',
+      'riskGeometryFormulaThresholdValue',
+      'riskGeometryFormulaDeltaValue',
+      'riskGeometryFormulaUnit'
+    ],
+    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
+      'riskGeometryFormulaEvidenceBasis',
+      'riskGeometryFormulaObservedValue',
+      'riskGeometryFormulaThresholdValue',
+      'riskGeometryFormulaDeltaValue',
+      'riskGeometryFormulaUnit'
+    ],
+    BREAKOUT_PROOF_CONFIRMED_GENERATION: [
+      'breakoutRetestProofFormulaEvidenceBasis',
+      'breakoutRetestProofFormulaObservedValue',
+      'breakoutRetestProofFormulaThresholdValue',
+      'breakoutRetestProofFormulaDeltaValue',
+      'breakoutRetestProofFormulaUnit'
+    ],
+    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
+      'structurePolicyFormulaEvidenceBasis'
+    ],
+    NO_ZERO_EXECUTABLE_TUNING_ACTION: []
+  },
   evidenceRules: {
     TARGET_RECALIBRATION: 'zeroExecutableTargetShortfallPct and formula observed/delta values must be positive; adjustment must name target recalibration knob',
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence; adjustment must name risk geometry knob',
