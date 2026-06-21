@@ -128,6 +128,14 @@ function runCase(testCase) {
   if (Number(report.summary?.tuningRecommendationCount || 0) !== testCase.expectedRecommendations) {
     throw new Error(`${testCase.name}: expected tuningRecommendationCount=${testCase.expectedRecommendations}, got ${report.summary?.tuningRecommendationCount}`);
   }
+  if (testCase.expectedRecommendations > 0) {
+    const missingContractFields = (report.tuningRecommendations || []).filter(
+      (row) => !Array.isArray(row.contractTunablePolicyFields) || row.contractTunablePolicyFields.length === 0
+    );
+    if (missingContractFields.length > 0) {
+      throw new Error(`${testCase.name}: tuning recommendations missing contractTunablePolicyFields`);
+    }
+  }
   if (report.summary?.topProducerTrack !== testCase.expectedTopTrack) {
     throw new Error(`${testCase.name}: expected topProducerTrack=${testCase.expectedTopTrack}, got ${report.summary?.topProducerTrack}`);
   }
@@ -146,6 +154,9 @@ function runCase(testCase) {
   }
   for (const token of ['missingLaneSpecificRows', 'formulaLaneMismatchRows', 'formulaEvidenceWeakRows', 'tuningRecommendationCount', 'Lane Mismatch', 'Weak Evidence', 'Missing Lane Fields', 'Tuning Recommendations']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing lane-specific token ${token}`);
+  }
+  if (testCase.expectedRecommendations > 0 && !md.includes('Contract fields')) {
+    throw new Error(`${testCase.name}: markdown missing tuning contract fields`);
   }
   return {
     name: testCase.name,

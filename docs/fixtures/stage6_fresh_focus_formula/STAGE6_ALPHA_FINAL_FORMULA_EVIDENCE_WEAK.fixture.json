@@ -85,7 +85,58 @@
             "structurePolicyFormulaUnit"
           ],
           "NO_ZERO_EXECUTABLE_TUNING_ACTION": []
-        }
+        },
+        "tunablePolicyFields": {
+          "TARGET_RECALIBRATION": [
+            "TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct",
+            "targetRecalibrationRequiredTargetPrice",
+            "targetRecalibrationRequiredTargetSource",
+            "targetRecalibrationRequiredTargetByExpectedReturnPrice",
+            "targetRecalibrationViabilityVerdict"
+          ],
+          "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": [
+            "riskGeometryRequiredTargetPrice",
+            "riskGeometryRequiredTargetSource",
+            "riskGeometryTargetShortfallPct",
+            "riskGeometryRequiredStopValid",
+            "riskGeometryRequiredStopDistanceValid",
+            "riskGeometryRecalculatedStopRrOk",
+            "riskGeometryTargetBufferOk"
+          ],
+          "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": [
+            "riskGeometryRequiredTargetPrice",
+            "riskGeometryRequiredTargetSource",
+            "riskGeometryTargetShortfallPct",
+            "riskGeometryTargetNoTradeConfirmed",
+            "riskGeometryTargetRecalibrationGapPolicyPct",
+            "riskGeometryTargetAboveCurrent"
+          ],
+          "BREAKOUT_PROOF_CONFIRMED_GENERATION": [
+            "BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest",
+            "BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct",
+            "BREAKOUT_RETEST_PROOF_POLICY.retestTolerancePct",
+            "BREAKOUT_RETEST_PROOF_POLICY.maxContinuationExtensionPct",
+            "BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier",
+            "BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier",
+            "breakoutRetestProofConfirmed"
+          ],
+          "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION": [
+            "CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct",
+            "CURRENT_ENTRY_STRUCTURE_POLICY.supportBufferAtr",
+            "CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr",
+            "CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr",
+            "CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct",
+            "currentEntryStructureVerdict"
+          ],
+          "NO_ZERO_EXECUTABLE_TUNING_ACTION": []
+        },
+        "promotionSafetyRules": [
+          "breakout_review_ready_never_promotes",
+          "breakout_proof_confirmed_requires_promotion_flag",
+          "target_already_reached_requires_recalibration_or_no_trade",
+          "structure_reject_never_promotes_without_confirmed_structure",
+          "sidecar_reprice_never_solves_stage6_target_geometry"
+        ]
       }
     }
   },
@@ -116,14 +167,14 @@
           "formula_adjustment_direction:RECALIBRATE_TARGET_WITH_FRESH_THESIS"
         ],
         "zeroExecutableFormulaRecommendedAction": "Weak evidence fixture.",
-        "zeroExecutableFormulaObservedValue": 0.0,
+        "zeroExecutableFormulaObservedValue": 0,
         "zeroExecutableFormulaThresholdValue": 0,
-        "zeroExecutableFormulaDeltaValue": 0.0,
+        "zeroExecutableFormulaDeltaValue": 0,
         "zeroExecutableFormulaUnit": "pct_shortfall",
         "zeroExecutableFormulaEvidenceBasis": "target_recalibration_shortfall",
         "zeroExecutableFormulaAdjustmentKnob": "TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE",
         "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_WITH_FRESH_THESIS",
-        "zeroExecutableFormulaAdjustmentMagnitude": 0.0,
+        "zeroExecutableFormulaAdjustmentMagnitude": 0,
         "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion.",
         "targetRecalibrationFormulaEvidenceBasis": "target_recalibration_shortfall",
         "targetRecalibrationFormulaObservedValue": 0,

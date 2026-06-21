@@ -130,6 +130,8 @@ function validateProducerSourceContract() {
   }
   for (const token of [
     'laneSpecificRowFields',
+    'tunablePolicyFields',
+    'promotionSafetyRules',
     'targetRecalibrationFormulaEvidenceBasis',
     'riskGeometryFormulaEvidenceBasis',
     'breakoutRetestProofFormulaEvidenceBasis',
@@ -141,6 +143,19 @@ function validateProducerSourceContract() {
   ]) {
     if (!source.includes(token)) {
       throw new Error(`producer lane-specific formula field propagation missing token: ${token}`);
+    }
+  }
+  for (const token of [
+    'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+    'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest',
+    'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct',
+    'breakout_review_ready_never_promotes',
+    'target_already_reached_requires_recalibration_or_no_trade',
+    'sidecar_reprice_never_solves_stage6_target_geometry'
+  ]) {
+    if (!source.includes(token)) {
+      throw new Error(`producer formula tunable/safety contract missing token: ${token}`);
     }
   }
 }

@@ -81,6 +81,57 @@ const EXPECTED_LANE_SPECIFIC_ROW_FIELDS = {
   ],
   NO_ZERO_EXECUTABLE_TUNING_ACTION: []
 };
+const EXPECTED_TUNABLE_POLICY_FIELDS = {
+  TARGET_RECALIBRATION: [
+    'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+    'targetRecalibrationRequiredTargetPrice',
+    'targetRecalibrationRequiredTargetSource',
+    'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+    'targetRecalibrationViabilityVerdict'
+  ],
+  STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
+    'riskGeometryRequiredTargetPrice',
+    'riskGeometryRequiredTargetSource',
+    'riskGeometryTargetShortfallPct',
+    'riskGeometryRequiredStopValid',
+    'riskGeometryRequiredStopDistanceValid',
+    'riskGeometryRecalculatedStopRrOk',
+    'riskGeometryTargetBufferOk'
+  ],
+  RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
+    'riskGeometryRequiredTargetPrice',
+    'riskGeometryRequiredTargetSource',
+    'riskGeometryTargetShortfallPct',
+    'riskGeometryTargetNoTradeConfirmed',
+    'riskGeometryTargetRecalibrationGapPolicyPct',
+    'riskGeometryTargetAboveCurrent'
+  ],
+  BREAKOUT_PROOF_CONFIRMED_GENERATION: [
+    'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest',
+    'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct',
+    'BREAKOUT_RETEST_PROOF_POLICY.retestTolerancePct',
+    'BREAKOUT_RETEST_PROOF_POLICY.maxContinuationExtensionPct',
+    'BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier',
+    'BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier',
+    'breakoutRetestProofConfirmed'
+  ],
+  STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
+    'CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.supportBufferAtr',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct',
+    'currentEntryStructureVerdict'
+  ],
+  NO_ZERO_EXECUTABLE_TUNING_ACTION: []
+};
+const EXPECTED_PROMOTION_SAFETY_RULES = [
+  'breakout_review_ready_never_promotes',
+  'breakout_proof_confirmed_requires_promotion_flag',
+  'target_already_reached_requires_recalibration_or_no_trade',
+  'structure_reject_never_promotes_without_confirmed_structure',
+  'sidecar_reprice_never_solves_stage6_target_geometry'
+];
 
 function resolveRepo(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(REPO_ROOT, filePath);
@@ -225,6 +276,21 @@ function formulaContractIssues(stage6) {
       if (!actualFields.has(field)) issues.push(`lane_specific_contract_missing:${lane}.${field}`);
     }
   }
+  const tunablePolicyFields = contract.tunablePolicyFields || {};
+  for (const [lane, fields] of Object.entries(EXPECTED_TUNABLE_POLICY_FIELDS)) {
+    if (!Array.isArray(tunablePolicyFields[lane])) {
+      issues.push(`tunable_policy_contract_missing:${lane}`);
+      continue;
+    }
+    const actualFields = new Set(tunablePolicyFields[lane]);
+    for (const field of fields) {
+      if (!actualFields.has(field)) issues.push(`tunable_policy_contract_missing:${lane}.${field}`);
+    }
+  }
+  const promotionSafetyRules = new Set(Array.isArray(contract.promotionSafetyRules) ? contract.promotionSafetyRules : []);
+  for (const rule of EXPECTED_PROMOTION_SAFETY_RULES) {
+    if (!promotionSafetyRules.has(rule)) issues.push(`promotion_safety_rule_missing:${rule}`);
+  }
   return issues;
 }
 
@@ -336,6 +402,10 @@ function recommendationForGroup(groupRows) {
   const first = groupRows[0] || {};
   const producerTrack = first.producerTrack || 'unknown';
   const adjustmentKnob = first.adjustmentKnob || 'missing';
+  const tuningLanes = [...new Set(groupRows.map((row) => row.zeroExecutableTuningLane).filter(Boolean))].sort();
+  const contractTunablePolicyFields = [
+    ...new Set(tuningLanes.flatMap((lane) => EXPECTED_TUNABLE_POLICY_FIELDS[lane] || []))
+  ].sort();
   const magnitudes = groupRows.map((row) => Number(row.adjustmentMagnitude || row.deltaValue || row.severity || 0));
   const observedValues = groupRows.map((row) => Number(row.observedValue || 0));
   const thresholdValues = groupRows.map((row) => Number(row.thresholdValue || 0));
@@ -354,6 +424,9 @@ function recommendationForGroup(groupRows) {
     maxObservedValue,
     maxThresholdValue,
     unit,
+    tuningLanes,
+    contractTunablePolicyFields,
+    promotionSafetyRules: EXPECTED_PROMOTION_SAFETY_RULES,
     producerOnly: true,
     brokerMutationAllowed: false,
     sidecarMutationAllowed: false
@@ -473,7 +546,8 @@ function buildMarkdown(report) {
   lines.push('| Track | Knob | Symbols | Max Magnitude | Avg Magnitude | Decision | Candidate Field | Candidate Value | Producer Change | Done When |');
   lines.push('| --- | --- | --- | ---: | ---: | --- | --- | ---: | --- | --- |');
   for (const row of report.tuningRecommendations) {
-    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(row.maxMagnitude)} | ${esc(row.avgMagnitude)} | ${esc(row.formulaDecision)} | ${esc(row.candidateThresholdField)} | ${esc(row.candidateThresholdValue)} | ${esc(row.recommendedProducerChange)} | ${esc(row.doneWhen)} |`);
+    const producerChange = `${row.recommendedProducerChange} Contract fields: ${(row.contractTunablePolicyFields || []).join(', ') || 'none'}.`;
+    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(row.maxMagnitude)} | ${esc(row.avgMagnitude)} | ${esc(row.formulaDecision)} | ${esc(row.candidateThresholdField)} | ${esc(row.candidateThresholdValue)} | ${esc(producerChange)} | ${esc(row.doneWhen)} |`);
   }
   if (!report.tuningRecommendations.length) lines.push('| none | none | none | N/A | N/A | none | none | N/A | none | none |');
   lines.push('');

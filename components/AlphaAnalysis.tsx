@@ -992,6 +992,57 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
     ],
     NO_ZERO_EXECUTABLE_TUNING_ACTION: []
   },
+  tunablePolicyFields: {
+    TARGET_RECALIBRATION: [
+      'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+      'targetRecalibrationRequiredTargetPrice',
+      'targetRecalibrationRequiredTargetSource',
+      'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+      'targetRecalibrationViabilityVerdict'
+    ],
+    STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
+      'riskGeometryRequiredTargetPrice',
+      'riskGeometryRequiredTargetSource',
+      'riskGeometryTargetShortfallPct',
+      'riskGeometryRequiredStopValid',
+      'riskGeometryRequiredStopDistanceValid',
+      'riskGeometryRecalculatedStopRrOk',
+      'riskGeometryTargetBufferOk'
+    ],
+    RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
+      'riskGeometryRequiredTargetPrice',
+      'riskGeometryRequiredTargetSource',
+      'riskGeometryTargetShortfallPct',
+      'riskGeometryTargetNoTradeConfirmed',
+      'riskGeometryTargetRecalibrationGapPolicyPct',
+      'riskGeometryTargetAboveCurrent'
+    ],
+    BREAKOUT_PROOF_CONFIRMED_GENERATION: [
+      'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest',
+      'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct',
+      'BREAKOUT_RETEST_PROOF_POLICY.retestTolerancePct',
+      'BREAKOUT_RETEST_PROOF_POLICY.maxContinuationExtensionPct',
+      'BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier',
+      'BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier',
+      'breakoutRetestProofConfirmed'
+    ],
+    STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
+      'CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct',
+      'CURRENT_ENTRY_STRUCTURE_POLICY.supportBufferAtr',
+      'CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr',
+      'CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr',
+      'CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct',
+      'currentEntryStructureVerdict'
+    ],
+    NO_ZERO_EXECUTABLE_TUNING_ACTION: []
+  },
+  promotionSafetyRules: [
+    'breakout_review_ready_never_promotes',
+    'breakout_proof_confirmed_requires_promotion_flag',
+    'target_already_reached_requires_recalibration_or_no_trade',
+    'structure_reject_never_promotes_without_confirmed_structure',
+    'sidecar_reprice_never_solves_stage6_target_geometry'
+  ],
   evidenceRules: {
     TARGET_RECALIBRATION: 'zeroExecutableTargetShortfallPct and formula observed/delta values must be positive; adjustment must name target recalibration knob',
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'zeroExecutableFormulaSeverity and formula observed/delta values must be positive and reasons must name risk/stop/target geometry evidence; adjustment must name risk geometry knob',

@@ -70,6 +70,57 @@ const EXPECTED_LANE_SPECIFIC_ROW_FIELDS = {
   ],
   NO_ZERO_EXECUTABLE_TUNING_ACTION: []
 };
+const EXPECTED_TUNABLE_POLICY_FIELDS = {
+  TARGET_RECALIBRATION: [
+    'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct',
+    'targetRecalibrationRequiredTargetPrice',
+    'targetRecalibrationRequiredTargetSource',
+    'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+    'targetRecalibrationViabilityVerdict'
+  ],
+  STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
+    'riskGeometryRequiredTargetPrice',
+    'riskGeometryRequiredTargetSource',
+    'riskGeometryTargetShortfallPct',
+    'riskGeometryRequiredStopValid',
+    'riskGeometryRequiredStopDistanceValid',
+    'riskGeometryRecalculatedStopRrOk',
+    'riskGeometryTargetBufferOk'
+  ],
+  RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
+    'riskGeometryRequiredTargetPrice',
+    'riskGeometryRequiredTargetSource',
+    'riskGeometryTargetShortfallPct',
+    'riskGeometryTargetNoTradeConfirmed',
+    'riskGeometryTargetRecalibrationGapPolicyPct',
+    'riskGeometryTargetAboveCurrent'
+  ],
+  BREAKOUT_PROOF_CONFIRMED_GENERATION: [
+    'BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest',
+    'BREAKOUT_RETEST_PROOF_POLICY.maxCurrentExtensionFromRetestPct',
+    'BREAKOUT_RETEST_PROOF_POLICY.retestTolerancePct',
+    'BREAKOUT_RETEST_PROOF_POLICY.maxContinuationExtensionPct',
+    'BREAKOUT_RETEST_PROOF_POLICY.continuationMinRrMultiplier',
+    'BREAKOUT_RETEST_PROOF_POLICY.continuationMinTargetBufferMultiplier',
+    'breakoutRetestProofConfirmed'
+  ],
+  STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
+    'CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.supportBufferAtr',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr',
+    'CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct',
+    'currentEntryStructureVerdict'
+  ],
+  NO_ZERO_EXECUTABLE_TUNING_ACTION: []
+};
+const EXPECTED_PROMOTION_SAFETY_RULES = [
+  'breakout_review_ready_never_promotes',
+  'breakout_proof_confirmed_requires_promotion_flag',
+  'target_already_reached_requires_recalibration_or_no_trade',
+  'structure_reject_never_promotes_without_confirmed_structure',
+  'sidecar_reprice_never_solves_stage6_target_geometry'
+];
 const actionableVerdicts = new Set(
   String(data?.decisionGate?.actionableVerdicts || 'BUY,STRONG_BUY,STRONGBUY')
     .split(',')
@@ -203,6 +254,22 @@ if (!formulaContract || typeof formulaContract !== 'object') {
   const evidenceRules = formulaContract.evidenceRules || {};
   for (const lane of Object.keys(EXPECTED_LANE_TO_BOTTLENECK)) {
     if (!String(evidenceRules[lane] || '').trim()) errors.push(`zeroExecutableFormulaContract.evidenceRules missing ${lane}`);
+  }
+  const tunablePolicyFields = formulaContract.tunablePolicyFields || {};
+  for (const [lane, fields] of Object.entries(EXPECTED_TUNABLE_POLICY_FIELDS)) {
+    const actualFields = new Set(Array.isArray(tunablePolicyFields[lane]) ? tunablePolicyFields[lane] : []);
+    for (const field of fields) {
+      if (!actualFields.has(field)) {
+        errors.push(`zeroExecutableFormulaContract.tunablePolicyFields missing ${lane}.${field}`);
+      }
+    }
+    if (fields.length === 0 && !Array.isArray(tunablePolicyFields[lane])) {
+      errors.push(`zeroExecutableFormulaContract.tunablePolicyFields missing ${lane} empty contract`);
+    }
+  }
+  const promotionSafetyRules = new Set(Array.isArray(formulaContract.promotionSafetyRules) ? formulaContract.promotionSafetyRules : []);
+  for (const rule of EXPECTED_PROMOTION_SAFETY_RULES) {
+    if (!promotionSafetyRules.has(rule)) errors.push(`zeroExecutableFormulaContract.promotionSafetyRules missing ${rule}`);
   }
 }
 const riskGeometryReasons = new Set([
