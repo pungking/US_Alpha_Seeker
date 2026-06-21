@@ -7,7 +7,8 @@ const REPO_ROOT = process.cwd();
 const DEFAULT_STAGE6_DIR = 'state/stage6-audit-source';
 const OUT_JSON = process.env.STAGE6_FORMULA_TUNING_BACKLOG_OUT_JSON || 'state/stage6-formula-tuning-backlog.json';
 const OUT_MD = process.env.STAGE6_FORMULA_TUNING_BACKLOG_OUT_MD || 'state/stage6-formula-tuning-backlog.md';
-const REQUIRED_V3_FIELDS = [
+const EXPECTED_FORMULA_CONTRACT_VERSION = 'zero_executable_formula_v4';
+const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaBottleneck',
   'zeroExecutableFormulaSeverity',
   'zeroExecutableFormulaObservedValue',
@@ -26,6 +27,14 @@ const PRODUCER_TRACK_BY_BOTTLENECK = {
   BREAKOUT_PROOF_FORMULA: 'breakout_proof_confirmed_generation',
   STRUCTURE_PROOF_FORMULA: 'structure_proof_generation',
   NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK: 'no_action'
+};
+const EXPECTED_BOTTLENECK_BY_LANE = {
+  TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
+  STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
+  RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
+  BREAKOUT_PROOF_CONFIRMED_GENERATION: 'BREAKOUT_PROOF_FORMULA',
+  STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: 'STRUCTURE_PROOF_FORMULA',
+  NO_ZERO_EXECUTABLE_TUNING_ACTION: 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK'
 };
 const EXPECTED_LANE_SPECIFIC_ROW_FIELDS = {
   TARGET_RECALIBRATION: [
@@ -57,7 +66,11 @@ const EXPECTED_LANE_SPECIFIC_ROW_FIELDS = {
     'breakoutRetestProofFormulaUnit'
   ],
   STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
-    'structurePolicyFormulaEvidenceBasis'
+    'structurePolicyFormulaEvidenceBasis',
+    'structurePolicyFormulaObservedValue',
+    'structurePolicyFormulaThresholdValue',
+    'structurePolicyFormulaDeltaValue',
+    'structurePolicyFormulaUnit'
   ],
   NO_ZERO_EXECUTABLE_TUNING_ACTION: []
 };
@@ -172,6 +185,13 @@ function formulaContractIssues(stage6) {
   const contract = formulaContract(stage6);
   if (!contract || typeof contract !== 'object') return ['formula_contract_missing'];
   const issues = [];
+  if (contract.version !== EXPECTED_FORMULA_CONTRACT_VERSION) {
+    issues.push(`formula_contract_version_mismatch:${contract.version || 'missing'}`);
+  }
+  const requiredRowFields = new Set(Array.isArray(contract.requiredRowFields) ? contract.requiredRowFields : []);
+  for (const field of REQUIRED_FORMULA_FIELDS) {
+    if (!requiredRowFields.has(field)) issues.push(`formula_contract_required_field_missing:${field}`);
+  }
   const laneSpecificRowFields = contract.laneSpecificRowFields || {};
   for (const [lane, fields] of Object.entries(EXPECTED_LANE_SPECIFIC_ROW_FIELDS)) {
     if (!Array.isArray(laneSpecificRowFields[lane])) {
@@ -186,8 +206,8 @@ function formulaContractIssues(stage6) {
   return issues;
 }
 
-function missingV3Fields(row) {
-  return REQUIRED_V3_FIELDS.filter((field) => !Object.prototype.hasOwnProperty.call(row, field));
+function missingFormulaFields(row) {
+  return REQUIRED_FORMULA_FIELDS.filter((field) => !Object.prototype.hasOwnProperty.call(row, field));
 }
 
 function missingLaneSpecificFields(row) {
@@ -207,18 +227,30 @@ function formulaEvidenceWeak(row, missingFields, missingLaneFields) {
   return !(observed != null && observed > 0 && delta != null && delta > 0 && magnitude != null && magnitude > 0 && severity != null && severity > 0);
 }
 
+function formulaLaneMismatch(row, missingFields) {
+  if (missingFields.length > 0) return false;
+  const lane = String(row?.zeroExecutableTuningLane || '').trim().toUpperCase();
+  const expected = EXPECTED_BOTTLENECK_BY_LANE[lane];
+  if (!expected) return false;
+  const actual = String(row?.zeroExecutableFormulaBottleneck || '').trim().toUpperCase();
+  return actual !== expected;
+}
+
 function rowBacklog(row) {
   const symbol = normalizeSymbol(row);
   const bottleneck = normalizeText(row?.zeroExecutableFormulaBottleneck) || 'missing';
   const producerTrack = PRODUCER_TRACK_BY_BOTTLENECK[bottleneck] || 'unknown';
-  const missingFields = missingV3Fields(row);
+  const missingFields = missingFormulaFields(row);
   const missingLaneFields = missingLaneSpecificFields(row);
+  const laneMismatch = formulaLaneMismatch(row, missingFields);
   const weakEvidence = formulaEvidenceWeak(row, missingFields, missingLaneFields);
   const delta = round(row?.zeroExecutableFormulaDeltaValue) ?? 0;
   const magnitude = round(row?.zeroExecutableFormulaAdjustmentMagnitude) ?? delta;
   const severity = round(row?.zeroExecutableFormulaSeverity) ?? 0;
   const actionRequired = missingFields.length > 0 || missingLaneFields.length > 0
-    ? 'REFRESH_STAGE6_WITH_FORMULA_V3'
+    ? 'REFRESH_STAGE6_WITH_FORMULA_V4'
+    : laneMismatch
+      ? 'REFRESH_STAGE6_FORMULA_LANE_MAPPING'
     : weakEvidence
       ? 'REFRESH_STAGE6_FORMULA_EVIDENCE'
     : producerTrack === 'no_action'
@@ -243,8 +275,10 @@ function rowBacklog(row) {
     adjustmentRationale: normalizeText(row?.zeroExecutableFormulaAdjustmentRationale),
     severity,
     actionRequired,
-    missingV3Fields: missingFields,
+    missingFormulaFields: missingFields,
     missingLaneSpecificFields: missingLaneFields,
+    formulaLaneMismatch: laneMismatch,
+    expectedFormulaBottleneck: EXPECTED_BOTTLENECK_BY_LANE[String(row?.zeroExecutableTuningLane || '').trim().toUpperCase()] || null,
     formulaEvidenceWeak: weakEvidence,
     producerOnly: true,
     sidecarMutationAllowed: false
@@ -285,8 +319,9 @@ function buildMarkdown(report) {
   lines.push(`| formulaContractVersion | ${esc(report.stage6.formulaContractVersion)} |`);
   lines.push(`| rows | ${report.summary.rows} |`);
   lines.push(`| producerReviewRows | ${report.summary.producerReviewRows} |`);
-  lines.push(`| missingV3Rows | ${report.summary.missingV3Rows} |`);
+  lines.push(`| missingFormulaRows | ${report.summary.missingFormulaRows} |`);
   lines.push(`| missingLaneSpecificRows | ${report.summary.missingLaneSpecificRows} |`);
+  lines.push(`| formulaLaneMismatchRows | ${report.summary.formulaLaneMismatchRows} |`);
   lines.push(`| formulaEvidenceWeakRows | ${report.summary.formulaEvidenceWeakRows} |`);
   lines.push(`| formulaContractIssues | ${report.summary.formulaContractIssues} |`);
   lines.push(`| topProducerTrack | ${esc(report.summary.topProducerTrack)} |`);
@@ -299,19 +334,21 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Backlog Rows');
   lines.push('');
-  lines.push('| Symbol | Decision | Track | Knob | Direction | Magnitude | Evidence | Weak Evidence | Missing Lane Fields | Action |');
-  lines.push('| --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- |');
+  lines.push('| Symbol | Decision | Track | Knob | Direction | Magnitude | Evidence | Lane Mismatch | Weak Evidence | Missing Lane Fields | Action |');
+  lines.push('| --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- |');
   for (const row of report.backlogRows) {
     const evidence = `${row.evidenceBasis || 'missing'}:${row.observedValue ?? 'N/A'}>${row.thresholdValue ?? 'N/A'} delta=${row.deltaValue ?? 'N/A'} ${row.unit || ''}`;
-    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(evidence)} | ${row.formulaEvidenceWeak ? 'yes' : 'no'} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
+    const laneMismatch = row.formulaLaneMismatch ? `${row.formulaBottleneck || 'missing'}!=${row.expectedFormulaBottleneck || 'unknown'}` : 'no';
+    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(evidence)} | ${esc(laneMismatch)} | ${row.formulaEvidenceWeak ? 'yes' : 'no'} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
   }
-  if (!report.backlogRows.length) lines.push('| none | none | none | none | none | N/A | none | no | none | none |');
+  if (!report.backlogRows.length) lines.push('| none | none | none | none | none | N/A | none | no | no | none | none |');
   lines.push('');
   lines.push('## Guardrails');
   lines.push('');
   lines.push('- This backlog is producer-only. It must not enable broker submit, replace, reprice, or sidecar mutation.');
-  lines.push('- `REFRESH_STAGE6_WITH_FORMULA_V3` means the artifact predates the current contract; do not infer tuning from stale rows.');
-  lines.push('- `REFRESH_STAGE6_FORMULA_EVIDENCE` means the row has v3 fields but zero/weak formula evidence; refresh producer evidence before changing thresholds.');
+  lines.push('- `REFRESH_STAGE6_WITH_FORMULA_V4` means the artifact predates the current contract; do not infer tuning from stale rows.');
+  lines.push('- `REFRESH_STAGE6_FORMULA_LANE_MAPPING` means the row lane and formula bottleneck disagree; fix producer classification before threshold tuning.');
+  lines.push('- `REFRESH_STAGE6_FORMULA_EVIDENCE` means the row has current formula fields but zero/weak formula evidence; refresh producer evidence before changing thresholds.');
   lines.push('- `PRODUCER_TUNING_REVIEW` means tune Stage6 formulas or proof generation, not execution-side filters.');
   return lines.join('\n') + '\n';
 }
@@ -320,8 +357,9 @@ function main() {
   const stage6Path = latestStage6Path();
   const stage6 = readJson(stage6Path);
   const rows = uniqueRows(stage6).map(rowBacklog);
-  const missingV3Rows = rows.filter((row) => row.missingV3Fields.length > 0);
+  const missingFormulaRows = rows.filter((row) => row.missingFormulaFields.length > 0);
   const missingLaneSpecificRows = rows.filter((row) => row.missingLaneSpecificFields.length > 0);
+  const formulaLaneMismatchRows = rows.filter((row) => row.formulaLaneMismatch);
   const formulaEvidenceWeakRows = rows.filter((row) => row.formulaEvidenceWeak);
   const contractIssues = formulaContractIssues(stage6);
   const producerRows = rows.filter((row) => row.actionRequired === 'PRODUCER_TUNING_REVIEW');
@@ -334,8 +372,10 @@ function main() {
     ? 'fail_no_rows'
     : contractIssues.length > 0
       ? 'warn_formula_tuning_contract_incomplete'
-    : missingV3Rows.length > 0 || missingLaneSpecificRows.length > 0
-      ? 'warn_formula_tuning_v3_fields_missing'
+    : missingFormulaRows.length > 0 || missingLaneSpecificRows.length > 0
+      ? 'warn_formula_tuning_formula_fields_missing'
+    : formulaLaneMismatchRows.length > 0
+      ? 'warn_formula_tuning_lane_mismatch'
     : formulaEvidenceWeakRows.length > 0
       ? 'warn_formula_tuning_evidence_weak'
       : producerRows.length > 0
@@ -353,8 +393,9 @@ function main() {
     summary: {
       rows: rows.length,
       producerReviewRows: producerRows.length,
-      missingV3Rows: missingV3Rows.length,
+      missingFormulaRows: missingFormulaRows.length,
       missingLaneSpecificRows: missingLaneSpecificRows.length,
+      formulaLaneMismatchRows: formulaLaneMismatchRows.length,
       formulaEvidenceWeakRows: formulaEvidenceWeakRows.length,
       formulaContractIssues: contractIssues.length,
       producerTrackCounts: countBy(rows, (row) => row.producerTrack),
@@ -374,8 +415,10 @@ function main() {
       sidecarMutationAllowed: false,
       nextAction: contractIssues.length > 0
         ? 'publish_stage6_formula_lane_specific_contract'
-        : missingV3Rows.length > 0 || missingLaneSpecificRows.length > 0
-        ? 'generate_fresh_stage6_after_formula_v3_head'
+        : missingFormulaRows.length > 0 || missingLaneSpecificRows.length > 0
+        ? 'generate_fresh_stage6_after_formula_v4_head'
+        : formulaLaneMismatchRows.length > 0
+          ? 'refresh_stage6_formula_lane_mapping'
         : formulaEvidenceWeakRows.length > 0
           ? 'refresh_stage6_formula_evidence_before_tuning_thresholds'
         : producerRows.length > 0

@@ -48,7 +48,12 @@
         "zeroExecutableFormulaAdjustmentKnob": "CURRENT_ENTRY_STRUCTURE_SUPPORT_PROOF",
         "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE",
         "zeroExecutableFormulaAdjustmentMagnitude": 2.0,
-        "zeroExecutableFormulaAdjustmentRationale": "Structure wait requires stronger support/RR/distance proof; blind structure relaxation remains blocked."
+        "zeroExecutableFormulaAdjustmentRationale": "Structure wait requires stronger support/RR/distance proof; blind structure relaxation remains blocked.",
+        "structurePolicyFormulaEvidenceBasis": "structure_proof_gap_count",
+        "structurePolicyFormulaObservedValue": 2.0,
+        "structurePolicyFormulaThresholdValue": 0,
+        "structurePolicyFormulaDeltaValue": 2.0,
+        "structurePolicyFormulaUnit": "proof_gap_count"
       },
       {
         "symbol": "FORMBRK",

@@ -27,7 +27,7 @@ const CASES = [
     expectedManifestContractIssues: 1,
     expectedLaneConsistencyIssues: 0,
     expectedEvidenceQualityIssues: 0,
-    expectedLaneSpecificFormulaIssues: 4
+    expectedLaneSpecificFormulaIssues: 3
   },
   {
     name: 'formula_fields_present_passes',
@@ -47,7 +47,7 @@ const CASES = [
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 2,
     expectedEvidenceQualityIssues: 2,
-    expectedLaneSpecificFormulaIssues: 1
+    expectedLaneSpecificFormulaIssues: 0
   },
   {
     name: 'formula_evidence_weak_warns',
@@ -118,7 +118,11 @@ function validateProducerSourceContract() {
     'targetRecalibrationFormulaEvidenceBasis',
     'riskGeometryFormulaEvidenceBasis',
     'breakoutRetestProofFormulaEvidenceBasis',
-    'structurePolicyFormulaEvidenceBasis'
+    'structurePolicyFormulaEvidenceBasis',
+    'structurePolicyFormulaObservedValue',
+    'structurePolicyFormulaThresholdValue',
+    'structurePolicyFormulaDeltaValue',
+    'structurePolicyFormulaUnit'
   ]) {
     if (!source.includes(token)) {
       throw new Error(`producer lane-specific formula field propagation missing token: ${token}`);

@@ -27,7 +27,7 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaRecommendedAction'
 ];
 const EXPECTED_FORMULA_CONTRACT = {
-  version: 'zero_executable_formula_v3',
+  version: 'zero_executable_formula_v4',
   laneToBottleneck: {
     TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: 'RISK_GEOMETRY_RECALCULATION_FORMULA',
@@ -66,7 +66,11 @@ const EXPECTED_FORMULA_CONTRACT = {
       'breakoutRetestProofFormulaUnit'
     ],
     STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
-      'structurePolicyFormulaEvidenceBasis'
+      'structurePolicyFormulaEvidenceBasis',
+      'structurePolicyFormulaObservedValue',
+      'structurePolicyFormulaThresholdValue',
+      'structurePolicyFormulaDeltaValue',
+      'structurePolicyFormulaUnit'
     ],
     NO_ZERO_EXECUTABLE_TUNING_ACTION: []
   }
@@ -395,6 +399,7 @@ function laneSpecificFormulaEvidenceIssue(row) {
     requirePositiveFormulaTriplet('breakoutRetestProof');
   } else if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
     requireBasisMatch('structurePolicyFormulaEvidenceBasis');
+    requirePositiveFormulaTriplet('structurePolicy');
   }
 
   if (issueReasons.length === 0) return null;
@@ -406,6 +411,10 @@ function laneSpecificFormulaEvidenceIssue(row) {
     riskGeometryFormulaEvidenceBasis: row?.riskGeometryFormulaEvidenceBasis || null,
     breakoutRetestProofFormulaEvidenceBasis: row?.breakoutRetestProofFormulaEvidenceBasis || null,
     structurePolicyFormulaEvidenceBasis: row?.structurePolicyFormulaEvidenceBasis || null,
+    structurePolicyFormulaObservedValue: numberOrNull(row?.structurePolicyFormulaObservedValue),
+    structurePolicyFormulaThresholdValue: numberOrNull(row?.structurePolicyFormulaThresholdValue),
+    structurePolicyFormulaDeltaValue: numberOrNull(row?.structurePolicyFormulaDeltaValue),
+    structurePolicyFormulaUnit: row?.structurePolicyFormulaUnit || null,
     issueReasons,
     finalDecision: decisionOf(row),
     decisionReason: reasonOf(row)
@@ -554,6 +563,10 @@ function compactRow(row) {
     riskGeometryFormulaUnit: row?.riskGeometryFormulaUnit || null,
     structurePolicyBlockerLane: row?.structurePolicyBlockerLane || null,
     structurePolicyFormulaEvidenceBasis: row?.structurePolicyFormulaEvidenceBasis || null,
+    structurePolicyFormulaObservedValue: numberOrNull(row?.structurePolicyFormulaObservedValue),
+    structurePolicyFormulaThresholdValue: numberOrNull(row?.structurePolicyFormulaThresholdValue),
+    structurePolicyFormulaDeltaValue: numberOrNull(row?.structurePolicyFormulaDeltaValue),
+    structurePolicyFormulaUnit: row?.structurePolicyFormulaUnit || null,
     structurePolicyCurrentRrOk: row?.structurePolicyCurrentRrOk ?? null,
     structurePolicyTargetBufferOk: row?.structurePolicyTargetBufferOk ?? null,
     structurePolicyDistanceWithinReviewBand: row?.structurePolicyDistanceWithinReviewBand ?? null,
@@ -688,6 +701,10 @@ function main() {
     targetRecalibrationFormulaUnit: requiredFieldCoverage(rows, 'targetRecalibrationFormulaUnit'),
     structurePolicyBlockerLane: requiredFieldCoverage(rows, 'structurePolicyBlockerLane'),
     structurePolicyFormulaEvidenceBasis: requiredFieldCoverage(rows, 'structurePolicyFormulaEvidenceBasis'),
+    structurePolicyFormulaObservedValue: requiredFieldCoverage(rows, 'structurePolicyFormulaObservedValue'),
+    structurePolicyFormulaThresholdValue: requiredFieldCoverage(rows, 'structurePolicyFormulaThresholdValue'),
+    structurePolicyFormulaDeltaValue: requiredFieldCoverage(rows, 'structurePolicyFormulaDeltaValue'),
+    structurePolicyFormulaUnit: requiredFieldCoverage(rows, 'structurePolicyFormulaUnit'),
     structurePolicyCurrentRrOk: requiredFieldCoverage(rows, 'structurePolicyCurrentRrOk'),
     structurePolicyTargetBufferOk: requiredFieldCoverage(rows, 'structurePolicyTargetBufferOk'),
     structurePolicyDistanceWithinReviewBand: requiredFieldCoverage(rows, 'structurePolicyDistanceWithinReviewBand'),

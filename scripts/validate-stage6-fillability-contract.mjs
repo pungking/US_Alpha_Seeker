@@ -62,7 +62,11 @@ const EXPECTED_LANE_SPECIFIC_ROW_FIELDS = {
     'breakoutRetestProofFormulaUnit'
   ],
   STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
-    'structurePolicyFormulaEvidenceBasis'
+    'structurePolicyFormulaEvidenceBasis',
+    'structurePolicyFormulaObservedValue',
+    'structurePolicyFormulaThresholdValue',
+    'structurePolicyFormulaDeltaValue',
+    'structurePolicyFormulaUnit'
   ],
   NO_ZERO_EXECUTABLE_TUNING_ACTION: []
 };
@@ -151,6 +155,10 @@ const requiredSchemaFields = [
   'structurePolicyMaxReviewDistancePct',
   'structurePolicyDistanceExcessPct',
   'structurePolicyFormulaEvidenceBasis',
+  'structurePolicyFormulaObservedValue',
+  'structurePolicyFormulaThresholdValue',
+  'structurePolicyFormulaDeltaValue',
+  'structurePolicyFormulaUnit',
   'currentEntryStructureVerdict',
   'currentEntryRecalcFeasible',
   'currentEntryStructureConfirmed',
@@ -167,7 +175,7 @@ const formulaContract = data?.decisionGate?.zeroExecutableFormulaContract || nul
 if (!formulaContract || typeof formulaContract !== 'object') {
   errors.push('decisionGate missing zeroExecutableFormulaContract');
 } else {
-  if (formulaContract.version !== 'zero_executable_formula_v3') {
+  if (formulaContract.version !== 'zero_executable_formula_v4') {
     errors.push(`zeroExecutableFormulaContract.version mismatch: ${formulaContract.version || 'missing'}`);
   }
   const contractFields = new Set(Array.isArray(formulaContract.requiredRowFields) ? formulaContract.requiredRowFields : []);
@@ -509,6 +517,19 @@ for (const [idx, row] of candidates.entries()) {
     }
     if (!String(row.structurePolicyFormulaEvidenceBasis || '').trim()) {
       errors.push(`${label}: structure wait missing structurePolicyFormulaEvidenceBasis`);
+    }
+    for (const field of [
+      'structurePolicyFormulaObservedValue',
+      'structurePolicyFormulaThresholdValue',
+      'structurePolicyFormulaDeltaValue'
+    ]) {
+      if (!isFiniteNumber(row[field])) errors.push(`${label}: structure wait missing numeric ${field}`);
+    }
+    if (!String(row.structurePolicyFormulaUnit || '').trim()) {
+      errors.push(`${label}: structure wait missing structurePolicyFormulaUnit`);
+    }
+    if (!positiveNumber(row.structurePolicyFormulaObservedValue) || !positiveNumber(row.structurePolicyFormulaDeltaValue)) {
+      errors.push(`${label}: structure wait formula observed/delta must be positive`);
     }
     if (String(row.zeroExecutableFormulaEvidenceBasis || '') !== String(row.structurePolicyFormulaEvidenceBasis || '')) {
       errors.push(`${label}: structure formula evidence basis must match structurePolicyFormulaEvidenceBasis`);

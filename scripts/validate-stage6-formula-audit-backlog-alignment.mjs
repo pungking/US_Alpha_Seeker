@@ -18,31 +18,31 @@ const CASES = [
     expectedFreshOverall: 'pass_executable_present_focus_fields_ok',
     expectedBacklogOverall: 'pass_formula_tuning_backlog_ready',
     expectedFreshIssues: { manifest: 0, lane: 0, evidence: 0, laneSpecific: 0 },
-    expectedBacklogIssues: { contract: 0, missingV3: 0, missingLaneSpecific: 0, evidenceWeak: 0 }
+    expectedBacklogIssues: { contract: 0, missingFormula: 0, missingLaneSpecific: 0, laneMismatch: 0, evidenceWeak: 0 }
   },
   {
     name: 'missing_formula_fields_routes_to_refresh',
     fixture: 'STAGE6_ALPHA_FINAL_MISSING_FORMULA.fixture.json',
     expectedFreshOverall: 'warn_formula_bottleneck_fields_missing',
-    expectedBacklogOverall: 'warn_formula_tuning_v3_fields_missing',
+    expectedBacklogOverall: 'warn_formula_tuning_formula_fields_missing',
     expectedFreshIssues: { manifest: 0, lane: 1, evidence: 1, laneSpecific: 1 },
-    expectedBacklogIssues: { contract: 0, missingV3: 1, missingLaneSpecific: 1, evidenceWeak: 0 }
+    expectedBacklogIssues: { contract: 0, missingFormula: 1, missingLaneSpecific: 1, laneMismatch: 0, evidenceWeak: 0 }
   },
   {
     name: 'missing_formula_contract_routes_to_contract_refresh',
     fixture: 'STAGE6_ALPHA_FINAL_FORMULA_CONTRACT_MISSING.fixture.json',
     expectedFreshOverall: 'warn_formula_contract_missing_or_mismatch',
     expectedBacklogOverall: 'warn_formula_tuning_contract_incomplete',
-    expectedFreshIssues: { manifest: 1, lane: 0, evidence: 0, laneSpecific: 4 },
-    expectedBacklogIssues: { contract: 1, missingV3: 0, missingLaneSpecific: 4, evidenceWeak: 0 }
+    expectedFreshIssues: { manifest: 1, lane: 0, evidence: 0, laneSpecific: 3 },
+    expectedBacklogIssues: { contract: 1, missingFormula: 0, missingLaneSpecific: 3, laneMismatch: 0, evidenceWeak: 0 }
   },
   {
     name: 'formula_lane_mismatch_blocks_backlog_ready',
     fixture: 'STAGE6_ALPHA_FINAL_FORMULA_MISMATCH.fixture.json',
     expectedFreshOverall: 'warn_formula_bottleneck_lane_mismatch',
-    expectedBacklogOverall: 'warn_formula_tuning_v3_fields_missing',
-    expectedFreshIssues: { manifest: 0, lane: 2, evidence: 2, laneSpecific: 1 },
-    expectedBacklogIssues: { contract: 0, missingV3: 0, missingLaneSpecific: 1, evidenceWeak: 0 }
+    expectedBacklogOverall: 'warn_formula_tuning_lane_mismatch',
+    expectedFreshIssues: { manifest: 0, lane: 2, evidence: 2, laneSpecific: 0 },
+    expectedBacklogIssues: { contract: 0, missingFormula: 0, missingLaneSpecific: 0, laneMismatch: 2, evidenceWeak: 0 }
   },
   {
     name: 'weak_formula_evidence_blocks_backlog_ready',
@@ -50,7 +50,7 @@ const CASES = [
     expectedFreshOverall: 'warn_formula_bottleneck_evidence_weak',
     expectedBacklogOverall: 'warn_formula_tuning_evidence_weak',
     expectedFreshIssues: { manifest: 0, lane: 0, evidence: 1, laneSpecific: 1 },
-    expectedBacklogIssues: { contract: 0, missingV3: 0, missingLaneSpecific: 0, evidenceWeak: 1 }
+    expectedBacklogIssues: { contract: 0, missingFormula: 0, missingLaneSpecific: 0, laneMismatch: 0, evidenceWeak: 1 }
   }
 ];
 
@@ -116,8 +116,9 @@ function runCase(testCase) {
   assertEqual(`${testCase.name}.fresh.laneSpecificFormulaEvidenceIssues`, number(fresh.summary?.laneSpecificFormulaEvidenceIssues), testCase.expectedFreshIssues.laneSpecific);
 
   assertEqual(`${testCase.name}.backlog.formulaContractIssues`, number(backlog.summary?.formulaContractIssues), testCase.expectedBacklogIssues.contract);
-  assertEqual(`${testCase.name}.backlog.missingV3Rows`, number(backlog.summary?.missingV3Rows), testCase.expectedBacklogIssues.missingV3);
+  assertEqual(`${testCase.name}.backlog.missingFormulaRows`, number(backlog.summary?.missingFormulaRows), testCase.expectedBacklogIssues.missingFormula);
   assertEqual(`${testCase.name}.backlog.missingLaneSpecificRows`, number(backlog.summary?.missingLaneSpecificRows), testCase.expectedBacklogIssues.missingLaneSpecific);
+  assertEqual(`${testCase.name}.backlog.formulaLaneMismatchRows`, number(backlog.summary?.formulaLaneMismatchRows), testCase.expectedBacklogIssues.laneMismatch);
   assertEqual(`${testCase.name}.backlog.formulaEvidenceWeakRows`, number(backlog.summary?.formulaEvidenceWeakRows), testCase.expectedBacklogIssues.evidenceWeak);
 
   if (fresh.summary?.formulaManifestContractIssues > 0 && backlog.summary?.formulaContractIssues === 0) {
@@ -147,8 +148,9 @@ function runCase(testCase) {
     },
     backlogIssues: {
       contract: number(backlog.summary?.formulaContractIssues),
-      missingV3: number(backlog.summary?.missingV3Rows),
+      missingFormula: number(backlog.summary?.missingFormulaRows),
       missingLaneSpecific: number(backlog.summary?.missingLaneSpecificRows),
+      laneMismatch: number(backlog.summary?.formulaLaneMismatchRows),
       evidenceWeak: number(backlog.summary?.formulaEvidenceWeakRows)
     },
     safety: {

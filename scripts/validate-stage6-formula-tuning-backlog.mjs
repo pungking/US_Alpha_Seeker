@@ -9,26 +9,28 @@ const SCRIPT = path.join(REPO_ROOT, 'scripts/build-stage6-formula-tuning-backlog
 const FIXTURE_DIR = path.join(REPO_ROOT, 'docs/fixtures/stage6_fresh_focus_formula');
 const CASES = [
   {
-    name: 'formula_v3_backlog_ready',
+    name: 'formula_v4_backlog_ready',
     fixture: 'STAGE6_ALPHA_FINAL_WITH_FORMULA.fixture.json',
     expectedOverall: 'pass_formula_tuning_backlog_ready',
     expectedProducerRows: 5,
     expectedTopTrack: 'risk_geometry_recalculation',
     expectedTopKnob: 'RISK_GEOMETRY_REQUIRED_TARGET_PRICE',
-    expectMissingV3: 0,
+    expectMissingFormula: 0,
     expectMissingLaneSpecific: 0,
+    expectLaneMismatch: 0,
     expectEvidenceWeak: 0,
     expectContractIssues: 0
   },
   {
     name: 'missing_formula_backlog_requires_refresh',
     fixture: 'STAGE6_ALPHA_FINAL_MISSING_FORMULA.fixture.json',
-    expectedOverall: 'warn_formula_tuning_v3_fields_missing',
+    expectedOverall: 'warn_formula_tuning_formula_fields_missing',
     expectedProducerRows: 0,
     expectedTopTrack: 'none',
     expectedTopKnob: 'none',
-    expectMissingV3: 1,
+    expectMissingFormula: 1,
     expectMissingLaneSpecific: 1,
+    expectLaneMismatch: 0,
     expectEvidenceWeak: 0,
     expectContractIssues: 0
   },
@@ -39,9 +41,23 @@ const CASES = [
     expectedProducerRows: 0,
     expectedTopTrack: 'none',
     expectedTopKnob: 'none',
-    expectMissingV3: 0,
+    expectMissingFormula: 0,
     expectMissingLaneSpecific: 0,
+    expectLaneMismatch: 0,
     expectEvidenceWeak: 1,
+    expectContractIssues: 0
+  },
+  {
+    name: 'lane_mismatch_requires_mapping_refresh',
+    fixture: 'STAGE6_ALPHA_FINAL_FORMULA_MISMATCH.fixture.json',
+    expectedOverall: 'warn_formula_tuning_lane_mismatch',
+    expectedProducerRows: 0,
+    expectedTopTrack: 'none',
+    expectedTopKnob: 'none',
+    expectMissingFormula: 0,
+    expectMissingLaneSpecific: 0,
+    expectLaneMismatch: 2,
+    expectEvidenceWeak: 0,
     expectContractIssues: 0
   }
 ];
@@ -71,11 +87,14 @@ function runCase(testCase) {
   if (Number(report.summary?.producerReviewRows || 0) !== testCase.expectedProducerRows) {
     throw new Error(`${testCase.name}: expected producerReviewRows=${testCase.expectedProducerRows}, got ${report.summary?.producerReviewRows}`);
   }
-  if (Number(report.summary?.missingV3Rows || 0) !== testCase.expectMissingV3) {
-    throw new Error(`${testCase.name}: expected missingV3Rows=${testCase.expectMissingV3}, got ${report.summary?.missingV3Rows}`);
+  if (Number(report.summary?.missingFormulaRows || 0) !== testCase.expectMissingFormula) {
+    throw new Error(`${testCase.name}: expected missingFormulaRows=${testCase.expectMissingFormula}, got ${report.summary?.missingFormulaRows}`);
   }
   if (Number(report.summary?.missingLaneSpecificRows || 0) !== testCase.expectMissingLaneSpecific) {
     throw new Error(`${testCase.name}: expected missingLaneSpecificRows=${testCase.expectMissingLaneSpecific}, got ${report.summary?.missingLaneSpecificRows}`);
+  }
+  if (Number(report.summary?.formulaLaneMismatchRows || 0) !== testCase.expectLaneMismatch) {
+    throw new Error(`${testCase.name}: expected formulaLaneMismatchRows=${testCase.expectLaneMismatch}, got ${report.summary?.formulaLaneMismatchRows}`);
   }
   if (Number(report.summary?.formulaEvidenceWeakRows || 0) !== testCase.expectEvidenceWeak) {
     throw new Error(`${testCase.name}: expected formulaEvidenceWeakRows=${testCase.expectEvidenceWeak}, got ${report.summary?.formulaEvidenceWeakRows}`);
@@ -96,15 +115,16 @@ function runCase(testCase) {
   for (const token of ['Stage6 Formula Tuning Backlog', 'producer-only', 'broker submit, replace, reprice']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing token ${token}`);
   }
-  for (const token of ['missingLaneSpecificRows', 'formulaEvidenceWeakRows', 'Weak Evidence', 'Missing Lane Fields']) {
+  for (const token of ['missingLaneSpecificRows', 'formulaLaneMismatchRows', 'formulaEvidenceWeakRows', 'Lane Mismatch', 'Weak Evidence', 'Missing Lane Fields']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing lane-specific token ${token}`);
   }
   return {
     name: testCase.name,
     overall: report.overall,
     producerReviewRows: report.summary.producerReviewRows,
-    missingV3Rows: report.summary.missingV3Rows,
+    missingFormulaRows: report.summary.missingFormulaRows,
     missingLaneSpecificRows: report.summary.missingLaneSpecificRows,
+    formulaLaneMismatchRows: report.summary.formulaLaneMismatchRows,
     formulaEvidenceWeakRows: report.summary.formulaEvidenceWeakRows,
     formulaContractIssues: report.summary.formulaContractIssues,
     topProducerTrack: report.summary.topProducerTrack,

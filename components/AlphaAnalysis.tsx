@@ -141,6 +141,10 @@ interface AlphaCandidate {
   structurePolicyMaxReviewDistancePct?: number | null;
   structurePolicyDistanceExcessPct?: number | null;
   structurePolicyFormulaEvidenceBasis?: string | null;
+  structurePolicyFormulaObservedValue?: number | null;
+  structurePolicyFormulaThresholdValue?: number | null;
+  structurePolicyFormulaDeltaValue?: number | null;
+  structurePolicyFormulaUnit?: string | null;
   structurePolicyReasons?: string[] | null;
   structurePolicyRecommendedAction?: string | null;
   breakoutRetestProofVerdict?: string | null;
@@ -922,7 +926,7 @@ const TARGET_RECALIBRATION_POLICY = {
 };
 
 const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
-  version: 'zero_executable_formula_v3',
+  version: 'zero_executable_formula_v4',
   requiredRowFields: [
     'zeroExecutableFormulaBottleneck',
     'zeroExecutableFormulaSeverity',
@@ -980,7 +984,11 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
       'breakoutRetestProofFormulaUnit'
     ],
     STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION: [
-      'structurePolicyFormulaEvidenceBasis'
+      'structurePolicyFormulaEvidenceBasis',
+      'structurePolicyFormulaObservedValue',
+      'structurePolicyFormulaThresholdValue',
+      'structurePolicyFormulaDeltaValue',
+      'structurePolicyFormulaUnit'
     ],
     NO_ZERO_EXECUTABLE_TUNING_ACTION: []
   },
@@ -7927,6 +7935,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyMaxReviewDistancePct: structurePolicyReview.maxReviewDistancePct,
               structurePolicyDistanceExcessPct: structurePolicyReview.distanceExcessPct,
               structurePolicyFormulaEvidenceBasis: structurePolicyReview.formulaEvidenceBasis,
+              structurePolicyFormulaObservedValue: structurePolicyReview.formulaObservedValue,
+              structurePolicyFormulaThresholdValue: structurePolicyReview.formulaThresholdValue,
+              structurePolicyFormulaDeltaValue: structurePolicyReview.formulaDeltaValue,
+              structurePolicyFormulaUnit: structurePolicyReview.formulaUnit,
               structurePolicyReasons: structurePolicyReview.reasons,
               structurePolicyRecommendedAction: structurePolicyReview.recommendedAction,
               breakoutRetestProofVerdict: breakoutRetestProof.verdict,
@@ -8197,6 +8209,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyMaxReviewDistancePct: executionContract.structurePolicyMaxReviewDistancePct,
               structurePolicyDistanceExcessPct: executionContract.structurePolicyDistanceExcessPct,
               structurePolicyFormulaEvidenceBasis: executionContract.structurePolicyFormulaEvidenceBasis,
+              structurePolicyFormulaObservedValue: executionContract.structurePolicyFormulaObservedValue,
+              structurePolicyFormulaThresholdValue: executionContract.structurePolicyFormulaThresholdValue,
+              structurePolicyFormulaDeltaValue: executionContract.structurePolicyFormulaDeltaValue,
+              structurePolicyFormulaUnit: executionContract.structurePolicyFormulaUnit,
               structurePolicyReasons: executionContract.structurePolicyReasons,
               structurePolicyRecommendedAction: executionContract.structurePolicyRecommendedAction,
               breakoutRetestProofVerdict: executionContract.breakoutRetestProofVerdict,
@@ -8740,6 +8756,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyMaxReviewDistancePct: executionContract.structurePolicyMaxReviewDistancePct,
               structurePolicyDistanceExcessPct: executionContract.structurePolicyDistanceExcessPct,
               structurePolicyFormulaEvidenceBasis: executionContract.structurePolicyFormulaEvidenceBasis,
+              structurePolicyFormulaObservedValue: executionContract.structurePolicyFormulaObservedValue,
+              structurePolicyFormulaThresholdValue: executionContract.structurePolicyFormulaThresholdValue,
+              structurePolicyFormulaDeltaValue: executionContract.structurePolicyFormulaDeltaValue,
+              structurePolicyFormulaUnit: executionContract.structurePolicyFormulaUnit,
               structurePolicyReasons: executionContract.structurePolicyReasons,
               structurePolicyRecommendedAction: executionContract.structurePolicyRecommendedAction,
               breakoutRetestProofVerdict: executionContract.breakoutRetestProofVerdict,
@@ -9132,6 +9152,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyMaxReviewDistancePct: toOptionalFiniteNumber(item.structurePolicyMaxReviewDistancePct),
               structurePolicyDistanceExcessPct: toOptionalFiniteNumber(item.structurePolicyDistanceExcessPct),
               structurePolicyFormulaEvidenceBasis: normalizeOptionalText(item.structurePolicyFormulaEvidenceBasis),
+              structurePolicyFormulaObservedValue: toOptionalFiniteNumber(item.structurePolicyFormulaObservedValue),
+              structurePolicyFormulaThresholdValue: toOptionalFiniteNumber(item.structurePolicyFormulaThresholdValue),
+              structurePolicyFormulaDeltaValue: toOptionalFiniteNumber(item.structurePolicyFormulaDeltaValue),
+              structurePolicyFormulaUnit: normalizeOptionalText(item.structurePolicyFormulaUnit),
               structurePolicyReasons: Array.isArray(item.structurePolicyReasons) ? item.structurePolicyReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               structurePolicyRecommendedAction: normalizeOptionalText(item.structurePolicyRecommendedAction),
               breakoutRetestProofVerdict: normalizeOptionalText(item.breakoutRetestProofVerdict),
@@ -9359,6 +9383,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               structurePolicyMaxReviewDistancePct: toOptionalFiniteNumber(item?.structurePolicyMaxReviewDistancePct),
               structurePolicyDistanceExcessPct: toOptionalFiniteNumber(item?.structurePolicyDistanceExcessPct),
               structurePolicyFormulaEvidenceBasis: normalizeOptionalText(item?.structurePolicyFormulaEvidenceBasis),
+              structurePolicyFormulaObservedValue: toOptionalFiniteNumber(item?.structurePolicyFormulaObservedValue),
+              structurePolicyFormulaThresholdValue: toOptionalFiniteNumber(item?.structurePolicyFormulaThresholdValue),
+              structurePolicyFormulaDeltaValue: toOptionalFiniteNumber(item?.structurePolicyFormulaDeltaValue),
+              structurePolicyFormulaUnit: normalizeOptionalText(item?.structurePolicyFormulaUnit),
               structurePolicyReasons: Array.isArray(item?.structurePolicyReasons) ? item.structurePolicyReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               structurePolicyRecommendedAction: normalizeOptionalText(item?.structurePolicyRecommendedAction),
               breakoutRetestProofVerdict: normalizeOptionalText(item?.breakoutRetestProofVerdict),
