@@ -290,6 +290,8 @@ jobs:
 
       - name: 7.034 Stage6 fresh focus audit
         if: success()
+        env:
+          STAGE6_EXPECTED_SOURCE_SHA: ${{ github.sha }}
         run: npm run ops:stage6:fresh-focus:audit
 
       - name: 7.035 Stage6 policy lane audit
