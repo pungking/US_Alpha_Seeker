@@ -6496,6 +6496,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const stage6BreakoutRetestProofPromotionEnv = readStage6RuntimeEnv('VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED', 'false');
       const stage6BreakoutRetestProofPromotionRaw = String(stage6BreakoutRetestProofPromotionEnv.value);
       const STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED = parseBooleanFlag(stage6BreakoutRetestProofPromotionRaw);
+      const stage6BuildSourceAudit = {
+          repository: normalizeOptionalText(readStage6RuntimeEnv('VITE_BUILD_SOURCE_REPOSITORY', '').value),
+          workflow: normalizeOptionalText(readStage6RuntimeEnv('VITE_BUILD_SOURCE_WORKFLOW', '').value),
+          runId: normalizeOptionalText(readStage6RuntimeEnv('VITE_BUILD_SOURCE_RUN_ID', '').value),
+          sha: normalizeOptionalText(readStage6RuntimeEnv('VITE_BUILD_SOURCE_SHA', '').value),
+          ref: normalizeOptionalText(readStage6RuntimeEnv('VITE_BUILD_SOURCE_REF', '').value),
+          eventName: normalizeOptionalText(readStage6RuntimeEnv('VITE_BUILD_SOURCE_EVENT_NAME', '').value)
+      };
       const stage6StateVerdictPolicyRaw = String(
           (import.meta as any)?.env?.VITE_STAGE6_STATE_VERDICT_POLICY ?? 'warn'
       )
@@ -9758,6 +9766,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   aiCoverageMatched: matchedAiCount,
                   aiCoverageVerified: verifiedAiCount,
                   aiCoverageFallback: fallbackAiCount,
+                  sourceRepo: stage6BuildSourceAudit.repository,
+                  sourceWorkflow: stage6BuildSourceAudit.workflow,
+                  sourceRunId: stage6BuildSourceAudit.runId,
+                  sourceSha: stage6BuildSourceAudit.sha,
+                  sourceRef: stage6BuildSourceAudit.ref,
+                  sourceEventName: stage6BuildSourceAudit.eventName,
+                  buildSource: stage6BuildSourceAudit,
                   sourceStage5File: stage5SourceRef.current?.fileName || null,
                   sourceStage5LockMode: stage5SourceRef.current?.lockMode || 'LATEST',
                   sourceStage5Hash: stage5SourceRef.current?.hash || null,
@@ -9822,6 +9837,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               stage6HashAlgo,
               stage6HashShort: stage6FinalHash.slice(0, 12),
               sourceRunId: stage6FinalRunIdRef.current || getKstTimestamp(),
+              sourceSha: stage6BuildSourceAudit.sha,
+              buildSource: stage6BuildSourceAudit,
               generatedAt: new Date().toISOString(),
               candidateCount: top6Elite.length,
               decisionGate: stage6DecisionGate,

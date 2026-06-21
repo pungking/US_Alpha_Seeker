@@ -99,6 +99,16 @@ function validateProducerSourceContract() {
     }
   }
   for (const token of [
+    'VITE_BUILD_SOURCE_SHA',
+    'stage6BuildSourceAudit',
+    'sourceSha',
+    'buildSource'
+  ]) {
+    if (!source.includes(token)) {
+      throw new Error(`producer source audit propagation missing token: ${token}`);
+    }
+  }
+  for (const token of [
     'preferredFormulaBottleneck',
     'primary_formula_bottleneck',
     'TARGET_RECALIBRATION_FORMULA',

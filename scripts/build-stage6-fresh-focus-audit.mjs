@@ -92,6 +92,24 @@ function fileSha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(resolveRepo(filePath))).digest('hex');
 }
 
+function normalizeText(value) {
+  const text = String(value ?? '').trim();
+  return text || null;
+}
+
+function stage6SourceAudit(stage6) {
+  const manifest = stage6?.manifest || {};
+  const buildSource = manifest?.buildSource || stage6?.buildSource || {};
+  return {
+    repository: normalizeText(manifest.sourceRepo) || normalizeText(buildSource.repository),
+    workflow: normalizeText(manifest.sourceWorkflow) || normalizeText(buildSource.workflow),
+    runId: normalizeText(manifest.sourceRunId) || normalizeText(buildSource.runId),
+    sha: normalizeText(manifest.sourceSha) || normalizeText(buildSource.sha),
+    ref: normalizeText(manifest.sourceRef) || normalizeText(buildSource.ref),
+    eventName: normalizeText(manifest.sourceEventName) || normalizeText(buildSource.eventName)
+  };
+}
+
 function stage6Timestamp(name) {
   const match = String(name).match(/^STAGE6_ALPHA_FINAL_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.json$/);
   return match ? `${match[1]}_${match[2]}` : '';
@@ -586,6 +604,7 @@ function buildMarkdown(report) {
   lines.push(`- GeneratedAt: ${report.generatedAt}`);
   lines.push(`- Stage6: ${report.stage6.file}`);
   lines.push(`- Hash: ${report.stage6.hash}`);
+  lines.push(`- Source SHA: ${report.stage6.source?.sha || 'N/A'}`);
   lines.push(`- Overall: **${report.overall}**`);
   lines.push(`- Rows: ${report.summary.rows}`);
   lines.push(`- Executable Rows: ${report.summary.executableRows}`);
@@ -619,6 +638,9 @@ function buildMarkdown(report) {
   lines.push('| Check | Value |');
   lines.push('| --- | --- |');
   lines.push(`| expectedContractVersion | ${esc(report.runtimeProof.expectedContractVersion)} |`);
+  lines.push(`| expectedSourceSha | ${esc(report.runtimeProof.expectedSourceSha)} |`);
+  lines.push(`| sourceSha | ${esc(report.runtimeProof.sourceSha)} |`);
+  lines.push(`| sourceShaMatchesExpected | ${esc(report.runtimeProof.sourceShaMatchesExpected)} |`);
   lines.push(`| formulaCoveragePass | ${esc(report.runtimeProof.formulaCoveragePass)} |`);
   lines.push(`| requiredCoveragePass | ${esc(report.runtimeProof.requiredCoveragePass)} |`);
   lines.push(`| formulaManifestIssues | ${esc(report.runtimeProof.formulaManifestIssues)} |`);
@@ -682,6 +704,12 @@ function runtimeProof(overall, checks) {
       nextAction: 'inspect_stage6_artifact_source'
     };
   }
+  if (checks.expectedSourceSha && checks.sourceSha !== checks.expectedSourceSha) {
+    return {
+      status: 'pending_fresh_stage6_source_sha',
+      nextAction: 'generate_fresh_stage6_after_expected_head'
+    };
+  }
   if (!checks.requiredCoveragePass || !checks.formulaCoveragePass || checks.formulaManifestIssues.length > 0) {
     return {
       status: 'pending_fresh_stage6_formula_v4_runtime_proof',
@@ -717,6 +745,8 @@ function runtimeProof(overall, checks) {
 function main() {
   const stage6Path = latestStage6Path();
   const stage6 = readJson(stage6Path);
+  const sourceAudit = stage6SourceAudit(stage6);
+  const expectedSourceSha = normalizeText(process.env.STAGE6_EXPECTED_SOURCE_SHA || process.env.GITHUB_SHA);
   const rows = uniqueRows(stage6);
   const contract = stage6?.execution_contract || {};
   const contractExecutablePicks = Array.isArray(contract.executablePicks) ? contract.executablePicks : [];
@@ -836,6 +866,8 @@ function main() {
               ? 'pass_executable_present_focus_fields_ok'
               : 'pass_zero_executable_focus_fields_ok';
   const proof = runtimeProof(overall, {
+    expectedSourceSha,
+    sourceSha: sourceAudit.sha,
     requiredCoveragePass,
     formulaCoveragePass,
     formulaManifestIssues,
@@ -850,7 +882,8 @@ function main() {
     stage6: {
       file: path.basename(stage6Path),
       path: stage6Path,
-      hash: stage6?.manifest?.stage6Hash || stage6?.stage6Hash || fileSha256(stage6Path)
+      hash: stage6?.manifest?.stage6Hash || stage6?.stage6Hash || fileSha256(stage6Path),
+      source: sourceAudit
     },
     summary: {
       rows: rows.length,
@@ -884,6 +917,9 @@ function main() {
     runtimeProof: {
       ...proof,
       expectedContractVersion: EXPECTED_FORMULA_CONTRACT.version,
+      expectedSourceSha,
+      sourceSha: sourceAudit.sha,
+      sourceShaMatchesExpected: expectedSourceSha ? sourceAudit.sha === expectedSourceSha : null,
       formulaCoveragePass,
       requiredCoveragePass,
       formulaManifestIssues: formulaManifestIssues.length,

@@ -118,6 +118,19 @@ function normalizeText(value) {
   return text || null;
 }
 
+function stage6SourceAudit(stage6) {
+  const manifest = stage6?.manifest || {};
+  const buildSource = manifest?.buildSource || stage6?.buildSource || {};
+  return {
+    repository: normalizeText(manifest.sourceRepo) || normalizeText(buildSource.repository),
+    workflow: normalizeText(manifest.sourceWorkflow) || normalizeText(buildSource.workflow),
+    runId: normalizeText(manifest.sourceRunId) || normalizeText(buildSource.runId),
+    sha: normalizeText(manifest.sourceSha) || normalizeText(buildSource.sha),
+    ref: normalizeText(manifest.sourceRef) || normalizeText(buildSource.ref),
+    eventName: normalizeText(manifest.sourceEventName) || normalizeText(buildSource.eventName)
+  };
+}
+
 function numberOrNull(value) {
   if (value == null || value === '' || typeof value === 'boolean') return null;
   const number = Number(value);
@@ -318,6 +331,7 @@ function buildMarkdown(report) {
   lines.push('| --- | --- |');
   lines.push(`| overall | ${esc(report.overall)} |`);
   lines.push(`| stage6 | ${esc(report.stage6.file)} |`);
+  lines.push(`| sourceSha | ${esc(report.stage6.source?.sha)} |`);
   lines.push(`| formulaContractVersion | ${esc(report.stage6.formulaContractVersion)} |`);
   lines.push(`| rows | ${report.summary.rows} |`);
   lines.push(`| producerReviewRows | ${report.summary.producerReviewRows} |`);
@@ -359,6 +373,7 @@ function buildMarkdown(report) {
 function main() {
   const stage6Path = latestStage6Path();
   const stage6 = readJson(stage6Path);
+  const sourceAudit = stage6SourceAudit(stage6);
   const contractIssues = formulaContractIssues(stage6);
   const rows = uniqueRows(stage6).map((row) => rowBacklog(row, contractIssues.length > 0));
   const missingFormulaRows = rows.filter((row) => row.missingFormulaFields.length > 0);
@@ -391,7 +406,8 @@ function main() {
       file: path.basename(stage6Path),
       path: stage6Path,
       hash: stage6?.manifest?.stage6Hash || stage6?.stage6Hash || sha256(stage6Path),
-      formulaContractVersion: contractVersion(stage6)
+      formulaContractVersion: contractVersion(stage6),
+      source: sourceAudit
     },
     summary: {
       rows: rows.length,

@@ -177,6 +177,12 @@ jobs:
       VITE_STAGE6_ACTIONABLE_VERDICTS: ${{ vars.VITE_STAGE6_ACTIONABLE_VERDICTS || 'BUY,STRONG_BUY,STRONGBUY' }}
       VITE_STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER: ${{ vars.VITE_STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER || 'false' }}
       VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED: ${{ vars.VITE_STAGE6_BREAKOUT_RETEST_PROOF_PROMOTION_ENABLED || 'false' }}
+      VITE_BUILD_SOURCE_REPOSITORY: ${{ github.repository }}
+      VITE_BUILD_SOURCE_WORKFLOW: ${{ github.workflow }}
+      VITE_BUILD_SOURCE_RUN_ID: ${{ github.run_id }}
+      VITE_BUILD_SOURCE_SHA: ${{ github.sha }}
+      VITE_BUILD_SOURCE_REF: ${{ github.ref_name }}
+      VITE_BUILD_SOURCE_EVENT_NAME: ${{ github.event_name }}
       
       # Data Provider Keys
       RAPID_API_KEY: ${{ secrets.RAPID_API_KEY }}
