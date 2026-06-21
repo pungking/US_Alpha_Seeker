@@ -236,7 +236,7 @@ function formulaLaneMismatch(row, missingFields) {
   return actual !== expected;
 }
 
-function rowBacklog(row) {
+function rowBacklog(row, contractIncomplete = false) {
   const symbol = normalizeSymbol(row);
   const bottleneck = normalizeText(row?.zeroExecutableFormulaBottleneck) || 'missing';
   const producerTrack = PRODUCER_TRACK_BY_BOTTLENECK[bottleneck] || 'unknown';
@@ -247,7 +247,9 @@ function rowBacklog(row) {
   const delta = round(row?.zeroExecutableFormulaDeltaValue) ?? 0;
   const magnitude = round(row?.zeroExecutableFormulaAdjustmentMagnitude) ?? delta;
   const severity = round(row?.zeroExecutableFormulaSeverity) ?? 0;
-  const actionRequired = missingFields.length > 0 || missingLaneFields.length > 0
+  const actionRequired = contractIncomplete
+    ? 'REFRESH_STAGE6_FORMULA_CONTRACT'
+    : missingFields.length > 0 || missingLaneFields.length > 0
     ? 'REFRESH_STAGE6_WITH_FORMULA_V4'
     : laneMismatch
       ? 'REFRESH_STAGE6_FORMULA_LANE_MAPPING'
@@ -346,6 +348,7 @@ function buildMarkdown(report) {
   lines.push('## Guardrails');
   lines.push('');
   lines.push('- This backlog is producer-only. It must not enable broker submit, replace, reprice, or sidecar mutation.');
+  lines.push('- `REFRESH_STAGE6_FORMULA_CONTRACT` means the artifact manifest does not publish the current formula contract; generate a fresh Stage6 or fix manifest propagation before tuning.');
   lines.push('- `REFRESH_STAGE6_WITH_FORMULA_V4` means the artifact predates the current contract; do not infer tuning from stale rows.');
   lines.push('- `REFRESH_STAGE6_FORMULA_LANE_MAPPING` means the row lane and formula bottleneck disagree; fix producer classification before threshold tuning.');
   lines.push('- `REFRESH_STAGE6_FORMULA_EVIDENCE` means the row has current formula fields but zero/weak formula evidence; refresh producer evidence before changing thresholds.');
@@ -356,12 +359,12 @@ function buildMarkdown(report) {
 function main() {
   const stage6Path = latestStage6Path();
   const stage6 = readJson(stage6Path);
-  const rows = uniqueRows(stage6).map(rowBacklog);
+  const contractIssues = formulaContractIssues(stage6);
+  const rows = uniqueRows(stage6).map((row) => rowBacklog(row, contractIssues.length > 0));
   const missingFormulaRows = rows.filter((row) => row.missingFormulaFields.length > 0);
   const missingLaneSpecificRows = rows.filter((row) => row.missingLaneSpecificFields.length > 0);
   const formulaLaneMismatchRows = rows.filter((row) => row.formulaLaneMismatch);
   const formulaEvidenceWeakRows = rows.filter((row) => row.formulaEvidenceWeak);
-  const contractIssues = formulaContractIssues(stage6);
   const producerRows = rows.filter((row) => row.actionRequired === 'PRODUCER_TUNING_REVIEW');
   const rankedRows = rankRows(rows);
   const producerTrackAggregation = aggregate(producerRows, 'producerTrack');
@@ -414,7 +417,7 @@ function main() {
       brokerSubmitReplaceRepriceAllowed: false,
       sidecarMutationAllowed: false,
       nextAction: contractIssues.length > 0
-        ? 'publish_stage6_formula_lane_specific_contract'
+        ? 'generate_fresh_stage6_after_formula_v4_head_or_fix_manifest_contract'
         : missingFormulaRows.length > 0 || missingLaneSpecificRows.length > 0
         ? 'generate_fresh_stage6_after_formula_v4_head'
         : formulaLaneMismatchRows.length > 0

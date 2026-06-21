@@ -611,6 +611,21 @@ function buildMarkdown(report) {
   lines.push(`| laneSpecificFormulaEvidenceIssues | ${esc(report.summary.laneSpecificFormulaEvidenceIssues)} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
   lines.push(`| rawExecutableDowngrades | ${esc(JSON.stringify(report.rawExecutableDowngrades))} |`);
+  lines.push(`| runtimeProof.status | ${esc(report.runtimeProof.status)} |`);
+  lines.push(`| guardrails.nextAction | ${esc(report.guardrails.nextAction)} |`);
+  lines.push('');
+  lines.push('## Runtime Proof Gate');
+  lines.push('');
+  lines.push('| Check | Value |');
+  lines.push('| --- | --- |');
+  lines.push(`| expectedContractVersion | ${esc(report.runtimeProof.expectedContractVersion)} |`);
+  lines.push(`| formulaCoveragePass | ${esc(report.runtimeProof.formulaCoveragePass)} |`);
+  lines.push(`| requiredCoveragePass | ${esc(report.runtimeProof.requiredCoveragePass)} |`);
+  lines.push(`| formulaManifestIssues | ${esc(report.runtimeProof.formulaManifestIssues)} |`);
+  lines.push(`| formulaLaneConsistencyIssues | ${esc(report.runtimeProof.formulaLaneConsistencyIssues)} |`);
+  lines.push(`| formulaEvidenceQualityIssues | ${esc(report.runtimeProof.formulaEvidenceQualityIssues)} |`);
+  lines.push(`| laneSpecificFormulaEvidenceIssues | ${esc(report.runtimeProof.laneSpecificFormulaEvidenceIssues)} |`);
+  lines.push(`| nextAction | ${esc(report.guardrails.nextAction)} |`);
   lines.push('');
   lines.push('## Field Coverage');
   lines.push('');
@@ -658,6 +673,45 @@ function buildMarkdown(report) {
   lines.push('- `ops-health-report=fail` belongs to the alpha-exec-engine protection/guard metadata track and must not be used to tune Stage6 entry policy.');
   lines.push('- If zero-executable repeats with clear focus metrics, move to producer tuning: breakout proofConfirmed criteria, target recalibration formula, and risk-geometry recalculation evidence.');
   return `${lines.join('\n')}\n`;
+}
+
+function runtimeProof(overall, checks) {
+  if (overall === 'fail_no_rows') {
+    return {
+      status: 'fail_no_stage6_rows',
+      nextAction: 'inspect_stage6_artifact_source'
+    };
+  }
+  if (!checks.requiredCoveragePass || !checks.formulaCoveragePass || checks.formulaManifestIssues.length > 0) {
+    return {
+      status: 'pending_fresh_stage6_formula_v4_runtime_proof',
+      nextAction: 'generate_fresh_stage6_after_formula_v4_head'
+    };
+  }
+  if (checks.formulaLaneConsistencyIssues.length > 0) {
+    return {
+      status: 'fail_formula_lane_mapping_mismatch',
+      nextAction: 'refresh_stage6_formula_lane_mapping'
+    };
+  }
+  if (checks.formulaEvidenceQualityIssues.length > 0) {
+    return {
+      status: 'warn_formula_evidence_weak',
+      nextAction: 'refresh_stage6_formula_evidence_before_tuning_thresholds'
+    };
+  }
+  if (checks.laneSpecificFormulaEvidenceIssues.length > 0) {
+    return {
+      status: 'warn_lane_specific_formula_evidence_mismatch',
+      nextAction: 'fix_lane_specific_formula_evidence'
+    };
+  }
+  return {
+    status: 'pass_formula_v4_runtime_proof',
+    nextAction: checks.executableRows.length > 0
+      ? 'monitor_next_sidecar_fresh_hash_consumption'
+      : 'tune_stage6_target_risk_breakout_formulas'
+  };
 }
 
 function main() {
@@ -781,6 +835,15 @@ function main() {
             : executableRows.length > 0
               ? 'pass_executable_present_focus_fields_ok'
               : 'pass_zero_executable_focus_fields_ok';
+  const proof = runtimeProof(overall, {
+    requiredCoveragePass,
+    formulaCoveragePass,
+    formulaManifestIssues,
+    formulaLaneConsistencyIssues,
+    formulaEvidenceQualityIssues,
+    laneSpecificFormulaEvidenceIssues,
+    executableRows
+  });
   const report = {
     generatedAt: new Date().toISOString(),
     overall,
@@ -818,6 +881,16 @@ function main() {
     formulaEvidenceQualityIssues,
     laneSpecificFormulaEvidenceIssues,
     rawExecutableDowngrades: rawExecutableDowngradeRows,
+    runtimeProof: {
+      ...proof,
+      expectedContractVersion: EXPECTED_FORMULA_CONTRACT.version,
+      formulaCoveragePass,
+      requiredCoveragePass,
+      formulaManifestIssues: formulaManifestIssues.length,
+      formulaLaneConsistencyIssues: formulaLaneConsistencyIssues.length,
+      formulaEvidenceQualityIssues: formulaEvidenceQualityIssues.length,
+      laneSpecificFormulaEvidenceIssues: laneSpecificFormulaEvidenceIssues.length
+    },
     trackSeparation: {
       stage6ProducerTuning: ['breakout_proofConfirmed_criteria', 'target_recalibration_formula', 'risk_geometry_recalculation_evidence'],
       sidecarSubmitReprice: 'out_of_scope_until_executable_payload_and_explicit_approval',
@@ -827,6 +900,12 @@ function main() {
       reportOnly: true,
       brokerMutation: false,
       stateMutation: false
+    },
+    guardrails: {
+      producerOnly: true,
+      brokerSubmitReplaceRepriceAllowed: false,
+      sidecarMutationAllowed: false,
+      nextAction: proof.nextAction
     },
     rows: rows.map(compactRow)
   };

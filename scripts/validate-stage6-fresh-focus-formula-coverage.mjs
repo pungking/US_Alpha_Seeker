@@ -17,7 +17,8 @@ const CASES = [
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 1,
     expectedEvidenceQualityIssues: 1,
-    expectedLaneSpecificFormulaIssues: 1
+    expectedLaneSpecificFormulaIssues: 1,
+    expectedNextAction: 'generate_fresh_stage6_after_formula_v4_head'
   },
   {
     name: 'formula_contract_missing_warns',
@@ -27,7 +28,8 @@ const CASES = [
     expectedManifestContractIssues: 1,
     expectedLaneConsistencyIssues: 0,
     expectedEvidenceQualityIssues: 0,
-    expectedLaneSpecificFormulaIssues: 3
+    expectedLaneSpecificFormulaIssues: 3,
+    expectedNextAction: 'generate_fresh_stage6_after_formula_v4_head'
   },
   {
     name: 'formula_fields_present_passes',
@@ -37,7 +39,8 @@ const CASES = [
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 0,
     expectedEvidenceQualityIssues: 0,
-    expectedLaneSpecificFormulaIssues: 0
+    expectedLaneSpecificFormulaIssues: 0,
+    expectedNextAction: 'monitor_next_sidecar_fresh_hash_consumption'
   },
   {
     name: 'formula_lane_mismatch_warns',
@@ -47,7 +50,8 @@ const CASES = [
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 2,
     expectedEvidenceQualityIssues: 2,
-    expectedLaneSpecificFormulaIssues: 0
+    expectedLaneSpecificFormulaIssues: 0,
+    expectedNextAction: 'refresh_stage6_formula_lane_mapping'
   },
   {
     name: 'formula_evidence_weak_warns',
@@ -57,7 +61,8 @@ const CASES = [
     expectedManifestContractIssues: 0,
     expectedLaneConsistencyIssues: 0,
     expectedEvidenceQualityIssues: 1,
-    expectedLaneSpecificFormulaIssues: 1
+    expectedLaneSpecificFormulaIssues: 1,
+    expectedNextAction: 'refresh_stage6_formula_evidence_before_tuning_thresholds'
   }
 ];
 const REQUIRED_FORMULA_FIELDS = [
@@ -177,6 +182,13 @@ function runCase(testCase) {
   if (laneSpecificIssues !== testCase.expectedLaneSpecificFormulaIssues) {
     throw new Error(`${testCase.name}: expected laneSpecificFormulaEvidenceIssues=${testCase.expectedLaneSpecificFormulaIssues}, got ${laneSpecificIssues}`);
   }
+  const nextAction = report.guardrails?.nextAction;
+  if (nextAction !== testCase.expectedNextAction) {
+    throw new Error(`${testCase.name}: expected guardrails.nextAction=${testCase.expectedNextAction}, got ${nextAction}`);
+  }
+  if (report.safety?.brokerMutation !== false || report.safety?.stateMutation !== false || report.guardrails?.sidecarMutationAllowed !== false) {
+    throw new Error(`${testCase.name}: report-only mutation guardrails must remain false`);
+  }
   return {
     name: testCase.name,
     overall: report.overall,
@@ -185,7 +197,8 @@ function runCase(testCase) {
     contractIssues,
     laneIssues,
     evidenceIssues,
-    laneSpecificIssues
+    laneSpecificIssues,
+    nextAction
   };
 }
 

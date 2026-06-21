@@ -19,7 +19,22 @@ const CASES = [
     expectMissingLaneSpecific: 0,
     expectLaneMismatch: 0,
     expectEvidenceWeak: 0,
-    expectContractIssues: 0
+    expectContractIssues: 0,
+    expectedNextAction: 'tune_stage6_producer_formula_or_proof_generation'
+  },
+  {
+    name: 'formula_contract_incomplete_requires_fresh_hash_or_manifest_fix',
+    fixture: 'STAGE6_ALPHA_FINAL_FORMULA_CONTRACT_MISSING.fixture.json',
+    expectedOverall: 'warn_formula_tuning_contract_incomplete',
+    expectedProducerRows: 0,
+    expectedTopTrack: 'none',
+    expectedTopKnob: 'none',
+    expectMissingFormula: 0,
+    expectMissingLaneSpecific: 3,
+    expectLaneMismatch: 0,
+    expectEvidenceWeak: 0,
+    expectContractIssues: 1,
+    expectedNextAction: 'generate_fresh_stage6_after_formula_v4_head_or_fix_manifest_contract'
   },
   {
     name: 'missing_formula_backlog_requires_refresh',
@@ -32,7 +47,8 @@ const CASES = [
     expectMissingLaneSpecific: 1,
     expectLaneMismatch: 0,
     expectEvidenceWeak: 0,
-    expectContractIssues: 0
+    expectContractIssues: 0,
+    expectedNextAction: 'generate_fresh_stage6_after_formula_v4_head'
   },
   {
     name: 'weak_formula_evidence_requires_refresh',
@@ -45,7 +61,8 @@ const CASES = [
     expectMissingLaneSpecific: 0,
     expectLaneMismatch: 0,
     expectEvidenceWeak: 1,
-    expectContractIssues: 0
+    expectContractIssues: 0,
+    expectedNextAction: 'refresh_stage6_formula_evidence_before_tuning_thresholds'
   },
   {
     name: 'lane_mismatch_requires_mapping_refresh',
@@ -58,7 +75,8 @@ const CASES = [
     expectMissingLaneSpecific: 0,
     expectLaneMismatch: 2,
     expectEvidenceWeak: 0,
-    expectContractIssues: 0
+    expectContractIssues: 0,
+    expectedNextAction: 'refresh_stage6_formula_lane_mapping'
   }
 ];
 
@@ -111,6 +129,9 @@ function runCase(testCase) {
   if (report.summary?.brokerMutationAllowed !== false || report.summary?.sidecarMutationAllowed !== false) {
     throw new Error(`${testCase.name}: mutation guardrails must remain false`);
   }
+  if (report.guardrails?.nextAction !== testCase.expectedNextAction) {
+    throw new Error(`${testCase.name}: expected guardrails.nextAction=${testCase.expectedNextAction}, got ${report.guardrails?.nextAction}`);
+  }
   const md = fs.readFileSync(outMd, 'utf8');
   for (const token of ['Stage6 Formula Tuning Backlog', 'producer-only', 'broker submit, replace, reprice']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing token ${token}`);
@@ -128,7 +149,8 @@ function runCase(testCase) {
     formulaEvidenceWeakRows: report.summary.formulaEvidenceWeakRows,
     formulaContractIssues: report.summary.formulaContractIssues,
     topProducerTrack: report.summary.topProducerTrack,
-    topAdjustmentKnob: report.summary.topAdjustmentKnob
+    topAdjustmentKnob: report.summary.topAdjustmentKnob,
+    nextAction: report.guardrails?.nextAction
   };
 }
 
