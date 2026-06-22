@@ -21,6 +21,11 @@ const CASES = [
     expectEvidenceWeak: 0,
     expectContractIssues: 0,
     expectedRecommendations: 4,
+    expectedProducerTracks: [
+      'target_recalibration',
+      'risk_geometry_recalculation',
+      'breakout_proof_confirmed_generation'
+    ],
     expectedNextAction: 'tune_stage6_producer_formula_or_proof_generation'
   },
   {
@@ -36,6 +41,7 @@ const CASES = [
     expectEvidenceWeak: 0,
     expectContractIssues: 1,
     expectedRecommendations: 0,
+    expectedProducerTracks: [],
     expectedNextAction: 'generate_fresh_stage6_after_formula_v4_head_or_fix_manifest_contract'
   },
   {
@@ -51,6 +57,7 @@ const CASES = [
     expectEvidenceWeak: 0,
     expectContractIssues: 0,
     expectedRecommendations: 0,
+    expectedProducerTracks: [],
     expectedNextAction: 'generate_fresh_stage6_after_formula_v4_head'
   },
   {
@@ -66,6 +73,7 @@ const CASES = [
     expectEvidenceWeak: 1,
     expectContractIssues: 0,
     expectedRecommendations: 0,
+    expectedProducerTracks: [],
     expectedNextAction: 'refresh_stage6_formula_evidence_before_tuning_thresholds'
   },
   {
@@ -81,6 +89,7 @@ const CASES = [
     expectEvidenceWeak: 0,
     expectContractIssues: 0,
     expectedRecommendations: 0,
+    expectedProducerTracks: [],
     expectedNextAction: 'refresh_stage6_formula_lane_mapping'
   }
 ];
@@ -153,6 +162,16 @@ function runCase(testCase) {
     }
     if (Number(report.summary?.producerFieldRecommendationCount || 0) <= 0) {
       throw new Error(`${testCase.name}: expected producerFieldRecommendationCount > 0`);
+    }
+    const tracks = new Set((report.tuningRecommendations || []).map((row) => row.producerTrack));
+    for (const track of testCase.expectedProducerTracks || []) {
+      if (!tracks.has(track)) {
+        throw new Error(`${testCase.name}: missing split producer track ${track}`);
+      }
+      const rowsForTrack = (report.tuningRecommendations || []).filter((row) => row.producerTrack === track);
+      if (!rowsForTrack.some((row) => Array.isArray(row.producerFieldRecommendations) && row.producerFieldRecommendations.length > 0)) {
+        throw new Error(`${testCase.name}: split producer track ${track} lacks producerFieldRecommendations`);
+      }
     }
   }
   if (report.summary?.topProducerTrack !== testCase.expectedTopTrack) {
