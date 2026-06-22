@@ -672,6 +672,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       let mergedUniverse: any[] = [];
       let stage4SourceStage3File: string | null = null;
       let selectedStage4Name: string | null = null;
+      let selectedStage4Timestamp: string | null = null;
       let selectedStage4FactorReady = false;
 
       const isFactorReady = (rows: any[]) => {
@@ -701,6 +702,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
                       mergedUniverse = rows;
                       stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
                       selectedStage4Name = fileMeta.name || null;
+                      selectedStage4Timestamp = content?.manifest?.timestamp || fileMeta.createdTime || null;
                       selectedStage4FactorReady = factorReady;
                   }
 
@@ -709,6 +711,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
                       mergedUniverse = rows;
                       stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
                       selectedStage4Name = fileMeta.name || null;
+                      selectedStage4Timestamp = content?.manifest?.timestamp || fileMeta.createdTime || null;
                       selectedStage4FactorReady = true;
                       break;
                   }
@@ -1283,6 +1286,10 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           excludedByInstrumentType,
           timestamp: new Date().toISOString(),
           strategy: "Smart_Money_Composite_Wyckoff_Algo_V2",
+          sourceStage4File: selectedStage4Name,
+          sourceStage4Timestamp: selectedStage4Timestamp,
+          sourceStage4SourceStage3File: stage4SourceStage3File,
+          sourceStage4FactorReady: selectedStage4FactorReady,
           scoringContractVersion: "stage5-e-v1",
           stage6ContractVersion: "stage5to6-e-v1"
         },

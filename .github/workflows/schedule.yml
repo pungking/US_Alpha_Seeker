@@ -356,7 +356,7 @@ jobs:
         if: success()
         run: npm run ops:stage6:flag-parity:assert
 
-      - name: 7.1 Stage6 Dispatch Payload 추출
+      - name: 7F.1 Dispatch | Stage6 payload extract
         id: stage6_dispatch_meta
         if: success()
         run: |
@@ -395,7 +395,7 @@ jobs:
           console.log(`[DISPATCH_PREP] file=${payload.stage6File || "N/A"} hash=${(payload.stage6Hash || "N/A").slice(0, 12)} sourceRun=${payload.sourceRunId || "N/A"} sidecarDispatchAllowed=${sidecarDispatchAllowed} holidaySafety=${safety.status || "unknown"} marketDate=${safety.marketDate || "N/A"}`);
           NODE
 
-      - name: 7.2 Sidecar Dry-Run 트리거 (repository_dispatch)
+      - name: 7F.2 Dispatch | Sidecar dry-run repository_dispatch
         if: success() && steps.stage6_dispatch_meta.outputs.sidecar_dispatch_allowed == 'true'
         env:
           SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
@@ -495,7 +495,7 @@ jobs:
           });
           NODE
 
-      - name: 7.25 Notion Pipeline Sync (Stock/AI/Watchlist)
+      - name: 7G.1 Notion | Pipeline sync (Stock/AI/Watchlist)
         if: always()
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
@@ -507,7 +507,7 @@ jobs:
           NOTION_PIPELINE_SYNC_PAYLOAD_PATH: notion-pipeline-sync-payload.json
         run: node scripts/sync-pipeline-notion.mjs
 
-      - name: 7.26 Seed bridge watchdog loop (self-healing)
+      - name: 7G.2 Notion | Seed bridge watchdog
         if: always() && steps.stage6_dispatch_meta.outputs.sidecar_dispatch_allowed == 'true'
         env:
           SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
@@ -575,7 +575,7 @@ jobs:
           });
           NODE
 
-      - name: 7.3 Notion Daily Snapshot Sync (GitHub Automation)
+      - name: 7H.1 Notion | Daily snapshot sync
         if: always()
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
@@ -587,7 +587,7 @@ jobs:
           STAGE6_HASH: ${{ steps.stage6_dispatch_meta.outputs.stage6_hash }}
         run: node scripts/sync-gha-notion.mjs
 
-      - name: 7.35 Notion Pipeline Sync Summary
+      - name: 7H.2 Notion | Pipeline sync summary
         if: always()
         run: |
           if [ -f "state/notion-pipeline-sync.json" ]; then
