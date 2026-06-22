@@ -1,6 +1,6 @@
 # Stage3-5 Quant Quality Audit
 
-- GeneratedAt: 2026-06-21T17:41:32.870Z
+- GeneratedAt: 2026-06-22T15:34:14.669Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-20_09-26-37.json
 - Hash: ef8e15fc14518dbf513479899161038a94278d42917a3e698cea69eddc3af71a
 - Stage6 finalist rows audited: 3
@@ -88,7 +88,7 @@
 | Stage5 | yes | stage5_risk_on_weights | components/IctAnalysis.tsx | 991 |
 | Stage5 | yes | stage5_data_quality_multiplier | components/IctAnalysis.tsx | 1040 |
 | Stage5 | yes | stage5_geometry_fallback_counter | components/IctAnalysis.tsx | 1138 |
-| Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 6432 |
+| Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 6439 |
 
 ## Interpretation
 

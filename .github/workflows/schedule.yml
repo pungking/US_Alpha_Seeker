@@ -265,6 +265,21 @@ jobs:
           timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 2; done'
           echo "Server is ready! Starting automation..."
 
+      - name: 6.5 Evidence workspace 초기화
+        run: |
+          rm -rf state/stage3-audit-source state/stage4-audit-source state/stage5-audit-source state/stage6-audit-source
+          rm -f \
+            docs/STAGE3_5_METHODOLOGY_AUDIT.md \
+            docs/STAGE3_5_QUANT_QUALITY_AUDIT.md \
+            docs/STAGE3_6_FULL_STAGE_AUDIT.md \
+            docs/STAGE6_BLOCKER_ROOT_CAUSE_AUDIT.md \
+            docs/STAGE6_EXECUTION_GATE_AUDIT_2026-05-09.md \
+            docs/STAGE6_FRESH_FOCUS_AUDIT.md \
+            docs/STAGE6_POLICY_LANE_AUDIT_2026-05-29.md \
+            docs/STAGE6_WEAK_PILLAR_RUNTIME_AUDIT.md
+          mkdir -p state
+          echo "[EVIDENCE_INIT] stale tracked audit docs removed from runner workspace"
+
       - name: 7. 자동화 스크립트 실행 (Puppeteer)
         run: npm run automate
 

@@ -516,6 +516,62 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
+  const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+  const isRetriableDriveStatus = (status: number): boolean => (
+      status === 408 ||
+      status === 429 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504
+  );
+
+  const isRetriableDriveError = (error: any): boolean => {
+      const message = String(error?.message || error || '').toLowerCase();
+      return message.includes('timed out') || error?.name === 'TypeError';
+  };
+
+  const fetchDriveWithRetry = async (
+      url: string,
+      init: RequestInit,
+      timeoutsMs: number[],
+      label: string
+  ): Promise<Response> => {
+      const attempts = timeoutsMs.length > 0 ? timeoutsMs : [30000];
+      let lastError: any = null;
+
+      for (let attempt = 0; attempt < attempts.length; attempt += 1) {
+          const attemptNo = attempt + 1;
+          const timeoutMs = attempts[attempt];
+          try {
+              const response = await fetchWithTimeout(url, init, timeoutMs, `${label}.attempt${attemptNo}`);
+              if (response.ok || !isRetriableDriveStatus(response.status) || attemptNo === attempts.length) {
+                  return response;
+              }
+
+              const body = await response.clone().text().catch(() => '');
+              lastError = new Error(
+                  `${label} retryable HTTP ${response.status} attempt=${attemptNo}/${attempts.length} body=${body.slice(0, 180)}`
+              );
+          } catch (error: any) {
+              lastError = error;
+              if (!isRetriableDriveError(error) || attemptNo === attempts.length) {
+                  throw error;
+              }
+          }
+
+          const backoffMs = Math.min(2000 * attemptNo, 6000);
+          addLog(
+              `[WARN] ${label} retry ${attemptNo}/${attempts.length} after ${lastError?.message || 'unknown'}; backoff=${backoffMs}ms`,
+              "warn"
+          );
+          await sleep(backoffMs);
+      }
+
+      throw lastError || new Error(`${label} failed after ${attempts.length} attempts`);
+  };
+
   const sanitizeJson = (text: string) => {
       try {
         let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -545,7 +601,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const downloadFile = async (token: string, fileId: string) => {
-      const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } }, 30000, `downloadFile(${fileId})`);
+      const res = await fetchDriveWithRetry(
+          `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+          { headers: { 'Authorization': `Bearer ${token}` } },
+          [30000, 60000, 90000],
+          `downloadFile(${fileId})`
+      );
       await assertDriveOk(res, `downloadFile(${fileId})`);
       const text = await res.text();
       return parseDriveJsonText(text);
@@ -605,17 +666,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               ? `name contains 'STAGE1_PURIFIED_UNIVERSE' and '${stage1FolderId}' in parents and trashed = false`
               : `name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`;
           const q = encodeURIComponent(stage1Query);
-          const listRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          const listRes = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1&fields=files(id%2Cname%2CcreatedTime%2CmodifiedTime%2Csize%2CmimeType)`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }, 15000, 'executeDeepFilter.listStage1');
           await assertDriveOk(listRes, "executeDeepFilter.listStage1");
           const listData = await listRes.json();
 
           if (!listData.files?.length) throw new Error("Stage 1 Data Missing.");
+          const stage1File = listData.files[0];
+          addLog(
+              `[STAGE2_SOURCE] Stage1=${stage1File.name || stage1File.id} size=${stage1File.size || 'unknown'} created=${stage1File.createdTime || 'unknown'} modified=${stage1File.modifiedTime || 'unknown'}`,
+              "info"
+          );
 
-          const stage1Res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${listData.files[0].id}?alt=media`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-          }, 30000, 'executeDeepFilter.downloadStage1');
+          const stage1Res = await fetchDriveWithRetry(
+              `https://www.googleapis.com/drive/v3/files/${stage1File.id}?alt=media`,
+              { headers: { 'Authorization': `Bearer ${accessToken}` } },
+              [45000, 90000, 120000],
+              'executeDeepFilter.downloadStage1'
+          );
           await assertDriveOk(stage1Res, "executeDeepFilter.downloadStage1");
           const stage1Text = await stage1Res.text();
           const stage1Content = parseDriveJsonText(stage1Text);
