@@ -325,10 +325,22 @@ function deriveRuntimeProof(stage6Rows, subreports) {
     .map(([field]) => field);
   const formulaBacklog = subreports.stage6FormulaTuningBacklog;
   const freshFocus = subreports.stage6FreshFocus;
+  const contractProof = subreports.stage6RuntimeFormulaContractProof || {};
+  const freshRuntime = freshFocus.runtimeProof || {};
+  const contractProofPass = /^pass_/i.test(String(contractProof.overall || ''));
+  const freshSourcePass = freshRuntime.sourceShaMatchesExpected === true || freshRuntime.sourceShaMatchesExpected === 'true';
+  const formulaCoveragePass = freshRuntime.formulaCoveragePass === true || freshRuntime.formulaCoveragePass === 'true';
+  const requiredCoveragePass = freshRuntime.requiredCoveragePass === true || freshRuntime.requiredCoveragePass === 'true';
+  const evidenceIssueCount = Number(freshRuntime.formulaEvidenceQualityIssues || 0);
   const staleOrMissingSource = /stale|missing|pending/i.test(`${formulaBacklog.overall} ${freshFocus.overall}`);
-  const status = missingFields.length || staleOrMissingSource
-    ? 'pending_fresh_runtime_proof_after_e3708e2f'
-    : 'pass_runtime_proof_fields_present';
+  const subreportRuntimeProofPass = contractProofPass && freshSourcePass && formulaCoveragePass && requiredCoveragePass;
+  const status = subreportRuntimeProofPass
+    ? evidenceIssueCount > 0
+      ? 'warn_runtime_formula_evidence_weak'
+      : 'pass_runtime_proof_fields_present'
+    : missingFields.length || staleOrMissingSource
+      ? 'pending_fresh_runtime_proof_after_e3708e2f'
+      : 'pass_runtime_proof_fields_present';
   return {
     status,
     expectedProducerHead: 'e3708e2f_or_later',
@@ -336,9 +348,12 @@ function deriveRuntimeProof(stage6Rows, subreports) {
     missingFields,
     subreportSignals: {
       stage6FreshFocusOverall: freshFocus.overall,
-      stage6FormulaTuningBacklogOverall: formulaBacklog.overall
+      stage6FormulaTuningBacklogOverall: formulaBacklog.overall,
+      stage6RuntimeFormulaContractProofOverall: contractProof.overall,
+      freshFocusRuntimeProofStatus: freshRuntime.status,
+      formulaEvidenceQualityIssues: Number.isFinite(evidenceIssueCount) ? evidenceIssueCount : null
     },
-    note: 'Runtime proof is intentionally separate from the Stage3-6 methodology audit; missing fresh proof does not stop this report-only audit.'
+    note: 'Runtime proof is intentionally separate from the Stage3-6 methodology audit. Fresh subreport proof takes precedence over raw finalist field coverage because zero-executable diagnostics may be emitted on audit rows beyond alpha_candidates.'
   };
 }
 
@@ -373,7 +388,12 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
       coverage: coverage(stages.stage5.rows, STAGE_FIELD_GROUPS.stage5)
     },
     Stage6: {
-      verdict: runtimeProof.status === 'pass_runtime_proof_fields_present' ? 'audited_runtime_proof_present' : 'warn_runtime_proof_pending',
+      verdict:
+        runtimeProof.status === 'pass_runtime_proof_fields_present'
+          ? 'audited_runtime_proof_present'
+          : runtimeProof.status === 'warn_runtime_formula_evidence_weak'
+            ? 'warn_runtime_formula_evidence_weak'
+            : 'warn_runtime_proof_pending',
       rows: stages.stage6.rowCount,
       source: stages.stage6.file,
       freshFocusStatus: stage6Fresh.overall,
@@ -407,6 +427,7 @@ function deriveOverall({ lineage, runtimeProof, stages }) {
   if (lineage.status === 'warn_lineage_mismatch') return 'warn_lineage_mismatch';
   if (lineage.status === 'warn_lineage_incomplete') return 'warn_lineage_incomplete';
   if (Object.values(stages).some((stage) => stage.readError)) return 'warn_artifact_read_error';
+  if (runtimeProof.status === 'warn_runtime_formula_evidence_weak') return 'warn_stage6_formula_evidence_weak';
   if (runtimeProof.status !== 'pass_runtime_proof_fields_present') return 'warn_stage6_runtime_proof_pending';
   return 'pass_stage3_6_full_stage_audit';
 }
@@ -416,7 +437,9 @@ function nextActions(overall, lineage, runtimeProof) {
   if (lineage.status !== 'pass_same_run_lineage') {
     actions.push('Refresh or download same-run Stage3/4/5/6 artifacts before making a final full-chain quality judgement.');
   }
-  if (runtimeProof.status !== 'pass_runtime_proof_fields_present') {
+  if (runtimeProof.status === 'warn_runtime_formula_evidence_weak') {
+    actions.push('Refresh Stage6 formula evidence so neutral rows do not expose positive zero-executable tuning gaps.');
+  } else if (runtimeProof.status !== 'pass_runtime_proof_fields_present') {
     actions.push('Wait for the next Auto-Scheduler run on e3708e2f or later, then run Track S6 runtime proof.');
   }
   if (overall === 'pass_stage3_6_full_stage_audit') {

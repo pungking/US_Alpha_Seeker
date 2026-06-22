@@ -3039,6 +3039,13 @@ const deriveZeroExecutableFormulaProfile = (input: {
       rationale: 'No zero-executable formula bottleneck detected for this row.'
     };
   })();
+  const noFormulaBottleneck = winner.key === 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK';
+  // Keep neutral rows neutral on the zero-executable contract surface. Row-local
+  // auxiliary gaps can exist, but they must not be reported as producer tuning gaps.
+  const contractTargetShortfallPct = noFormulaBottleneck ? 0 : targetShortfallPct;
+  const contractRiskTargetShortfallPct = noFormulaBottleneck ? 0 : riskTargetShortfallPct;
+  const contractBreakoutProofGapCount = noFormulaBottleneck ? 0 : breakoutProofGaps.size;
+  const contractStructureProofGapCount = noFormulaBottleneck ? 0 : structureProofGaps.size;
   const reasons = [
     `tuning_lane:${input.tuningPolicy.lane}`,
     ...(preferredFormulaBottleneck ? [`primary_formula_bottleneck:${preferredFormulaBottleneck}`] : []),
@@ -3072,10 +3079,10 @@ const deriveZeroExecutableFormulaProfile = (input: {
   return {
     bottleneck: winner.key,
     severity: roundOrNull(winner.severity, 2) ?? 0,
-    targetShortfallPct: roundOrNull(targetShortfallPct, 2),
-    riskTargetShortfallPct: roundOrNull(riskTargetShortfallPct, 2),
-    breakoutProofGapCount: breakoutProofGaps.size,
-    structureProofGapCount: structureProofGaps.size,
+    targetShortfallPct: roundOrNull(contractTargetShortfallPct, 2),
+    riskTargetShortfallPct: roundOrNull(contractRiskTargetShortfallPct, 2),
+    breakoutProofGapCount: contractBreakoutProofGapCount,
+    structureProofGapCount: contractStructureProofGapCount,
     observedValue: formulaEvidence.observedValue,
     thresholdValue: formulaEvidence.thresholdValue,
     deltaValue: formulaEvidence.deltaValue,

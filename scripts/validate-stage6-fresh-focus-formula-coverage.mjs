@@ -146,7 +146,12 @@ function validateProducerSourceContract() {
     'formula_delta',
     'formulaAdjustment',
     'formula_adjustment_knob',
-    'formula_adjustment_direction'
+    'formula_adjustment_direction',
+    'noFormulaBottleneck',
+    'contractTargetShortfallPct',
+    'contractRiskTargetShortfallPct',
+    'contractBreakoutProofGapCount',
+    'contractStructureProofGapCount'
   ]) {
     if (!block.includes(token)) {
       throw new Error(`producer formula contract missing token: ${token}`);

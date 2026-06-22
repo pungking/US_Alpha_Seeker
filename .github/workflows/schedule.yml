@@ -268,76 +268,76 @@ jobs:
       - name: 7. 자동화 스크립트 실행 (Puppeteer)
         run: npm run automate
 
-      - name: 7.02 Export Stage3-6 artifacts for audit evidence
+      - name: 7A.1 Evidence Export | Stage3-6 artifacts
         if: success()
         run: npm run ops:stage-artifacts:export
 
-      - name: 7.03 Stage3-5 methodology audit
+      - name: 7B.1 Stage3-5 Quality | Methodology audit
         if: success()
         run: npm run ops:stage3-5:methodology:audit
 
-      - name: 7.031 Stage3-5 quant quality audit
+      - name: 7B.2 Stage3-5 Quality | Quant audit
         if: success()
         run: npm run ops:stage3-5:quant:audit
 
-      - name: 7.032 Stage6 execution gate audit
+      - name: 7C.1 Stage6 Policy | Execution gate audit
         if: success()
         run: npm run ops:stage6:exec:audit
 
-      - name: 7.033 Stage6 blocker root-cause audit
+      - name: 7C.2 Stage6 Policy | Blocker root-cause audit
         if: success()
         run: npm run ops:stage6:blocker-root-cause:audit
 
-      - name: 7.034 Stage6 fresh focus audit
+      - name: 7C.3 Stage6 Formula | Fresh focus audit
         if: success()
         env:
           STAGE6_EXPECTED_SOURCE_SHA: ${{ github.sha }}
           STAGE6_FOCUS_AUDIT_ENFORCE_FRESH_CONTRACT: "true"
         run: npm run ops:stage6:fresh-focus:audit
 
-      - name: 7.035 Stage6 formula tuning backlog
+      - name: 7C.4 Stage6 Formula | Tuning backlog
         if: success()
         env:
           STAGE6_FORMULA_TUNING_BACKLOG_EXPECTED_SOURCE_SHA: ${{ github.sha }}
           STAGE6_FORMULA_TUNING_BACKLOG_ENFORCE_FRESH_SOURCE: "true"
         run: npm run ops:stage6:formula-tuning-backlog
 
-      - name: 7.0351 Stage6 runtime formula contract proof
+      - name: 7C.5 Stage6 Formula | Runtime contract proof
         if: success()
         env:
           STAGE6_RUNTIME_FORMULA_PROOF_EXPECTED_SOURCE_SHA: ${{ github.sha }}
         run: npm run ops:stage6:runtime-formula-contract:proof
 
-      - name: 7.0352 Stage6 formula audit/backlog alignment
+      - name: 7C.6 Stage6 Formula | Audit/backlog alignment
         if: success()
         run: npm run ops:stage6:formula-audit-backlog:align
 
-      - name: 7.036 Stage6 policy lane audit
+      - name: 7C.7 Stage6 Policy | Lane audit
         if: success()
         run: npm run ops:stage6:policy-lane:audit
 
-      - name: 7.037 Stage6 weak pillar runtime audit
+      - name: 7C.8 Stage6 Policy | Weak pillar runtime audit
         if: success()
         run: npm run ops:stage6:weak-pillar:audit
 
-      - name: 7.038 Stage6 quality trend audit
+      - name: 7C.9 Stage6 Policy | Quality trend audit
         if: success()
         run: npm run ops:stage6:quality-trend:audit
 
-      - name: 7.039 Stage3-6 full-stage audit
+      - name: 7D.1 Integrated Audit | Stage3-6 full-stage audit
         if: success()
         run: npm run ops:stage3-6:full:audit
 
-      - name: 7.0391 Stage6 runtime formula goal status
+      - name: 7D.2 Integrated Audit | Stage6 runtime formula goal status
         if: success()
         run: npm run ops:stage6:runtime-formula-goal:status
 
-      - name: 7.04 Stage6 holiday safety audit
+      - name: 7E.1 Dispatch Guard | Stage6 holiday safety audit
         id: stage6_holiday_safety
         if: success()
         run: npm run ops:stage6:holiday-safety
 
-      - name: 7.05 Stage6 flag parity assertion
+      - name: 7E.2 Dispatch Guard | Stage6 flag parity assertion
         if: success()
         run: npm run ops:stage6:flag-parity:assert
 
