@@ -8,6 +8,7 @@ const REPO_ROOT = process.cwd();
 const SCRIPT = path.join(REPO_ROOT, 'scripts/build-stage6-fresh-focus-audit.mjs');
 const FIXTURE_DIR = path.join(REPO_ROOT, 'docs/fixtures/stage6_fresh_focus_formula');
 const PRODUCER_SOURCE = path.join(REPO_ROOT, 'components/AlphaAnalysis.tsx');
+const AUTOMATION_SOURCE = path.join(REPO_ROOT, 'automate.js');
 const CASES = [
   {
     name: 'missing_formula_fields_warns',
@@ -87,6 +88,7 @@ const REQUIRED_FORMULA_FIELDS = [
 
 function validateProducerSourceContract() {
   const source = fs.readFileSync(PRODUCER_SOURCE, 'utf8');
+  const automationSource = fs.readFileSync(AUTOMATION_SOURCE, 'utf8');
   const start = source.indexOf('const deriveZeroExecutableFormulaProfile');
   const end = source.indexOf('const toNonNegativeInt', start);
   if (start < 0 || end < 0) {
@@ -102,10 +104,32 @@ function validateProducerSourceContract() {
     'VITE_BUILD_SOURCE_SHA',
     'stage6BuildSourceAudit',
     'sourceSha',
-    'buildSource'
+    'buildSource',
+    'flagPropagationAudit'
   ]) {
     if (!source.includes(token)) {
       throw new Error(`producer source audit propagation missing token: ${token}`);
+    }
+  }
+  for (const token of [
+    'zeroExecutableFormulaBottleneck: executionContract.zeroExecutableFormulaBottleneck',
+    'zeroExecutableFormulaBottleneck: normalizeOptionalText(item.zeroExecutableFormulaBottleneck)',
+    'zeroExecutableFormulaBottleneck: normalizeOptionalText(item?.zeroExecutableFormulaBottleneck)'
+  ]) {
+    if (!source.includes(token)) {
+      throw new Error(`producer formula field surface propagation missing token: ${token}`);
+    }
+  }
+  for (const token of [
+    'VITE_BUILD_SOURCE_REPOSITORY',
+    'VITE_BUILD_SOURCE_WORKFLOW',
+    'VITE_BUILD_SOURCE_RUN_ID',
+    'VITE_BUILD_SOURCE_SHA',
+    'VITE_BUILD_SOURCE_REF',
+    'VITE_BUILD_SOURCE_EVENT_NAME'
+  ]) {
+    if (!automationSource.includes(token)) {
+      throw new Error(`automation runtime env propagation missing token: ${token}`);
     }
   }
   for (const token of [
