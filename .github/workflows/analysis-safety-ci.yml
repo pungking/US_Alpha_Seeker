@@ -39,6 +39,8 @@ jobs:
         run: npm run ops:stage6:runtime-formula-goal:status
       - name: Stage6 formula audit/backlog alignment fixture
         run: npm run ops:stage6:formula-audit-backlog:align
+      - name: Stage5 lineage contract fixture
+        run: npm run ops:stage5:lineage-contract:validate
       - name: Stage3-6 full-stage audit
         run: npm run ops:stage3-6:full:audit
       - name: Stage6 holiday analysis-only fixture
