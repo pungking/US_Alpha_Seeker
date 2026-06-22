@@ -262,7 +262,13 @@ function summarizeSubreports() {
       present: Boolean(report && !report.readError),
       generatedAt: report?.generatedAt || null,
       overall: report && !report.readError ? pickOverall(report) : report?.readError ? 'read_error' : 'missing',
-      summary: report?.summary || {}
+      summary: report?.summary || {},
+      runtimeProof: report?.runtimeProof || null,
+      sourceFreshness: report?.sourceFreshness || null,
+      contract: report?.contract || null,
+      backlog: report?.backlog || null,
+      splitTuning: report?.splitTuning || null,
+      nextAction: report?.nextAction || null
     };
   }
   return out;
@@ -327,8 +333,13 @@ function deriveRuntimeProof(stage6Rows, subreports) {
   const freshFocus = subreports.stage6FreshFocus;
   const contractProof = subreports.stage6RuntimeFormulaContractProof || {};
   const freshRuntime = freshFocus.runtimeProof || {};
+  const contractSourceFreshness = contractProof.sourceFreshness || {};
   const contractProofPass = /^pass_/i.test(String(contractProof.overall || ''));
-  const freshSourcePass = freshRuntime.sourceShaMatchesExpected === true || freshRuntime.sourceShaMatchesExpected === 'true';
+  const freshSourcePass =
+    freshRuntime.sourceShaMatchesExpected === true ||
+    freshRuntime.sourceShaMatchesExpected === 'true' ||
+    contractSourceFreshness.covers === true ||
+    contractSourceFreshness.covers === 'true';
   const formulaCoveragePass = freshRuntime.formulaCoveragePass === true || freshRuntime.formulaCoveragePass === 'true';
   const requiredCoveragePass = freshRuntime.requiredCoveragePass === true || freshRuntime.requiredCoveragePass === 'true';
   const evidenceIssueCount = Number(freshRuntime.formulaEvidenceQualityIssues || 0);
@@ -436,6 +447,9 @@ function nextActions(overall, lineage, runtimeProof) {
   const actions = [];
   if (lineage.status !== 'pass_same_run_lineage') {
     actions.push('Refresh or download same-run Stage3/4/5/6 artifacts before making a final full-chain quality judgement.');
+    if (Array.isArray(lineage.reason) && lineage.reason.includes('stage5_source_stage4_missing')) {
+      actions.push('Add or verify Stage5 manifest sourceStage4File/stage4File lineage so Stage4->Stage5 same-run ownership can be proven.');
+    }
   }
   if (runtimeProof.status === 'warn_runtime_formula_evidence_weak') {
     actions.push('Refresh Stage6 formula evidence so neutral rows do not expose positive zero-executable tuning gaps.');
@@ -483,6 +497,9 @@ function buildMarkdown(report) {
     ['Stage6<-Stage5', report.lineage.stage6SourceStage5File || 'missing', report.lineage.stage5File || 'missing', report.lineage.stage6MatchesStage5]
   ];
   const runtimeRows = Object.entries(report.runtimeProof.fieldCoverage).map(([field, info]) => [field, `${info.present}/${info.total}`, info.pct]);
+  const runtimeMissingLabel = report.runtimeProof.status === 'pass_runtime_proof_fields_present'
+    ? 'Raw finalist-only missing fields (non-blocking; subreport proof passed)'
+    : 'Missing/Pending fields';
   const subreportRows = Object.entries(report.auditSources).map(([name, info]) => [name, info.present ? 'yes' : 'no', info.overall, info.generatedAt || 'N/A', info.path]);
   const blockerRows = Object.entries(report.blockerSummary)
     .filter(([key]) => key !== 'rootCauseSummary')
@@ -500,7 +517,7 @@ function buildMarkdown(report) {
     `## Stage6 Runtime Proof Gate\n\n` +
     `Expected producer head: ${report.runtimeProof.expectedProducerHead}\n\n` +
     `${mdTable(['Field', 'Present / Total', 'Pct'], runtimeRows)}\n\n` +
-    `Missing/Pending fields: ${report.runtimeProof.missingFields.length ? report.runtimeProof.missingFields.join(', ') : 'none'}\n\n` +
+    `${runtimeMissingLabel}: ${report.runtimeProof.missingFields.length ? report.runtimeProof.missingFields.join(', ') : 'none'}\n\n` +
     `## Blocker Summary\n\n${mdTable(['Metric', 'Counts'], blockerRows)}\n\n` +
     `Root cause summary: ${compactJson(report.blockerSummary.rootCauseSummary)}\n\n` +
     `## Integrated Subreports\n\n${mdTable(['Report', 'Present', 'Overall', 'GeneratedAt', 'Path'], subreportRows)}\n\n` +
