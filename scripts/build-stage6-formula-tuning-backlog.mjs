@@ -343,6 +343,66 @@ function formulaLaneMismatch(row, missingFields) {
   return actual !== expected;
 }
 
+function targetRecalibrationEvidence(row) {
+  return {
+    verdict: normalizeText(row?.targetRecalibrationVerdict),
+    viabilityVerdict: normalizeText(row?.targetRecalibrationViabilityVerdict),
+    requiredTargetPrice: round(row?.targetRecalibrationRequiredTargetPrice),
+    currentTargetPrice: round(row?.targetRecalibrationCurrentTargetPrice),
+    requiredTargetSource: normalizeText(row?.targetRecalibrationRequiredTargetSource),
+    requiredTargetDominantReason: normalizeText(row?.targetRecalibrationRequiredTargetDominantReason),
+    requiredTargetByExecutionFloorPrice: round(row?.targetRecalibrationRequiredTargetByExecutionFloorPrice),
+    requiredTargetByExpectedReturnPrice: round(row?.targetRecalibrationRequiredTargetByExpectedReturnPrice),
+    executionFloorGapPct: round(row?.targetRecalibrationExecutionFloorGapPct),
+    executionFloorShortfallPct: round(row?.targetRecalibrationExecutionFloorShortfallPct),
+    expectedReturnShortfallPct: round(row?.targetRecalibrationExpectedReturnShortfallPct),
+    executionFloorViable: row?.targetRecalibrationExecutionFloorViable ?? null,
+    noTradeConfirmed: row?.targetNoTradeConfirmed ?? null
+  };
+}
+
+function structureProofEvidence(row) {
+  return {
+    currentEntryStructureVerdict: normalizeText(row?.currentEntryStructureVerdict),
+    currentEntryStructureConfirmed: row?.currentEntryStructureConfirmed ?? null,
+    currentEntryStructureSupportReference: normalizeText(row?.currentEntryStructureSupportReference),
+    currentEntryStructureSupportGapAtr: round(row?.currentEntryStructureSupportGapAtr),
+    currentEntryStructureStopAlignedSupportGapAtr: round(row?.currentEntryStructureStopAlignedSupportGapAtr),
+    structurePolicyVerdict: normalizeText(row?.structurePolicyVerdict),
+    structurePolicyBlockerLane: normalizeText(row?.structurePolicyBlockerLane),
+    structurePolicyCurrentRrOk: row?.structurePolicyCurrentRrOk ?? null,
+    structurePolicyTargetBufferOk: row?.structurePolicyTargetBufferOk ?? null,
+    structurePolicyDistanceWithinReviewBand: row?.structurePolicyDistanceWithinReviewBand ?? null,
+    structurePolicyCurrentRrValue: round(row?.structurePolicyCurrentRrValue),
+    structurePolicyMinRr: round(row?.structurePolicyMinRr),
+    structurePolicyEntryDistancePct: round(row?.structurePolicyEntryDistancePct),
+    structurePolicyMaxReviewDistancePct: round(row?.structurePolicyMaxReviewDistancePct)
+  };
+}
+
+function formulaEvidenceSummary(row) {
+  const basis = normalizeText(row?.zeroExecutableFormulaEvidenceBasis) || 'missing_basis';
+  const observed = round(row?.zeroExecutableFormulaObservedValue);
+  const threshold = round(row?.zeroExecutableFormulaThresholdValue);
+  const delta = round(row?.zeroExecutableFormulaDeltaValue);
+  const unit = normalizeText(row?.zeroExecutableFormulaUnit) || 'unit_missing';
+  return `${basis}: observed=${observed ?? 'N/A'} threshold=${threshold ?? 'N/A'} delta=${delta ?? 'N/A'} ${unit}`;
+}
+
+function rowEvidenceSummary(row) {
+  const lane = String(row?.zeroExecutableTuningLane || '').trim().toUpperCase();
+  const formula = formulaEvidenceSummary(row);
+  if (lane === 'TARGET_RECALIBRATION') {
+    const evidence = targetRecalibrationEvidence(row);
+    return `${formula}; target=${evidence.currentTargetPrice ?? 'N/A'} required=${evidence.requiredTargetPrice ?? 'N/A'} source=${evidence.requiredTargetSource || 'missing'} viability=${evidence.viabilityVerdict || 'missing'} noTrade=${evidence.noTradeConfirmed}`;
+  }
+  if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
+    const evidence = structureProofEvidence(row);
+    return `${formula}; structure=${evidence.currentEntryStructureVerdict || 'missing'} blocker=${evidence.structurePolicyBlockerLane || 'missing'} rrOk=${evidence.structurePolicyCurrentRrOk} bufferOk=${evidence.structurePolicyTargetBufferOk} distOk=${evidence.structurePolicyDistanceWithinReviewBand}`;
+  }
+  return formula;
+}
+
 function rowBacklog(row, contractIncomplete = false) {
   const symbol = normalizeSymbol(row);
   const bottleneck = normalizeText(row?.zeroExecutableFormulaBottleneck) || 'missing';
@@ -389,6 +449,9 @@ function rowBacklog(row, contractIncomplete = false) {
     formulaLaneMismatch: laneMismatch,
     expectedFormulaBottleneck: EXPECTED_BOTTLENECK_BY_LANE[String(row?.zeroExecutableTuningLane || '').trim().toUpperCase()] || null,
     formulaEvidenceWeak: weakEvidence,
+    rowEvidenceSummary: rowEvidenceSummary(row),
+    targetRecalibrationEvidence: targetRecalibrationEvidence(row),
+    structureProofEvidence: structureProofEvidence(row),
     producerOnly: true,
     sidecarMutationAllowed: false
   };
@@ -780,14 +843,17 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Backlog Rows');
   lines.push('');
-  lines.push('| Symbol | Decision | Track | Knob | Direction | Magnitude | Evidence | Lane Mismatch | Weak Evidence | Missing Lane Fields | Action |');
-  lines.push('| --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- |');
+  lines.push('| Symbol | Decision | Track | Knob | Direction | Magnitude | Row Evidence | Target Evidence | Structure Evidence | Lane Mismatch | Weak Evidence | Missing Lane Fields | Action |');
+  lines.push('| --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- |');
   for (const row of report.backlogRows) {
-    const evidence = `${row.evidenceBasis || 'missing'}:${row.observedValue ?? 'N/A'}>${row.thresholdValue ?? 'N/A'} delta=${row.deltaValue ?? 'N/A'} ${row.unit || ''}`;
     const laneMismatch = row.formulaLaneMismatch ? `${row.formulaBottleneck || 'missing'}!=${row.expectedFormulaBottleneck || 'unknown'}` : 'no';
-    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(evidence)} | ${esc(laneMismatch)} | ${row.formulaEvidenceWeak ? 'yes' : 'no'} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
+    const target = row.targetRecalibrationEvidence || {};
+    const targetEvidence = `target=${target.currentTargetPrice ?? 'N/A'} required=${target.requiredTargetPrice ?? 'N/A'} source=${target.requiredTargetSource || 'N/A'} viability=${target.viabilityVerdict || 'N/A'} noTrade=${target.noTradeConfirmed}`;
+    const structure = row.structureProofEvidence || {};
+    const structureEvidence = `verdict=${structure.currentEntryStructureVerdict || 'N/A'} lane=${structure.structurePolicyBlockerLane || 'N/A'} rrOk=${structure.structurePolicyCurrentRrOk} bufferOk=${structure.structurePolicyTargetBufferOk} distOk=${structure.structurePolicyDistanceWithinReviewBand}`;
+    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(row.rowEvidenceSummary)} | ${esc(targetEvidence)} | ${esc(structureEvidence)} | ${esc(laneMismatch)} | ${row.formulaEvidenceWeak ? 'yes' : 'no'} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
   }
-  if (!report.backlogRows.length) lines.push('| none | none | none | none | none | N/A | none | no | no | none | none |');
+  if (!report.backlogRows.length) lines.push('| none | none | none | none | none | N/A | none | none | none | no | no | none | none |');
   lines.push('');
   lines.push('## Tuning Recommendations');
   lines.push('');
