@@ -1,13 +1,13 @@
 # Stage3-5 Quant Quality Audit
 
-- GeneratedAt: 2026-06-22T15:34:14.669Z
-- Stage6: STAGE6_ALPHA_FINAL_2026-06-20_09-26-37.json
-- Hash: ef8e15fc14518dbf513479899161038a94278d42917a3e698cea69eddc3af71a
-- Stage6 finalist rows audited: 3
+- GeneratedAt: 2026-06-23T05:33:14.465Z
+- Stage6: STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json
+- Hash: b149b044845b848196bfd08608b6e2f71ecca9634499ccea806a8c637259b49a
+- Stage6 finalist rows audited: 2
 - Stage3 rows audited: 300
 - Stage4 rows audited: 300
 - Stage5 rows audited: 50
-- Overall: **pass_report_only**
+- Overall: **review_required_medium**
 - Safety: report-only; no broker/state mutation.
 
 ## Summary
@@ -15,7 +15,7 @@
 | Stage | Score | Main Risk |
 | --- | ---: | --- |
 | Stage3 | 100/100 | none |
-| Stage4 | 97/100 | Short technical history was observed, but it did not reach Stage6 executable rows. |
+| Stage4 | 89/100 | Some Stage4 rows have OHLCV tails older than the freshest row in the same artifact. |
 | Stage5 | 100/100 | none |
 | Stage5ToStage6 | 100/100 | none |
 
@@ -23,23 +23,23 @@
 
 | Stage | Mode | File | Rows |
 | --- | --- | --- | ---: |
-| Stage3 | full_stage_artifact | STAGE3_FUNDAMENTAL_FULL_2026-06-20_01-37-55.json | 300 |
-| Stage4 | full_stage_artifact | STAGE4_TECHNICAL_FULL_2026-06-20_01-59-17.json | 300 |
-| Stage5 | full_stage_artifact | STAGE5_ICT_ELITE_50_2026-06-20_01-59-27.json | 50 |
+| Stage3 | full_stage_artifact | STAGE3_FUNDAMENTAL_FULL_2026-06-23_00-40-55.json | 300 |
+| Stage4 | full_stage_artifact | STAGE4_TECHNICAL_FULL_2026-06-23_01-02-53.json | 300 |
+| Stage5 | full_stage_artifact | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | 50 |
 
 ## Findings
 
 | Severity | Stage | ID | Evidence | Recommendation | File | Line |
 | --- | --- | --- | --- | --- | --- | ---: |
-| low | Stage4 | stage4_short_history_non_executable_observation | [{"symbol":"PAYP","bars":69}] | Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable. | N/A | 0 |
+| medium | Stage4 | stage4_ohlcv_relative_stale_rows | [{"symbol":"LC","lastDate":"2026-06-18","lagDaysFromMax":4}] | Keep stale-relative rows out of breakout/structure promotion or refresh their OHLCV group before Stage5. | N/A | 0 |
+| low | Stage4 | stage4_short_history_non_executable_observation | [{"symbol":"PAYP","bars":70}] | Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable. | N/A | 0 |
 
 ## Latest Row Score Table
 
 | Symbol | Decision | Fund | Quality | Tech | TechFinal | ICT | DataSource | Bars | DataQuality | ICT Zone | Geometry |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | --- |
-| LIF | EXECUTABLE_NOW/executable_current_recalculated_stop | 74.35 | 97.2 | 71.81 | 71.81 | 89.53 | DRIVE | 120 | NORMAL | DISCOUNT | RECENT_SWING_ATR |
-| IDCC | EXECUTABLE_NOW/executable_pullback | 66.04 | 100 | 99 | 99 | 96.42 | DRIVE | 120 | NORMAL | DISCOUNT | RECENT_SWING_ATR |
-| ANET | EXECUTABLE_NOW/executable_current_recalculated_stop | 69.43 | 95.6 | 89.78 | 89.78 | 90.69 | DRIVE | 120 | NORMAL | PREMIUM | RECENT_SWING_ATR |
+| ACAD | EXECUTABLE_NOW/executable_pullback | 100 | 92.9 | 51.05 | 51.05 | 79.88 | DRIVE | 120 | THIN | DISCOUNT | RECENT_SWING_ATR |
+| FFBC | EXECUTABLE_NOW/executable_current_recalculated_stop | 70.77 | 77.5 | 86.37 | 86.37 | 75.07 | DRIVE | 120 | THIN | PREMIUM | RECENT_SWING_ATR |
 
 ## Stage Coverage
 
@@ -47,26 +47,31 @@
 
 | Metric | Value |
 | --- | --- |
-| scoreStats | {"count":300,"min":4.51,"max":100,"avg":59.4} |
+| scoreStats | {"count":300,"min":4.51,"max":100,"avg":59.94} |
 | scoreSemanticsContract | {"dataDictionaryPresent":true,"boundsFixturePresent":true,"status":"documented_expected_divergence"} |
+| sectorBonusStats | {"sectorBonusRows":66,"rawAfterSectorAbove100Rows":21,"clampAppliedRows":21} |
+| imputationStats | {"imputedCount":0,"imputedPct":0,"integrityReasonsCoveragePct":100,"roicDebtSourceCoveragePct":100} |
+| compositeAlphaStats | {"count":300,"min":9.88,"max":100,"avg":55.71} |
 | dataQualityCounts | HIGH:300 |
 
 ### Stage4
 
 | Metric | Value |
 | --- | --- |
-| scoreStats | {"count":300,"min":1,"max":99,"avg":53.68} |
+| scoreStats | {"count":300,"min":1,"max":96,"avg":37.03} |
 | shortHistoryPolicy | {"policyPresent":true,"shortHistoryRows":1,"shortHistoryExecutableRows":0,"status":"short_history_non_executable_observation"} |
+| historyFreshness | {"maxLastDate":"2026-06-22","missingLastDateRows":[],"staleRelativeRows":[{"symbol":"LC","lastDate":"2026-06-18","lagDaysFromMax":4}]} |
 | dataSourceCounts | DRIVE:300 |
-| techDataQualityCounts | NORMAL:226, THIN:74 |
+| techDataQualityCounts | THIN:271, NORMAL:29 |
 
 ### Stage5
 
 | Metric | Value |
 | --- | --- |
-| scoreStats | {"count":50,"min":67.41,"max":100,"avg":85.9} |
-| pdZoneCounts | PREMIUM:31, DISCOUNT:18, EQUILIBRIUM:1 |
+| scoreStats | {"count":50,"min":46.08,"max":93.07,"avg":71.85} |
+| pdZoneCounts | PREMIUM:38, DISCOUNT:11, EQUILIBRIUM:1 |
 | geometrySourceCounts | RECENT_SWING_ATR:50 |
+| executionGeometryStats | {"fallback52wRows":0,"validEntryStopRows":50,"invalidExecutionBoxRows":0} |
 
 ### Stage5ToStage6
 
@@ -85,9 +90,9 @@
 | Stage4 | yes | stage4_illiquid_cap | components/TechnicalAnalysis.tsx | 1559 |
 | Stage4 | yes | stage4_displacement_floor | components/TechnicalAnalysis.tsx | 2180 |
 | Stage4 | yes | stage4_heuristic_fallback | components/TechnicalAnalysis.tsx | 1766 |
-| Stage5 | yes | stage5_risk_on_weights | components/IctAnalysis.tsx | 991 |
-| Stage5 | yes | stage5_data_quality_multiplier | components/IctAnalysis.tsx | 1040 |
-| Stage5 | yes | stage5_geometry_fallback_counter | components/IctAnalysis.tsx | 1138 |
+| Stage5 | yes | stage5_risk_on_weights | components/IctAnalysis.tsx | 994 |
+| Stage5 | yes | stage5_data_quality_multiplier | components/IctAnalysis.tsx | 1043 |
+| Stage5 | yes | stage5_geometry_fallback_counter | components/IctAnalysis.tsx | 1141 |
 | Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 6439 |
 
 ## Interpretation

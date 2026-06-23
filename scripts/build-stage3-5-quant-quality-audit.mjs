@@ -102,6 +102,19 @@ function round(value, digits = 2) {
   return Number(n.toFixed(digits));
 }
 
+function dateMs(value) {
+  const t = Date.parse(String(value || ''));
+  return Number.isFinite(t) ? t : null;
+}
+
+function lastHistoryDate(row) {
+  const history = Array.isArray(row?.priceHistory) ? row.priceHistory : [];
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    if (history[i]?.date) return String(history[i].date);
+  }
+  return null;
+}
+
 function normalizeSymbol(row) {
   return String(row?.symbol || row?.ticker || '').trim().toUpperCase();
 }
@@ -293,6 +306,7 @@ function stage3Audit(rows, findings) {
     'safeScore',
     'valueScore',
     'roe',
+    'roicDebtSource',
     'debtToEquity',
     'zScoreModel',
     'zScoreCoveragePct',
@@ -324,6 +338,25 @@ function stage3Audit(rows, findings) {
       'Clamp or re-normalize Stage3 fundamentalScore after sector/momentum bonuses, then update fixture expectations.',
       SOURCE_FILES.stage3,
       lineOf(SOURCE_FILES.stage3, /fundamentalScoreRawAfterSectorBonus/)
+    );
+  }
+  const compositeOutOfRange = rows
+    .filter((row) => {
+      const v = num(row?.compositeAlpha);
+      return v == null || v < 0 || v > 100;
+    })
+    .map((row) => ({ symbol: normalizeSymbol(row), compositeAlpha: row?.compositeAlpha }));
+  if (compositeOutOfRange.length) {
+    addFinding(
+      findings,
+      'Stage3',
+      'critical',
+      'stage3_composite_alpha_out_of_range',
+      'compositeAlpha escaped the expected 0-100 score scale.',
+      compositeOutOfRange,
+      'Clamp compositeAlpha after every Stage3 score overlay before writing artifacts.',
+      SOURCE_FILES.stage3,
+      lineOf(SOURCE_FILES.stage3, /r\.compositeAlpha\s*=\s*clampScore/)
     );
   }
   const missingIntegrity = rows
@@ -374,11 +407,24 @@ function stage3Audit(rows, findings) {
   return {
     coverage: cov,
     outOfRange,
+    compositeOutOfRange,
     qualityDivergence,
     scoreSemanticsContract,
+    sectorBonusStats: {
+      sectorBonusRows: rows.filter((row) => (num(row?.sectorRankBonus) ?? 0) !== 0).length,
+      rawAfterSectorAbove100Rows: rows.filter((row) => (num(row?.fundamentalScoreRawAfterSectorBonus) ?? 0) > 100).length,
+      clampAppliedRows: rows.filter((row) => bool(row?.fundamentalScoreClampApplied)).length
+    },
     scoreStats: numericStats(rows, 'fundamentalScore'),
+    compositeAlphaStats: numericStats(rows, 'compositeAlpha'),
     dataQualityCounts: countBy(rows, (row) => String(row?.dataQuality || 'missing')),
     zScoreModelCounts: countBy(rows, (row) => String(row?.zScoreModel || 'missing')),
+    imputationStats: {
+      imputedCount: rows.filter((row) => bool(row?.isImputed)).length,
+      imputedPct: pct(rows.filter((row) => bool(row?.isImputed)).length, rows.length),
+      integrityReasonsCoveragePct: cov.integrityReasons?.pct ?? 0,
+      roicDebtSourceCoveragePct: cov.roicDebtSource?.pct ?? 0
+    },
     imputedCount: rows.filter((row) => bool(row?.isImputed)).length
   };
 }
@@ -482,6 +528,22 @@ function stage4Audit(rows, findings, stage6Rows = []) {
       );
     }
   }
+  const historyDates = rows.map((row) => ({ symbol: normalizeSymbol(row), lastDate: lastHistoryDate(row), lastMs: dateMs(lastHistoryDate(row)) }));
+  const maxLastMs = Math.max(...historyDates.map((row) => row.lastMs || 0));
+  const staleRelativeRows = historyDates
+    .filter((row) => row.lastMs && maxLastMs && (maxLastMs - row.lastMs) > 86400000)
+    .map((row) => ({ symbol: row.symbol, lastDate: row.lastDate, lagDaysFromMax: round((maxLastMs - row.lastMs) / 86400000) }));
+  if (staleRelativeRows.length) {
+    addFinding(
+      findings,
+      'Stage4',
+      'medium',
+      'stage4_ohlcv_relative_stale_rows',
+      'Some Stage4 rows have OHLCV tails older than the freshest row in the same artifact.',
+      staleRelativeRows,
+      'Keep stale-relative rows out of breakout/structure promotion or refresh their OHLCV group before Stage5.'
+    );
+  }
   return {
     coverage: cov,
     nestedCoverage: nested,
@@ -489,6 +551,11 @@ function stage4Audit(rows, findings, stage6Rows = []) {
     heuristicHighScore,
     shortHistory,
     shortHistoryPolicy,
+    historyFreshness: {
+      maxLastDate: historyDates.find((row) => row.lastMs === maxLastMs)?.lastDate || null,
+      missingLastDateRows: historyDates.filter((row) => !row.lastDate).map((row) => row.symbol),
+      staleRelativeRows
+    },
     scoreStats: numericStats(rows, 'technicalScore'),
     dataSourceCounts: countBy(rows, (row) => String(row?.dataSource || 'missing')),
     techDataQualityCounts: countBy(rows, (row) => String(row?.techMetrics?.dataQualityState || 'missing')),
@@ -578,16 +645,42 @@ function stage5Audit(rows, findings) {
       'Clamp ictPos or flag distorted 52-week range / stale price inputs before Stage6.'
     );
   }
+  const invalidExecutionBox = rows
+    .filter((row) => {
+      const entry = num(row?.otePrice);
+      const stop = num(row?.ictStopLoss);
+      return entry != null && stop != null && stop >= entry;
+    })
+    .map((row) => ({ symbol: normalizeSymbol(row), otePrice: row?.otePrice, ictStopLoss: row?.ictStopLoss, executionGeometrySource: row?.executionGeometrySource }));
+  if (invalidExecutionBox.length) {
+    addFinding(
+      findings,
+      'Stage5',
+      'high',
+      'stage5_invalid_execution_box_geometry',
+      'Stage5 execution box has stop at or above entry.',
+      invalidExecutionBox,
+      'Block Stage6 executable promotion until Stage5 emits a valid long-side entry/stop geometry.',
+      SOURCE_FILES.stage5,
+      lineOf(SOURCE_FILES.stage5, /ictStopLoss/)
+    );
+  }
   return {
     coverage: cov,
     nestedCoverage: nested,
     outOfRange,
     weakMetricsHighIct,
     invalidIctPos,
+    invalidExecutionBox,
     scoreStats: numericStats(rows, 'ictScore'),
     pdZoneCounts: countBy(rows, (row) => String(row?.pdZone || 'missing')),
     geometrySourceCounts: countBy(rows, (row) => String(row?.executionGeometrySource || 'missing')),
-    factorCarryGuardCounts: countBy(rows, (row) => String(row?.factorCarryGuard || row?.compositeBreakdown?.factorCarryGuard || 'missing'))
+    factorCarryGuardCounts: countBy(rows, (row) => String(row?.factorCarryGuard || row?.compositeBreakdown?.factorCarryGuard || 'missing')),
+    executionGeometryStats: {
+      fallback52wRows: rows.filter((row) => String(row?.executionGeometrySource || '').toLowerCase().includes('fallback_52w')).length,
+      validEntryStopRows: rows.filter((row) => num(row?.otePrice) != null && num(row?.ictStopLoss) != null && num(row?.ictStopLoss) < num(row?.otePrice)).length,
+      invalidExecutionBoxRows: invalidExecutionBox.length
+    }
   };
 }
 
@@ -702,12 +795,17 @@ function buildMarkdown(report) {
     lines.push('', `### ${stage}`, '', '| Metric | Value |', '| --- | --- |');
     lines.push(`| scoreStats | ${esc(JSON.stringify(section.scoreStats || {}))} |`);
     if (section.scoreSemanticsContract) lines.push(`| scoreSemanticsContract | ${esc(JSON.stringify(section.scoreSemanticsContract))} |`);
+    if (section.sectorBonusStats) lines.push(`| sectorBonusStats | ${esc(JSON.stringify(section.sectorBonusStats))} |`);
+    if (section.imputationStats) lines.push(`| imputationStats | ${esc(JSON.stringify(section.imputationStats))} |`);
+    if (section.compositeAlphaStats) lines.push(`| compositeAlphaStats | ${esc(JSON.stringify(section.compositeAlphaStats))} |`);
     if (section.shortHistoryPolicy) lines.push(`| shortHistoryPolicy | ${esc(JSON.stringify(section.shortHistoryPolicy))} |`);
+    if (section.historyFreshness) lines.push(`| historyFreshness | ${esc(JSON.stringify(section.historyFreshness))} |`);
     if (section.dataQualityCounts) lines.push(`| dataQualityCounts | ${esc(tableCountMap(section.dataQualityCounts))} |`);
     if (section.dataSourceCounts) lines.push(`| dataSourceCounts | ${esc(tableCountMap(section.dataSourceCounts))} |`);
     if (section.techDataQualityCounts) lines.push(`| techDataQualityCounts | ${esc(tableCountMap(section.techDataQualityCounts))} |`);
     if (section.pdZoneCounts) lines.push(`| pdZoneCounts | ${esc(tableCountMap(section.pdZoneCounts))} |`);
     if (section.geometrySourceCounts) lines.push(`| geometrySourceCounts | ${esc(tableCountMap(section.geometrySourceCounts))} |`);
+    if (section.executionGeometryStats) lines.push(`| executionGeometryStats | ${esc(JSON.stringify(section.executionGeometryStats))} |`);
   }
   lines.push('', '## Static Formula Evidence', '', '| Stage | Present | Rule | File | Line |', '| --- | --- | --- | --- | ---: |');
   for (const item of report.staticFormulaEvidence) {
