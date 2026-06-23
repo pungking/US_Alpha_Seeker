@@ -1,9 +1,9 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-23T07:04:57.695Z
+- GeneratedAt: 2026-06-23T07:23:20.618Z
 - Overall: **warn_lineage_incomplete**
 - Lineage: **warn_lineage_incomplete**; final quality judgement: **withheld**
-- Stage6 Runtime Proof: **pass_runtime_proof_fields_present**
+- Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
 - Safety: report-only; brokerMutationAllowed=false; sidecarMutationAllowed=false.
 
 ## Lineage
@@ -23,7 +23,7 @@ Reasons: stage5_source_stage4_missing
 | Stage3 | audited_report_only | 300 | STAGE3_FUNDAMENTAL_FULL_2026-06-23_00-40-55.json | fundamentalScore:300/300<br>compositeAlpha:300/300<br>qualityScore:300/300<br>integrityReasons:35/300<br>isImputed:300/300<br>dataQuality:300/300<br>roicDebtSource:300/300 |
 | Stage4 | audited_report_only | 300 | STAGE4_TECHNICAL_FULL_2026-06-23_01-02-53.json | technicalScore:300/300<br>technicalScoreFinal:0/300<br>techMetrics:300/300<br>priceHistory:300/300<br>dataSource:300/300<br>dataQualityScore:0/300<br>liquidityState:0/300 |
 | Stage5 | audited_report_only | 50 | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | ictScore:50/50<br>ictMetrics:50/50<br>executionBox:0/50<br>geometrySource:0/50<br>pdZone:50/50<br>dataQualityMultiplier:0/50 |
-| Stage6 | audited_runtime_proof_present | 2 | STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json | weakPillarExecutionGate:0/2<br>qualityGateLane:0/2<br>zeroExecutableTuningLane:2/2<br>targetRecalibrationViabilityVerdict:2/2<br>riskGeometryRepairLane:2/2<br>breakoutRetestProofConfirmed:2/2 |
+| Stage6 | warn_runtime_proof_pending | 2 | STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json | weakPillarExecutionGate:0/2<br>qualityGateLane:0/2<br>zeroExecutableTuningLane:2/2<br>targetRecalibrationViabilityVerdict:2/2<br>riskGeometryRepairLane:2/2<br>breakoutRetestProofConfirmed:2/2 |
 
 ## Stage6 Runtime Proof Gate
 
@@ -39,7 +39,7 @@ Expected producer head: e3708e2f_or_later
 | structurePolicyBlockerLane | 2/2 | 100 |
 | qualityGateLane | 0/2 | 0 |
 
-Raw finalist-only missing fields (non-blocking; subreport proof passed): targetRecalibrationExecutionFloorViable, riskGeometryTargetRecalibrationProofReady, riskGeometryRrAtRequiredTargetAndRecalculatedStop, breakoutRetestProofUndercutReclaimFound, qualityGateLane
+Missing/Pending fields: targetRecalibrationExecutionFloorViable, riskGeometryTargetRecalibrationProofReady, riskGeometryRrAtRequiredTargetAndRecalculatedStop, breakoutRetestProofUndercutReclaimFound, qualityGateLane
 
 ## Blocker Summary
 
@@ -59,12 +59,12 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 
 | Report | Present | Overall | GeneratedAt | Path |
 | --- | --- | --- | --- | --- |
-| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-23T07:04:55.465Z | state/stage3-5-methodology-audit.json |
-| stage35QuantQuality | yes | pass_report_only | 2026-06-23T07:04:57.199Z | state/stage3-5-quant-quality-audit.json |
-| stage6FreshFocus | yes | warn_formula_contract_missing_or_mismatch | 2026-06-23T05:55:22.625Z | state/stage6-fresh-focus-audit.json |
-| stage6FormulaTuningBacklog | yes | pass_formula_tuning_backlog_ready | 2026-06-22T23:54:23.322Z | state/stage6-formula-tuning-backlog.json |
-| stage6RuntimeFormulaContractProof | yes | pass_formula_contract_present_executable_candidates_exist | 2026-06-23T00:05:11.494Z | state/stage6-runtime-formula-contract-proof.json |
-| stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-23T05:55:22.016Z | state/stage6-formula-audit-backlog-alignment.json |
+| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-23T07:18:56.819Z | state/stage3-5-methodology-audit.json |
+| stage35QuantQuality | yes | pass_report_only | 2026-06-23T07:18:58.292Z | state/stage3-5-quant-quality-audit.json |
+| stage6FreshFocus | yes | warn_formula_contract_missing_or_mismatch | 2026-06-23T07:22:33.836Z | state/stage6-fresh-focus-audit.json |
+| stage6FormulaTuningBacklog | yes | warn_formula_tuning_contract_incomplete | 2026-06-23T07:16:46.567Z | state/stage6-formula-tuning-backlog.json |
+| stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-23T07:23:19.924Z | state/stage6-runtime-formula-contract-proof.json |
+| stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-23T07:23:19.495Z | state/stage6-formula-audit-backlog-alignment.json |
 | stage6BlockerRootCause | yes | not_available | 2026-06-22T16:07:32.922Z | state/stage6-blocker-root-cause-audit.json |
 | stage6QualityTrend | yes | not_available | 2026-06-22T16:07:34.780Z | state/stage6-quality-trend-audit.json |
 
@@ -72,6 +72,7 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 
 - Refresh or download same-run Stage3/4/5/6 artifacts before making a final full-chain quality judgement.
 - Add or verify Stage5 manifest sourceStage4File/stage4File lineage so Stage4->Stage5 same-run ownership can be proven.
+- Wait for the next Auto-Scheduler run on e3708e2f or later, then run Track S6 runtime proof.
 - Continue report-only Stage3-6 audit expansion; do not submit, replace, reprice, or mutate sidecar state.
 
 ## Interpretation

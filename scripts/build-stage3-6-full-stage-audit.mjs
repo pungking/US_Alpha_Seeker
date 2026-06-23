@@ -333,6 +333,11 @@ function deriveRuntimeProof(stage6Rows, subreports) {
   const freshFocus = subreports.stage6FreshFocus;
   const contractProof = subreports.stage6RuntimeFormulaContractProof || {};
   const freshRuntime = freshFocus.runtimeProof || {};
+  const freshOverall = String(freshFocus.overall || '');
+  const freshRuntimeStatus = String(freshRuntime.status || '');
+  const formulaBacklogOverall = String(formulaBacklog.overall || '');
+  const freshManifestIssues = Number(freshFocus.summary?.formulaManifestContractIssues || 0);
+  const backlogContractIssues = Number(formulaBacklog.summary?.formulaContractIssues || 0);
   const contractSourceFreshness = contractProof.sourceFreshness || {};
   const contractProofPass = /^pass_/i.test(String(contractProof.overall || ''));
   const freshSourcePass =
@@ -343,8 +348,13 @@ function deriveRuntimeProof(stage6Rows, subreports) {
   const formulaCoveragePass = freshRuntime.formulaCoveragePass === true || freshRuntime.formulaCoveragePass === 'true';
   const requiredCoveragePass = freshRuntime.requiredCoveragePass === true || freshRuntime.requiredCoveragePass === 'true';
   const evidenceIssueCount = Number(freshRuntime.formulaEvidenceQualityIssues || 0);
-  const staleOrMissingSource = /stale|missing|pending/i.test(`${formulaBacklog.overall} ${freshFocus.overall}`);
-  const subreportRuntimeProofPass = contractProofPass && freshSourcePass && formulaCoveragePass && requiredCoveragePass;
+  const pendingFreshFocus =
+    /pending/i.test(freshRuntimeStatus) ||
+    /contract_missing|contract_incomplete|missing_or_mismatch|pending/i.test(`${freshOverall} ${formulaBacklogOverall}`) ||
+    freshManifestIssues > 0 ||
+    backlogContractIssues > 0;
+  const staleOrMissingSource = /stale|missing|pending|incomplete|mismatch/i.test(`${formulaBacklog.overall} ${freshFocus.overall} ${freshRuntimeStatus}`);
+  const subreportRuntimeProofPass = !pendingFreshFocus && contractProofPass && freshSourcePass && formulaCoveragePass && requiredCoveragePass;
   const status = subreportRuntimeProofPass
     ? evidenceIssueCount > 0
       ? 'warn_runtime_formula_evidence_weak'
@@ -362,7 +372,12 @@ function deriveRuntimeProof(stage6Rows, subreports) {
       stage6FormulaTuningBacklogOverall: formulaBacklog.overall,
       stage6RuntimeFormulaContractProofOverall: contractProof.overall,
       freshFocusRuntimeProofStatus: freshRuntime.status,
-      formulaEvidenceQualityIssues: Number.isFinite(evidenceIssueCount) ? evidenceIssueCount : null
+      formulaEvidenceQualityIssues: Number.isFinite(evidenceIssueCount) ? evidenceIssueCount : null,
+      formulaManifestContractIssues: Number.isFinite(freshManifestIssues) ? freshManifestIssues : null,
+      formulaBacklogContractIssues: Number.isFinite(backlogContractIssues) ? backlogContractIssues : null,
+      formulaEvidenceIssueReasonCounts: freshFocus.summary?.formulaEvidenceIssueReasonCounts || {},
+      laneSpecificFormulaEvidenceIssueReasonCounts: freshFocus.summary?.laneSpecificFormulaEvidenceIssueReasonCounts || {},
+      pendingFreshFocus
     },
     note: 'Runtime proof is intentionally separate from the Stage3-6 methodology audit. Fresh subreport proof takes precedence over raw finalist field coverage because zero-executable diagnostics may be emitted on audit rows beyond alpha_candidates.'
   };

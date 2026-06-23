@@ -238,9 +238,45 @@ function runCase(testCase) {
   if (evidenceIssues !== testCase.expectedEvidenceQualityIssues) {
     throw new Error(`${testCase.name}: expected formulaEvidenceQualityIssues=${testCase.expectedEvidenceQualityIssues}, got ${evidenceIssues}`);
   }
+  if (evidenceIssues > 0) {
+    if (!report.summary?.formulaEvidenceIssueReasonCounts || Object.keys(report.summary.formulaEvidenceIssueReasonCounts).length === 0) {
+      throw new Error(`${testCase.name}: expected formulaEvidenceIssueReasonCounts for evidence issues`);
+    }
+    if (!report.summary?.formulaEvidenceIssueLaneCounts || Object.keys(report.summary.formulaEvidenceIssueLaneCounts).length === 0) {
+      throw new Error(`${testCase.name}: expected formulaEvidenceIssueLaneCounts for evidence issues`);
+    }
+    const malformedEvidenceIssues = (report.formulaEvidenceQualityIssues || []).filter(
+      (issue) =>
+        !Array.isArray(issue.issueReasons) ||
+        issue.issueReasons.length === 0 ||
+        !Object.prototype.hasOwnProperty.call(issue, 'zeroExecutableFormulaReasons') ||
+        !Object.prototype.hasOwnProperty.call(issue, 'zeroExecutableFormulaRecommendedAction')
+    );
+    if (malformedEvidenceIssues.length > 0) {
+      throw new Error(`${testCase.name}: formulaEvidenceQualityIssues missing reason/action details`);
+    }
+  }
   const laneSpecificIssues = Number(report.summary?.laneSpecificFormulaEvidenceIssues || 0);
   if (laneSpecificIssues !== testCase.expectedLaneSpecificFormulaIssues) {
     throw new Error(`${testCase.name}: expected laneSpecificFormulaEvidenceIssues=${testCase.expectedLaneSpecificFormulaIssues}, got ${laneSpecificIssues}`);
+  }
+  if (laneSpecificIssues > 0) {
+    if (!report.summary?.laneSpecificFormulaEvidenceIssueReasonCounts || Object.keys(report.summary.laneSpecificFormulaEvidenceIssueReasonCounts).length === 0) {
+      throw new Error(`${testCase.name}: expected laneSpecificFormulaEvidenceIssueReasonCounts for lane-specific issues`);
+    }
+    if (!report.summary?.laneSpecificFormulaEvidenceIssueLaneCounts || Object.keys(report.summary.laneSpecificFormulaEvidenceIssueLaneCounts).length === 0) {
+      throw new Error(`${testCase.name}: expected laneSpecificFormulaEvidenceIssueLaneCounts for lane-specific issues`);
+    }
+    const malformedLaneIssues = (report.laneSpecificFormulaEvidenceIssues || []).filter(
+      (issue) =>
+        !issue.targetRecalibrationFormula ||
+        !issue.riskGeometryFormula ||
+        !issue.breakoutRetestProofFormula ||
+        !issue.structurePolicyFormula
+    );
+    if (malformedLaneIssues.length > 0) {
+      throw new Error(`${testCase.name}: laneSpecificFormulaEvidenceIssues missing formula triplet details`);
+    }
   }
   const nextAction = report.guardrails?.nextAction;
   if (nextAction !== testCase.expectedNextAction) {
@@ -248,6 +284,15 @@ function runCase(testCase) {
   }
   if (report.safety?.brokerMutation !== false || report.safety?.stateMutation !== false || report.guardrails?.sidecarMutationAllowed !== false) {
     throw new Error(`${testCase.name}: report-only mutation guardrails must remain false`);
+  }
+  const md = fs.readFileSync(outMd, 'utf8');
+  for (const token of [
+    'formulaEvidenceIssueReasonCounts',
+    'formulaEvidenceIssueLaneCounts',
+    'laneSpecificFormulaEvidenceIssueReasonCounts',
+    'laneSpecificFormulaEvidenceIssueLaneCounts'
+  ]) {
+    if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing ${token}`);
   }
   return {
     name: testCase.name,

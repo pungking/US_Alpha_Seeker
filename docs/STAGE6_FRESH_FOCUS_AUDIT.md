@@ -1,6 +1,6 @@
 # Stage6 Fresh Focus Audit
 
-- GeneratedAt: 2026-06-23T05:55:22.625Z
+- GeneratedAt: 2026-06-23T07:22:33.836Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json
 - Hash: b149b044845b848196bfd08608b6e2f71ecca9634499ccea806a8c637259b49a
 - Source SHA: 3b5c01c1bc52594b13d641f94624e1d36b6836ac
@@ -26,7 +26,11 @@
 | formulaManifestContractIssues | 10 |
 | formulaLaneConsistencyIssues | 0 |
 | formulaEvidenceQualityIssues | 0 |
+| formulaEvidenceIssueReasonCounts | {} |
+| formulaEvidenceIssueLaneCounts | {} |
 | laneSpecificFormulaEvidenceIssues | 0 |
+| laneSpecificFormulaEvidenceIssueReasonCounts | {} |
+| laneSpecificFormulaEvidenceIssueLaneCounts | {} |
 | blockerCategoryCounts | {"entry_distance":1,"risk_geometry":3,"target_recalibration":1,"other":1,"breakout":1} |
 | rawExecutableDowngrades | [] |
 | runtimeProof.status | pending_fresh_stage6_formula_v4_runtime_proof |

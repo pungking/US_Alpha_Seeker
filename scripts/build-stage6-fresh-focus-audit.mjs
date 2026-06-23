@@ -439,6 +439,10 @@ function formulaEvidenceQualityIssue(row) {
     zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
     zeroExecutableFormulaBottleneck: row?.zeroExecutableFormulaBottleneck || null,
     zeroExecutableFormulaSeverity: severity,
+    zeroExecutableTargetShortfallPct: targetShortfall,
+    zeroExecutableRiskTargetShortfallPct: riskShortfall,
+    zeroExecutableBreakoutProofGapCount: breakoutGaps,
+    zeroExecutableStructureProofGapCount: structureGaps,
     zeroExecutableFormulaObservedValue: observedValue,
     zeroExecutableFormulaThresholdValue: thresholdValue,
     zeroExecutableFormulaDeltaValue: deltaValue,
@@ -448,9 +452,21 @@ function formulaEvidenceQualityIssue(row) {
     zeroExecutableFormulaAdjustmentDirection: adjustmentDirection || null,
     zeroExecutableFormulaAdjustmentMagnitude: adjustmentMagnitude,
     zeroExecutableFormulaAdjustmentRationale: adjustmentRationale || null,
+    zeroExecutableFormulaReasons: reasons,
+    zeroExecutableFormulaRecommendedAction: action || null,
     issueReasons,
     finalDecision: decisionOf(row),
     decisionReason: reasonOf(row)
+  };
+}
+
+function formulaTriplet(row, prefix) {
+  return {
+    evidenceBasis: row?.[`${prefix}FormulaEvidenceBasis`] || null,
+    observedValue: numberOrNull(row?.[`${prefix}FormulaObservedValue`]),
+    thresholdValue: numberOrNull(row?.[`${prefix}FormulaThresholdValue`]),
+    deltaValue: numberOrNull(row?.[`${prefix}FormulaDeltaValue`]),
+    unit: row?.[`${prefix}FormulaUnit`] || null
   };
 }
 
@@ -498,18 +514,25 @@ function laneSpecificFormulaEvidenceIssue(row) {
     symbol: normalizeSymbol(row),
     zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
     zeroExecutableFormulaEvidenceBasis: zeroBasis || null,
-    targetRecalibrationFormulaEvidenceBasis: row?.targetRecalibrationFormulaEvidenceBasis || null,
-    riskGeometryFormulaEvidenceBasis: row?.riskGeometryFormulaEvidenceBasis || null,
-    breakoutRetestProofFormulaEvidenceBasis: row?.breakoutRetestProofFormulaEvidenceBasis || null,
-    structurePolicyFormulaEvidenceBasis: row?.structurePolicyFormulaEvidenceBasis || null,
-    structurePolicyFormulaObservedValue: numberOrNull(row?.structurePolicyFormulaObservedValue),
-    structurePolicyFormulaThresholdValue: numberOrNull(row?.structurePolicyFormulaThresholdValue),
-    structurePolicyFormulaDeltaValue: numberOrNull(row?.structurePolicyFormulaDeltaValue),
-    structurePolicyFormulaUnit: row?.structurePolicyFormulaUnit || null,
+    targetRecalibrationFormula: formulaTriplet(row, 'targetRecalibration'),
+    riskGeometryFormula: formulaTriplet(row, 'riskGeometry'),
+    breakoutRetestProofFormula: formulaTriplet(row, 'breakoutRetestProof'),
+    structurePolicyFormula: formulaTriplet(row, 'structurePolicy'),
     issueReasons,
     finalDecision: decisionOf(row),
     decisionReason: reasonOf(row)
   };
+}
+
+function issueReasonCounts(issues) {
+  return countBy(
+    issues.flatMap((issue) => issue.issueReasons || ['unknown_issue_reason']),
+    (reason) => reason
+  );
+}
+
+function issueLaneCounts(issues) {
+  return countBy(issues, (issue) => issue.zeroExecutableTuningLane || 'missing');
 }
 
 function formulaManifestContractIssues(stage6) {
@@ -718,7 +741,11 @@ function buildMarkdown(report) {
   lines.push(`| formulaManifestContractIssues | ${esc(report.summary.formulaManifestContractIssues)} |`);
   lines.push(`| formulaLaneConsistencyIssues | ${esc(report.summary.formulaLaneConsistencyIssues)} |`);
   lines.push(`| formulaEvidenceQualityIssues | ${esc(report.summary.formulaEvidenceQualityIssues)} |`);
+  lines.push(`| formulaEvidenceIssueReasonCounts | ${esc(JSON.stringify(report.summary.formulaEvidenceIssueReasonCounts))} |`);
+  lines.push(`| formulaEvidenceIssueLaneCounts | ${esc(JSON.stringify(report.summary.formulaEvidenceIssueLaneCounts))} |`);
   lines.push(`| laneSpecificFormulaEvidenceIssues | ${esc(report.summary.laneSpecificFormulaEvidenceIssues)} |`);
+  lines.push(`| laneSpecificFormulaEvidenceIssueReasonCounts | ${esc(JSON.stringify(report.summary.laneSpecificFormulaEvidenceIssueReasonCounts))} |`);
+  lines.push(`| laneSpecificFormulaEvidenceIssueLaneCounts | ${esc(JSON.stringify(report.summary.laneSpecificFormulaEvidenceIssueLaneCounts))} |`);
   lines.push(`| blockerCategoryCounts | ${esc(JSON.stringify(report.summary.blockerCategoryCounts))} |`);
   lines.push(`| rawExecutableDowngrades | ${esc(JSON.stringify(report.rawExecutableDowngrades))} |`);
   lines.push(`| runtimeProof.status | ${esc(report.runtimeProof.status)} |`);
@@ -946,6 +973,10 @@ function main() {
   const formulaLaneConsistencyIssues = rows.map(formulaLaneConsistencyIssue).filter(Boolean);
   const formulaEvidenceQualityIssues = rows.map(formulaEvidenceQualityIssue).filter(Boolean);
   const laneSpecificFormulaEvidenceIssues = rows.map(laneSpecificFormulaEvidenceIssue).filter(Boolean);
+  const formulaEvidenceIssueReasonCounts = issueReasonCounts(formulaEvidenceQualityIssues);
+  const formulaEvidenceIssueLaneCounts = issueLaneCounts(formulaEvidenceQualityIssues);
+  const laneSpecificFormulaEvidenceIssueReasonCounts = issueReasonCounts(laneSpecificFormulaEvidenceIssues);
+  const laneSpecificFormulaEvidenceIssueLaneCounts = issueLaneCounts(laneSpecificFormulaEvidenceIssues);
   const hasOpaqueOtherOnly = rows.length > 0 && Object.keys(countBy(rows, blockerCategory)).length === 1 && countBy(rows, blockerCategory).other === rows.length;
   const overall = rows.length === 0
     ? 'fail_no_rows'
@@ -1004,7 +1035,11 @@ function main() {
       formulaManifestContractIssues: formulaManifestIssues.length,
       formulaLaneConsistencyIssues: formulaLaneConsistencyIssues.length,
       formulaEvidenceQualityIssues: formulaEvidenceQualityIssues.length,
+      formulaEvidenceIssueReasonCounts,
+      formulaEvidenceIssueLaneCounts,
       laneSpecificFormulaEvidenceIssues: laneSpecificFormulaEvidenceIssues.length,
+      laneSpecificFormulaEvidenceIssueReasonCounts,
+      laneSpecificFormulaEvidenceIssueLaneCounts,
       blockerCategoryCounts: countBy(rows, blockerCategory)
     },
     fieldCoverage,

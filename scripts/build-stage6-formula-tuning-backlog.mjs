@@ -453,9 +453,14 @@ function producerFieldRecommendationsForGroup(groupRows, base) {
       ),
       producerFieldRecommendation(
         'targetRecalibrationExecutionFloorViable',
-      'targetRecalibrationRequiredTargetDominantReason',
         'Boolean proof gate for whether target recalibration can produce an executable entry.',
         'set_true_only_with_rr_and_buffer_pass',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationRequiredTargetDominantReason',
+        'Explain whether stop-risk, target-buffer, execution-floor, or expected-return evidence controls the required target.',
+        'populate_dominant_required_target_reason',
         commonContext
       ),
       producerFieldRecommendation(
@@ -688,6 +693,61 @@ function buildTuningRecommendations(producerRows) {
     .sort((a, b) => b.maxMagnitude - a.maxMagnitude || b.count - a.count || a.producerTrack.localeCompare(b.producerTrack));
 }
 
+function sortedUnique(values) {
+  return [...new Set(values.filter((value) => value !== null && value !== undefined && value !== ''))].sort();
+}
+
+function numericRange(values) {
+  const nums = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (!nums.length) return { min: null, max: null };
+  return { min: round(Math.min(...nums)), max: round(Math.max(...nums)) };
+}
+
+function producerTrackDiagnostics(producerRows, tuningRecommendations) {
+  const byTrack = new Map();
+  for (const row of producerRows) {
+    const track = row.producerTrack || 'unknown';
+    if (!byTrack.has(track)) byTrack.set(track, []);
+    byTrack.get(track).push(row);
+  }
+  const recommendationsByTrack = new Map();
+  for (const recommendation of tuningRecommendations) {
+    const track = recommendation.producerTrack || 'unknown';
+    if (!recommendationsByTrack.has(track)) recommendationsByTrack.set(track, []);
+    recommendationsByTrack.get(track).push(recommendation);
+  }
+  return [...byTrack.entries()]
+    .map(([track, rows]) => {
+      const recommendations = recommendationsByTrack.get(track) || [];
+      const magnitudes = rows.map((row) => row.adjustmentMagnitude || row.deltaValue || row.severity || 0);
+      const totalMagnitude = round(magnitudes.reduce((sum, value) => sum + Number(value || 0), 0));
+      const fieldRecommendations = recommendations.flatMap((row) => row.producerFieldRecommendations || []);
+      return {
+        producerTrack: track,
+        count: rows.length,
+        symbols: sortedUnique(rows.map((row) => row.symbol)),
+        adjustmentKnobs: countBy(rows, (row) => row.adjustmentKnob || 'missing'),
+        evidenceBases: sortedUnique(rows.map((row) => row.evidenceBasis || 'missing')),
+        observedRange: numericRange(rows.map((row) => row.observedValue)),
+        thresholdRange: numericRange(rows.map((row) => row.thresholdValue)),
+        totalMagnitude,
+        maxMagnitude: round(Math.max(...magnitudes.map((value) => Number(value || 0)), 0)),
+        weakEvidenceRows: rows.filter((row) => row.formulaEvidenceWeak).length,
+        laneMismatchRows: rows.filter((row) => row.formulaLaneMismatch).length,
+        missingFormulaRows: rows.filter((row) => (row.missingFormulaFields || []).length > 0).length,
+        missingLaneSpecificRows: rows.filter((row) => (row.missingLaneSpecificFields || []).length > 0).length,
+        recommendedProducerFields: sortedUnique(fieldRecommendations.map((row) => row.field)),
+        recommendedPolicyFields: sortedUnique(recommendations.flatMap((row) => row.contractTunablePolicyFields || [])),
+        nextAction: 'stage6_producer_formula_or_proof_generation_only',
+        brokerMutationAllowed: false,
+        sidecarMutationAllowed: false
+      };
+    })
+    .sort((a, b) => b.totalMagnitude - a.totalMagnitude || b.count - a.count || a.producerTrack.localeCompare(b.producerTrack));
+}
+
 function buildMarkdown(report) {
   const lines = [];
   lines.push('# Stage6 Formula Tuning Backlog');
@@ -738,6 +798,17 @@ function buildMarkdown(report) {
     lines.push(`| ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(row.maxMagnitude)} | ${esc(row.avgMagnitude)} | ${esc(row.formulaDecision)} | ${esc(row.candidateThresholdField)} | ${esc(row.candidateThresholdValue)} | ${esc(producerChange)} | ${esc(row.doneWhen)} |`);
   }
   if (!report.tuningRecommendations.length) lines.push('| none | none | none | N/A | N/A | none | none | N/A | none | none |');
+  lines.push('');
+  lines.push('## Producer Track Diagnostics');
+  lines.push('');
+  lines.push('| Track | Count | Symbols | Knobs | Evidence Bases | Observed Range | Threshold Range | Required Producer Fields | Next Action |');
+  lines.push('| --- | ---: | --- | --- | --- | --- | --- | --- | --- |');
+  for (const row of report.producerTrackDiagnostics) {
+    const observed = `${row.observedRange?.min ?? 'N/A'}..${row.observedRange?.max ?? 'N/A'}`;
+    const threshold = `${row.thresholdRange?.min ?? 'N/A'}..${row.thresholdRange?.max ?? 'N/A'}`;
+    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.count)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(JSON.stringify(row.adjustmentKnobs))} | ${esc(row.evidenceBases.join(', ') || 'none')} | ${esc(observed)} | ${esc(threshold)} | ${esc(row.recommendedProducerFields.join(', ') || 'none')} | ${esc(row.nextAction)} |`);
+  }
+  if (!report.producerTrackDiagnostics.length) lines.push('| none | 0 | none | {} | none | N/A | N/A | none | none |');
   lines.push('');
   lines.push('## Producer Field Recommendations');
   lines.push('');
@@ -801,6 +872,7 @@ function main() {
   const producerTrackAggregation = aggregate(producerRows, 'producerTrack');
   const adjustmentKnobAggregation = aggregate(producerRows, 'adjustmentKnob');
   const tuningRecommendations = buildTuningRecommendations(producerRows);
+  const trackDiagnostics = producerTrackDiagnostics(producerRows, tuningRecommendations);
   const topProducerTrack = Object.entries(producerTrackAggregation).sort((a, b) => b[1].totalMagnitude - a[1].totalMagnitude || b[1].count - a[1].count)[0]?.[0] || 'none';
   const topAdjustmentKnob = Object.entries(adjustmentKnobAggregation).sort((a, b) => b[1].totalMagnitude - a[1].totalMagnitude || b[1].count - a[1].count)[0]?.[0] || 'none';
   const overall = rows.length === 0
@@ -849,6 +921,7 @@ function main() {
         (sum, recommendation) => sum + (recommendation.producerFieldRecommendations || []).length,
         0
       ),
+      producerTrackDiagnosticCount: trackDiagnostics.length,
       producerTrackCounts: countBy(rows, (row) => row.producerTrack),
       adjustmentKnobCounts: countBy(rows, (row) => row.adjustmentKnob || 'missing'),
       producerTrackAggregation,
@@ -860,6 +933,7 @@ function main() {
     },
     backlogRows: rankedRows,
     tuningRecommendations,
+    producerTrackDiagnostics: trackDiagnostics,
     formulaContractIssues: contractIssues,
     guardrails: {
       producerOnly: true,

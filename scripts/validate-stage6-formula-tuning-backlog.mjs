@@ -155,22 +155,48 @@ function runCase(testCase) {
         (row.producerFieldRecommendations || []).map((item) => item.field)
       )
     );
-    for (const field of ['targetRecalibrationRequiredTargetPrice', 'riskGeometryRequiredTargetPrice', 'breakoutRetestProofConfirmed', 'currentEntryStructureVerdict']) {
+    for (const field of [
+      'targetRecalibrationRequiredTargetPrice',
+      'targetRecalibrationExecutionFloorViable',
+      'targetRecalibrationRequiredTargetDominantReason',
+      'riskGeometryRequiredTargetPrice',
+      'breakoutRetestProofConfirmed',
+      'currentEntryStructureVerdict'
+    ]) {
       if (!producerFields.has(field)) {
         throw new Error(`${testCase.name}: producerFieldRecommendations missing ${field}`);
       }
     }
+    const malformedProducerFieldRecommendations = (report.tuningRecommendations || []).flatMap((row) =>
+      (row.producerFieldRecommendations || [])
+        .filter((item) => !item.purpose || !item.action || typeof item.guardrail !== 'string')
+        .map((item) => `${row.producerTrack}:${item.field || 'missing_field'}`)
+    );
+    if (malformedProducerFieldRecommendations.length > 0) {
+      throw new Error(`${testCase.name}: malformed producerFieldRecommendations=${malformedProducerFieldRecommendations.join(', ')}`);
+    }
     if (Number(report.summary?.producerFieldRecommendationCount || 0) <= 0) {
       throw new Error(`${testCase.name}: expected producerFieldRecommendationCount > 0`);
     }
+    if (Number(report.summary?.producerTrackDiagnosticCount || 0) <= 0) {
+      throw new Error(`${testCase.name}: expected producerTrackDiagnosticCount > 0`);
+    }
+    const diagnosticTracks = new Set((report.producerTrackDiagnostics || []).map((row) => row.producerTrack));
     const tracks = new Set((report.tuningRecommendations || []).map((row) => row.producerTrack));
     for (const track of testCase.expectedProducerTracks || []) {
       if (!tracks.has(track)) {
         throw new Error(`${testCase.name}: missing split producer track ${track}`);
       }
+      if (!diagnosticTracks.has(track)) {
+        throw new Error(`${testCase.name}: producerTrackDiagnostics missing ${track}`);
+      }
       const rowsForTrack = (report.tuningRecommendations || []).filter((row) => row.producerTrack === track);
       if (!rowsForTrack.some((row) => Array.isArray(row.producerFieldRecommendations) && row.producerFieldRecommendations.length > 0)) {
         throw new Error(`${testCase.name}: split producer track ${track} lacks producerFieldRecommendations`);
+      }
+      const diagnosticsForTrack = (report.producerTrackDiagnostics || []).filter((row) => row.producerTrack === track);
+      if (!diagnosticsForTrack.some((row) => Array.isArray(row.recommendedProducerFields) && row.recommendedProducerFields.length > 0)) {
+        throw new Error(`${testCase.name}: producer track ${track} lacks recommendedProducerFields diagnostics`);
       }
     }
   }
@@ -195,6 +221,9 @@ function runCase(testCase) {
   }
   if (testCase.expectedRecommendations > 0 && !md.includes('Contract fields')) {
     throw new Error(`${testCase.name}: markdown missing tuning contract fields`);
+  }
+  if (testCase.expectedRecommendations > 0 && !md.includes('Producer Track Diagnostics')) {
+    throw new Error(`${testCase.name}: markdown missing producer track diagnostics`);
   }
   if (testCase.expectedRecommendations > 0 && !md.includes('Producer Field Recommendations')) {
     throw new Error(`${testCase.name}: markdown missing direct producer field recommendations`);
