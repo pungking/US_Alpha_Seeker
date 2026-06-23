@@ -1,13 +1,13 @@
 # Stage6 Fresh Focus Audit
 
-- GeneratedAt: 2026-06-23T07:22:33.836Z
-- Stage6: STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json
-- Hash: b149b044845b848196bfd08608b6e2f71ecca9634499ccea806a8c637259b49a
-- Source SHA: 3b5c01c1bc52594b13d641f94624e1d36b6836ac
-- Overall: **warn_formula_contract_missing_or_mismatch**
+- GeneratedAt: 2026-06-23T21:51:49.964Z
+- Stage6: STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json
+- Hash: ea95063da8d317a9815b98329be26842853ee1678e4db93f385192ac61d12a49
+- Source SHA: d070335291d1045b733319b41ae80766a2c04cb4
+- Overall: **pass_executable_present_focus_fields_ok**
 - Rows: 7
-- Executable Rows: 2
-- Contract Executable Picks: 2
+- Executable Rows: 1
+- Contract Executable Picks: 1
 - Raw Model Executable Downgraded: 0
 - Safety: report-only; no broker/state mutation.
 
@@ -16,14 +16,14 @@
 | Metric | Value |
 | --- | --- |
 | latestQualityGateLaneCounts | {"weak_pillar_execution_gate":1} |
-| zeroExecutableTuningLaneCounts | {"NO_ZERO_EXECUTABLE_TUNING_ACTION":3,"TARGET_RECALIBRATION":2,"RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION":1,"BREAKOUT_PROOF_CONFIRMED_GENERATION":1} |
-| breakoutRetestProofConfirmedCounts | {"true":2,"false":5} |
-| breakoutContinuationConfirmedCounts | {"false":6,"true":1} |
+| zeroExecutableTuningLaneCounts | {"NO_ZERO_EXECUTABLE_TUNING_ACTION":2,"TARGET_RECALIBRATION":2,"STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION":1,"BREAKOUT_PROOF_CONFIRMED_GENERATION":1,"RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION":1} |
+| breakoutRetestProofConfirmedCounts | {"true":1,"false":6} |
+| breakoutContinuationConfirmedCounts | {"false":7} |
 | targetRecalibrationViabilityVerdictCounts | {"TARGET_VIABILITY_NOT_APPLICABLE":5,"TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT":2} |
-| targetRecalibrationRequiredTargetSourceCounts | {"expected_return_and_actual_stop_risk":3,"actual_stop_risk":4} |
+| targetRecalibrationRequiredTargetSourceCounts | {"expected_return_and_actual_stop_risk":2,"actual_stop_risk":5} |
 | riskGeometryTargetRecalibrationCandidateCounts | {"false":7} |
-| zeroExecutableFormulaBottleneckCounts | {"NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK":3,"TARGET_RECALIBRATION_FORMULA":2,"RISK_GEOMETRY_RECALCULATION_FORMULA":1,"BREAKOUT_PROOF_FORMULA":1} |
-| formulaManifestContractIssues | 10 |
+| zeroExecutableFormulaBottleneckCounts | {"NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK":2,"TARGET_RECALIBRATION_FORMULA":2,"STRUCTURE_PROOF_FORMULA":1,"BREAKOUT_PROOF_FORMULA":1,"RISK_GEOMETRY_RECALCULATION_FORMULA":1} |
+| formulaManifestContractIssues | 0 |
 | formulaLaneConsistencyIssues | 0 |
 | formulaEvidenceQualityIssues | 0 |
 | formulaEvidenceIssueReasonCounts | {} |
@@ -31,10 +31,10 @@
 | laneSpecificFormulaEvidenceIssues | 0 |
 | laneSpecificFormulaEvidenceIssueReasonCounts | {} |
 | laneSpecificFormulaEvidenceIssueLaneCounts | {} |
-| blockerCategoryCounts | {"entry_distance":1,"risk_geometry":3,"target_recalibration":1,"other":1,"breakout":1} |
+| blockerCategoryCounts | {"risk_geometry":3,"target_recalibration":1,"structure":1,"breakout":1,"other":1} |
 | rawExecutableDowngrades | [] |
-| runtimeProof.status | pending_fresh_stage6_formula_v4_runtime_proof |
-| guardrails.nextAction | generate_fresh_stage6_after_formula_v4_head |
+| runtimeProof.status | pass_formula_v4_runtime_proof |
+| guardrails.nextAction | monitor_next_sidecar_fresh_hash_consumption |
 
 ## Runtime Proof Gate
 
@@ -42,17 +42,17 @@
 | --- | --- |
 | expectedContractVersion | zero_executable_formula_v4 |
 | expectedSourceSha | N/A |
-| sourceSha | 3b5c01c1bc52594b13d641f94624e1d36b6836ac |
+| sourceSha | d070335291d1045b733319b41ae80766a2c04cb4 |
 | sourceShaMatchesExpected | N/A |
 | formulaCoveragePass | true |
 | requiredCoveragePass | true |
-| formulaManifestIssues | 10 |
+| formulaManifestIssues | 0 |
 | formulaLaneConsistencyIssues | 0 |
 | formulaEvidenceQualityIssues | 0 |
 | laneSpecificFormulaEvidenceIssues | 0 |
-| nextAction | generate_fresh_stage6_after_formula_v4_head |
+| nextAction | monitor_next_sidecar_fresh_hash_consumption |
 | enforceFreshContract | false |
-| freshContractViolation | true |
+| freshContractViolation | false |
 
 ## Field Coverage
 
@@ -135,13 +135,13 @@
 
 | Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Formula Bottleneck | Severity | Formula Evidence | Lane Formula Basis | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |
 | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| ACAD | BUY | EXECUTABLE_NOW/executable_pullback | entry_distance | N/A | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK | 0 | no_zero_executable_formula_bottleneck:0>0 delta=0 none; knob=NONE direction=NO_ADJUSTMENT_REQUIRED | structure=not_structure_wait; breakout=breakout_proof_condition_gap_count; target=target_recalibration_not_required; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | true | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 22.969 | 26.585 | 31.443 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 4.36 | 5.3 | 41.93 |
-| FFBC | BUY | EXECUTABLE_NOW/executable_current_recalculated_stop | risk_geometry | N/A | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK | 0 | no_zero_executable_formula_bottleneck:0>0 delta=0 none; knob=NONE direction=NO_ADJUSTMENT_REQUIRED | structure=not_structure_wait; breakout=breakout_continuation_target_buffer_shortfall_pct; target=target_required_expected_return_and_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 33.0527 | 33.4286 | 36.2617 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 2 | 0 | 4.17 |
-| AUPH | BUY | WAIT_PRICE/wait_target_near_current | target_recalibration | N/A | N/A | TARGET_RECALIBRATION | TARGET_RECALIBRATION_FORMULA | 29.22 | target_already_reached_required_target_shortfall_pct:29.22>0 delta=29.22 pct_shortfall; knob=TARGET_RECALIBRATION_SOURCE_REFRESH direction=NO_TRADE_UNTIL_FRESH_TARGET_SOURCE | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_already_reached_required_target_shortfall_pct; risk=risk_geometry_expected_return_target_shortfall_pct | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | 18.1177 | 24.019 | 19.7008 | expected_return | TARGET_NO_TRADE | false | target=false,stop=false,dist=false,rr=false,buf=false | -13.71 | 13.71 | N/A | 13.79 | -3.35 |
-| DUOL | STRONG_BUY | BLOCKED_RISK/blocked_rr_below_min | risk_geometry | N/A | N/A | TARGET_RECALIBRATION | TARGET_RECALIBRATION_FORMULA | 44.54 | target_already_reached_required_target_shortfall_pct:44.54>0 delta=44.54 pct_shortfall; knob=TARGET_RECALIBRATION_SOURCE_REFRESH direction=NO_TRADE_UNTIL_FRESH_TARGET_SOURCE | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_already_reached_required_target_shortfall_pct; risk=risk_geometry_expected_return_target_shortfall_pct | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | 131.6134 | 191.706 | 132.8912 | expected_return | TARGET_NO_TRADE | false | target=false,stop=false,dist=false,rr=false,buf=false | -20 | 20 | N/A | 21.03 | -16.8 |
-| TRIN | BUY | WAIT_PRICE/wait_weak_pillar_execution_gate | other | weak_pillar_execution_gate | QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT | NO_ZERO_EXECUTABLE_TUNING_ACTION | NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK | 0 | no_zero_executable_formula_bottleneck:0>0 delta=0 none; knob=NONE direction=NO_ADJUSTMENT_REQUIRED | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_required_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 17.4173 | 20.8663 | 19.6156 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 0.51 | 10.35 | 5.95 |
-| ASB | STRONG_BUY | BLOCKED_RISK/blocked_stop_too_tight | risk_geometry | N/A | N/A | RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION | RISK_GEOMETRY_RECALCULATION_FORMULA | 8.71 | risk_geometry_expected_return_target_shortfall_pct:8.71>0 delta=8.71 pct_shortfall; knob=RISK_GEOMETRY_REQUIRED_TARGET_PRICE direction=RECALIBRATE_TARGET_OR_KEEP_NO_TRADE | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_required_actual_stop_risk_shortfall_pct; risk=risk_geometry_expected_return_target_shortfall_pct | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 30.4159 | 36.033 | 33.9595 | expected_return | RISK_GEOMETRY_PROOF_INCOMPLETE | false | target=true,stop=true,dist=true,rr=true,buf=true | -8.71 | 8.71 | 0.45 | 10.89 | 4.98 |
-| CRMD | STRONG_BUY | WAIT_PRICE/wait_breakout_retest_required | breakout | N/A | N/A | BREAKOUT_PROOF_CONFIRMED_GENERATION | BREAKOUT_PROOF_FORMULA | 2 | breakout_current_extension_excess_pct:21.56>8 delta=13.56 pct; knob=BREAKOUT_EXTENSION_POLICY direction=IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION | structure=not_structure_wait; breakout=breakout_current_extension_excess_pct; target=target_required_expected_return_and_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | true | WAIT_CONSERVATIVE_DEFAULT | proof_confirmed_promotion_flag_disabled | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 9.0949 | 12.1798 | 16.777 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 3.8 | 17.73 | 72.14 |
+| GOOG | BUY | EXECUTABLE_NOW/executable_current_recalculated_stop | risk_geometry | N/A | N/A | NO_ZERO_EXECUTABLE_TUNING_ACTION | NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK | 0 | no_zero_executable_formula_bottleneck:0>0 delta=0 none; knob=NONE direction=NO_ADJUSTMENT_REQUIRED | structure=not_structure_wait; breakout=breakout_continuation_rr_shortfall; target=target_required_expected_return_and_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | true | NOT_APPLICABLE | not_breakout_wait | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 357.1628 | 426.6184 | 468.126 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 2 | 0 | 23.03 |
+| AUPH | BUY | WAIT_PRICE/wait_target_near_current | target_recalibration | N/A | N/A | TARGET_RECALIBRATION | TARGET_RECALIBRATION_FORMULA | 29.57 | target_already_reached_required_target_shortfall_pct:29.57>0 delta=29.57 pct_shortfall; knob=TARGET_RECALIBRATION_SOURCE_REFRESH direction=NO_TRADE_UNTIL_FRESH_TARGET_SOURCE | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_already_reached_required_target_shortfall_pct; risk=risk_geometry_expected_return_target_shortfall_pct | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | 18.1589 | 24.139 | 19.7456 | expected_return | TARGET_NO_TRADE | false | target=false,stop=false,dist=false,rr=false,buf=false | -13.9 | 13.9 | N/A | 13.99 | -3.57 |
+| DAVE | STRONG_BUY | WAIT_PRICE/wait_structure_confirmation_required | structure | N/A | N/A | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | STRUCTURE_PROOF_FORMULA | 7 | structure_distance_excess:33.43>8 delta=25.43 pct; knob=CURRENT_ENTRY_STRUCTURE_DISTANCE_BAND direction=IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE | structure=structure_distance_excess; breakout=breakout_retest_input_gap; target=target_required_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | STRUCTURE_CURRENT_RR_WEAK | rr=false,buf=true,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 325.8508 | 545.974 | 468.2128 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 0.17 | 33.43 | 6.12 |
+| DUOL | BUY | BLOCKED_RISK/blocked_rr_below_min | risk_geometry | N/A | N/A | TARGET_RECALIBRATION | TARGET_RECALIBRATION_FORMULA | 47.07 | target_already_reached_required_target_shortfall_pct:47.07>0 delta=47.07 pct_shortfall; knob=TARGET_RECALIBRATION_SOURCE_REFRESH direction=NO_TRADE_UNTIL_FRESH_TARGET_SOURCE | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_already_reached_required_target_shortfall_pct; risk=risk_geometry_expected_return_target_shortfall_pct | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT | 134.7549 | 200.856 | 136.0632 | expected_return | TARGET_NO_TRADE | false | target=false,stop=false,dist=false,rr=false,buf=false | -21.87 | 21.87 | N/A | 22.88 | -18.74 |
+| ZVRA | BUY | WAIT_PRICE/wait_breakout_retest_required | breakout | N/A | N/A | BREAKOUT_PROOF_CONFIRMED_GENERATION | BREAKOUT_PROOF_FORMULA | 4 | breakout_current_extension_excess_pct:24.73>8 delta=16.73 pct; knob=BREAKOUT_EXTENSION_POLICY direction=IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION | structure=not_structure_wait; breakout=breakout_current_extension_excess_pct; target=target_required_expected_return_and_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | false | WAIT_REVIEW_READY_ONLY | proof_not_confirmed, current_stop_distance_outside_policy, proof_confirmed_promotion_flag_disabled | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 13.2973 | 20.185 | 28.2729 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 4.12 | 19.83 | 116.03 |
+| TRIN | BUY | WAIT_PRICE/wait_weak_pillar_execution_gate | other | weak_pillar_execution_gate | QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT | NO_ZERO_EXECUTABLE_TUNING_ACTION | NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK | 0 | no_zero_executable_formula_bottleneck:0>0 delta=0 none; knob=NONE direction=NO_ADJUSTMENT_REQUIRED | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_required_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 17.4791 | 21.0463 | 19.6852 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 0.46 | 10.67 | 5.58 |
+| ASB | BUY | BLOCKED_RISK/blocked_stop_too_tight | risk_geometry | N/A | N/A | RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION | RISK_GEOMETRY_RECALCULATION_FORMULA | 9.3 | risk_geometry_expected_return_target_shortfall_pct:9.3>0 delta=9.3 pct_shortfall; knob=RISK_GEOMETRY_REQUIRED_TARGET_PRICE direction=RECALIBRATE_TARGET_OR_KEEP_NO_TRADE | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_required_actual_stop_risk_shortfall_pct; risk=risk_geometry_expected_return_target_shortfall_pct | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 30.6116 | 36.603 | 34.178 | expected_return | RISK_GEOMETRY_PROOF_INCOMPLETE | false | target=true,stop=true,dist=true,rr=true,buf=true | -9.3 | 9.3 | 0.37 | 11.46 | 4.31 |
 
 ## Track Separation
 
