@@ -8,10 +8,12 @@ const sourcePath = 'components/IctAnalysis.tsx';
 const text = fs.readFileSync(sourcePath, 'utf8');
 
 const requiredSnippets = [
-  'sourceStage4File: selectedStage4Name',
-  'sourceStage4Timestamp: selectedStage4Timestamp',
-  'sourceStage4SourceStage3File: stage4SourceStage3File',
-  'sourceStage4FactorReady: selectedStage4FactorReady'
+  'sourceStage4File: selectedStage4Name || null',
+  'sourceStage4FileId: selectedStage4Id || null',
+  'sourceStage4Timestamp: selectedStage4Timestamp || null',
+  'sourceStage4SourceStage3File: stage4SourceStage3File || null',
+  'sourceStage4FactorReady: selectedStage4FactorReady',
+  'sourceStage4LineageStatus'
 ];
 
 const missing = requiredSnippets.filter((snippet) => !text.includes(snippet));
@@ -32,7 +34,18 @@ function verifyFullAuditLineage() {
 
   writeJson(stage3, { manifest: { timestamp: '2099-01-02T09:30:00Z' }, fundamental_universe: [{ symbol: 'TEST' }] });
   writeJson(stage4, { manifest: { sourceStage3File: path.basename(stage3), timestamp: '2099-01-02T09:40:00Z' }, technical_universe: [{ symbol: 'TEST' }] });
-  writeJson(stage5, { manifest: { sourceStage4File: path.basename(stage4), timestamp: '2099-01-02T09:50:00Z' }, ict_universe: [{ symbol: 'TEST' }] });
+  writeJson(stage5, {
+    manifest: {
+      sourceStage4File: path.basename(stage4),
+      sourceStage4FileId: 'stage4-file-id-fixture',
+      sourceStage4Timestamp: '2099-01-02T09:40:00Z',
+      sourceStage4SourceStage3File: path.basename(stage3),
+      sourceStage4FactorReady: true,
+      sourceStage4LineageStatus: 'present',
+      timestamp: '2099-01-02T09:50:00Z'
+    },
+    ict_universe: [{ symbol: 'TEST' }]
+  });
   writeJson(stage6, { manifest: { sourceStage5File: path.basename(stage5), timestamp: '2099-01-02T10:00:00Z' }, alpha_candidates: [{ symbol: 'TEST' }] });
 
   const result = spawnSync(process.execPath, ['scripts/build-stage3-6-full-stage-audit.mjs'], {

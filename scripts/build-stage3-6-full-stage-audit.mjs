@@ -75,23 +75,26 @@ const STAGE_FIELD_GROUPS = {
   ],
   stage4: [
     'technicalScore',
-    'technicalScoreFinal',
+    'scoreBreakdown.finalScore',
     'techMetrics',
     'priceHistory',
     'dataSource',
-    'dataQualityScore',
-    'liquidityState'
+    'techMetrics.dataQualityState',
+    'techMetrics.avgDollarVolume20'
   ],
   stage5: [
     'ictScore',
     'ictMetrics',
-    'executionBox',
-    'geometrySource',
+    'otePrice',
+    'ictStopLoss',
+    'executionGeometrySource',
     'pdZone',
-    'dataQualityMultiplier'
+    'compositeBreakdown.dataQualityMultiplier'
   ],
   stage6: [
-    'weakPillarExecutionGate',
+    'finalDecision',
+    'decisionReason',
+    'weakPillarGateVerdict',
     'qualityGateLane',
     'zeroExecutableTuningLane',
     'targetRecalibrationViabilityVerdict',
@@ -286,6 +289,8 @@ function deriveLineage(stages) {
   const s6 = stages.stage6;
   const s4SourceStage3File = s4.manifest.sourceStage3File || s4.manifest.stage3File || null;
   const s5SourceStage4File = s5.manifest.sourceStage4File || s5.manifest.stage4File || null;
+  const s5SourceStage4LineageStatus = s5.manifest.sourceStage4LineageStatus || null;
+  const s5SourceStage4SourceStage3File = s5.manifest.sourceStage4SourceStage3File || null;
   const s6SourceStage5File = s6.manifest.sourceStage5File || s6.manifest.stage5File || null;
   const stage4MatchesStage3 = compareNames(s4SourceStage3File, s3.file);
   const stage5MatchesStage4 = compareNames(s5SourceStage4File, s4.file);
@@ -317,6 +322,8 @@ function deriveLineage(stages) {
     stage4MatchesStage3,
     stage5File: s5.file,
     stage5SourceStage4File: s5SourceStage4File,
+    stage5SourceStage4LineageStatus: s5SourceStage4LineageStatus,
+    stage5SourceStage4SourceStage3File: s5SourceStage4SourceStage3File,
     stage5MatchesStage4,
     stage6File: s6.file,
     stage6SourceStage5File: s6SourceStage5File,
@@ -507,9 +514,9 @@ function buildMarkdown(report) {
     coverageSummary(verdict.coverage)
   ]);
   const lineageRows = [
-    ['Stage4<-Stage3', report.lineage.stage4SourceStage3File || 'missing', report.lineage.stage3File || 'missing', report.lineage.stage4MatchesStage3],
-    ['Stage5<-Stage4', report.lineage.stage5SourceStage4File || 'missing', report.lineage.stage4File || 'missing', report.lineage.stage5MatchesStage4],
-    ['Stage6<-Stage5', report.lineage.stage6SourceStage5File || 'missing', report.lineage.stage5File || 'missing', report.lineage.stage6MatchesStage5]
+    ['Stage4<-Stage3', report.lineage.stage4SourceStage3File || 'missing', report.lineage.stage3File || 'missing', report.lineage.stage4MatchesStage3, 'N/A'],
+    ['Stage5<-Stage4', report.lineage.stage5SourceStage4File || 'missing', report.lineage.stage4File || 'missing', report.lineage.stage5MatchesStage4, report.lineage.stage5SourceStage4LineageStatus || 'missing'],
+    ['Stage6<-Stage5', report.lineage.stage6SourceStage5File || 'missing', report.lineage.stage5File || 'missing', report.lineage.stage6MatchesStage5, 'N/A']
   ];
   const runtimeRows = Object.entries(report.runtimeProof.fieldCoverage).map(([field, info]) => [field, `${info.present}/${info.total}`, info.pct]);
   const runtimeMissingLabel = report.runtimeProof.status === 'pass_runtime_proof_fields_present'
@@ -526,7 +533,7 @@ function buildMarkdown(report) {
     `- Lineage: **${report.lineage.status}**; final quality judgement: **${report.lineage.finalQualityJudgement}**\n` +
     `- Stage6 Runtime Proof: **${report.runtimeProof.status}**\n` +
     `- Safety: report-only; brokerMutationAllowed=false; sidecarMutationAllowed=false.\n\n` +
-    `## Lineage\n\n${mdTable(['Edge', 'Producer Source', 'Local Artifact', 'Match'], lineageRows)}\n\n` +
+    `## Lineage\n\n${mdTable(['Edge', 'Producer Source', 'Local Artifact', 'Match', 'Source Status'], lineageRows)}\n\n` +
     `Reasons: ${report.lineage.reason.join(', ')}\n\n` +
     `## Stage Verdicts\n\n${mdTable(['Stage', 'Verdict', 'Rows', 'Source', 'Coverage'], stageRows)}\n\n` +
     `## Stage6 Runtime Proof Gate\n\n` +

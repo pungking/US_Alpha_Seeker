@@ -1,6 +1,6 @@
 # Stage3-5 Methodology Audit
 
-- GeneratedAt: 2026-06-23T07:04:55.465Z
+- GeneratedAt: 2026-06-23T07:33:53.479Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json
 - Stage6Hash: b149b044845b848196bfd08608b6e2f71ecca9634499ccea806a8c637259b49a
 - Overall: **pass_full_artifact_methodology_review**
@@ -43,9 +43,9 @@
 | Stage4 | yes | stage4_heuristic_fallback_visible | components/TechnicalAnalysis.tsx | 1766 |
 | Stage4 | yes | stage4_price_history_and_metrics | components/TechnicalAnalysis.tsx | 28 |
 | Stage4 | yes | stage4_score_breakdown | components/TechnicalAnalysis.tsx | 118 |
-| Stage5 | yes | stage5_weighted_composite | components/IctAnalysis.tsx | 994 |
-| Stage5 | yes | stage5_stale_multiplier | components/IctAnalysis.tsx | 1043 |
-| Stage5 | yes | stage5_geometry_fallback_counter | components/IctAnalysis.tsx | 1141 |
+| Stage5 | yes | stage5_weighted_composite | components/IctAnalysis.tsx | 997 |
+| Stage5 | yes | stage5_stale_multiplier | components/IctAnalysis.tsx | 1046 |
+| Stage5 | yes | stage5_geometry_fallback_counter | components/IctAnalysis.tsx | 1144 |
 | Stage5 | yes | stage5_ict_metric_components | components/IctAnalysis.tsx | 19 |
 | Stage6 | yes | stage6_weak_pillar_gate | components/AlphaAnalysis.tsx | 64 |
 | Stage6 | yes | stage6_non_actionable_verdict_gate | components/AlphaAnalysis.tsx | 63 |

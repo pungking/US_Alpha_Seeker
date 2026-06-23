@@ -1,6 +1,6 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-23T07:23:20.618Z
+- GeneratedAt: 2026-06-23T07:33:55.588Z
 - Overall: **warn_lineage_incomplete**
 - Lineage: **warn_lineage_incomplete**; final quality judgement: **withheld**
 - Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
@@ -8,11 +8,11 @@
 
 ## Lineage
 
-| Edge | Producer Source | Local Artifact | Match |
-| --- | --- | --- | --- |
-| Stage4<-Stage3 | STAGE3_FUNDAMENTAL_FULL_2026-06-23_00-40-55.json | STAGE3_FUNDAMENTAL_FULL_2026-06-23_00-40-55.json | true |
-| Stage5<-Stage4 | missing | STAGE4_TECHNICAL_FULL_2026-06-23_01-02-53.json | N/A |
-| Stage6<-Stage5 | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | true |
+| Edge | Producer Source | Local Artifact | Match | Source Status |
+| --- | --- | --- | --- | --- |
+| Stage4<-Stage3 | STAGE3_FUNDAMENTAL_FULL_2026-06-23_00-40-55.json | STAGE3_FUNDAMENTAL_FULL_2026-06-23_00-40-55.json | true | N/A |
+| Stage5<-Stage4 | missing | STAGE4_TECHNICAL_FULL_2026-06-23_01-02-53.json | N/A | missing |
+| Stage6<-Stage5 | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | true | N/A |
 
 Reasons: stage5_source_stage4_missing
 
@@ -21,9 +21,9 @@ Reasons: stage5_source_stage4_missing
 | Stage | Verdict | Rows | Source | Coverage |
 | --- | --- | --- | --- | --- |
 | Stage3 | audited_report_only | 300 | STAGE3_FUNDAMENTAL_FULL_2026-06-23_00-40-55.json | fundamentalScore:300/300<br>compositeAlpha:300/300<br>qualityScore:300/300<br>integrityReasons:35/300<br>isImputed:300/300<br>dataQuality:300/300<br>roicDebtSource:300/300 |
-| Stage4 | audited_report_only | 300 | STAGE4_TECHNICAL_FULL_2026-06-23_01-02-53.json | technicalScore:300/300<br>technicalScoreFinal:0/300<br>techMetrics:300/300<br>priceHistory:300/300<br>dataSource:300/300<br>dataQualityScore:0/300<br>liquidityState:0/300 |
-| Stage5 | audited_report_only | 50 | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | ictScore:50/50<br>ictMetrics:50/50<br>executionBox:0/50<br>geometrySource:0/50<br>pdZone:50/50<br>dataQualityMultiplier:0/50 |
-| Stage6 | warn_runtime_proof_pending | 2 | STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json | weakPillarExecutionGate:0/2<br>qualityGateLane:0/2<br>zeroExecutableTuningLane:2/2<br>targetRecalibrationViabilityVerdict:2/2<br>riskGeometryRepairLane:2/2<br>breakoutRetestProofConfirmed:2/2 |
+| Stage4 | audited_report_only | 300 | STAGE4_TECHNICAL_FULL_2026-06-23_01-02-53.json | technicalScore:300/300<br>scoreBreakdown.finalScore:300/300<br>techMetrics:300/300<br>priceHistory:300/300<br>dataSource:300/300<br>techMetrics.dataQualityState:300/300<br>techMetrics.avgDollarVolume20:300/300 |
+| Stage5 | audited_report_only | 50 | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | ictScore:50/50<br>ictMetrics:50/50<br>otePrice:50/50<br>ictStopLoss:50/50<br>executionGeometrySource:50/50<br>pdZone:50/50<br>compositeBreakdown.dataQualityMultiplier:50/50 |
+| Stage6 | warn_runtime_proof_pending | 2 | STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json | finalDecision:2/2<br>decisionReason:2/2<br>weakPillarGateVerdict:2/2<br>qualityGateLane:0/2<br>zeroExecutableTuningLane:2/2<br>targetRecalibrationViabilityVerdict:2/2<br>riskGeometryRepairLane:2/2<br>breakoutRetestProofConfirmed:2/2 |
 
 ## Stage6 Runtime Proof Gate
 
@@ -59,8 +59,8 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 
 | Report | Present | Overall | GeneratedAt | Path |
 | --- | --- | --- | --- | --- |
-| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-23T07:18:56.819Z | state/stage3-5-methodology-audit.json |
-| stage35QuantQuality | yes | pass_report_only | 2026-06-23T07:18:58.292Z | state/stage3-5-quant-quality-audit.json |
+| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-23T07:33:53.479Z | state/stage3-5-methodology-audit.json |
+| stage35QuantQuality | yes | pass_report_only | 2026-06-23T07:33:55.124Z | state/stage3-5-quant-quality-audit.json |
 | stage6FreshFocus | yes | warn_formula_contract_missing_or_mismatch | 2026-06-23T07:22:33.836Z | state/stage6-fresh-focus-audit.json |
 | stage6FormulaTuningBacklog | yes | warn_formula_tuning_contract_incomplete | 2026-06-23T07:16:46.567Z | state/stage6-formula-tuning-backlog.json |
 | stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-23T07:23:19.924Z | state/stage6-runtime-formula-contract-proof.json |

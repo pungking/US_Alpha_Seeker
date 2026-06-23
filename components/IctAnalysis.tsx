@@ -671,6 +671,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
 
       let mergedUniverse: any[] = [];
       let stage4SourceStage3File: string | null = null;
+      let selectedStage4Id: string | null = null;
       let selectedStage4Name: string | null = null;
       let selectedStage4Timestamp: string | null = null;
       let selectedStage4FactorReady = false;
@@ -701,6 +702,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
                   if (mergedUniverse.length === 0) {
                       mergedUniverse = rows;
                       stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
+                      selectedStage4Id = fileMeta.id || null;
                       selectedStage4Name = fileMeta.name || null;
                       selectedStage4Timestamp = content?.manifest?.timestamp || fileMeta.createdTime || null;
                       selectedStage4FactorReady = factorReady;
@@ -710,6 +712,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
                   if (factorReady) {
                       mergedUniverse = rows;
                       stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
+                      selectedStage4Id = fileMeta.id || null;
                       selectedStage4Name = fileMeta.name || null;
                       selectedStage4Timestamp = content?.manifest?.timestamp || fileMeta.createdTime || null;
                       selectedStage4FactorReady = true;
@@ -1276,6 +1279,11 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       
       const timestamp = formatKstFilenameTimestamp();
       const fileName = `STAGE5_ICT_ELITE_50_${timestamp}.json`;
+      const sourceStage4LineageStatus = !selectedStage4Name
+        ? 'stage4_source_missing'
+        : !stage4SourceStage3File
+          ? 'stage4_source_stage3_missing'
+          : 'present';
       
       const payload = {
         manifest: {
@@ -1286,10 +1294,12 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           excludedByInstrumentType,
           timestamp: new Date().toISOString(),
           strategy: "Smart_Money_Composite_Wyckoff_Algo_V2",
-          sourceStage4File: selectedStage4Name,
-          sourceStage4Timestamp: selectedStage4Timestamp,
-          sourceStage4SourceStage3File: stage4SourceStage3File,
+          sourceStage4File: selectedStage4Name || null,
+          sourceStage4FileId: selectedStage4Id || null,
+          sourceStage4Timestamp: selectedStage4Timestamp || null,
+          sourceStage4SourceStage3File: stage4SourceStage3File || null,
           sourceStage4FactorReady: selectedStage4FactorReady,
+          sourceStage4LineageStatus,
           scoringContractVersion: "stage5-e-v1",
           stage6ContractVersion: "stage5to6-e-v1"
         },
