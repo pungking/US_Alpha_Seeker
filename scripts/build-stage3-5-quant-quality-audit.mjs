@@ -429,7 +429,7 @@ function stage3Audit(rows, findings) {
   };
 }
 
-function stage4Audit(rows, findings, stage6Rows = []) {
+function stage4Audit(rows, findings, stage6Rows = [], stage5Rows = []) {
   const fields = [
     'technicalScore',
     'scoreBreakdown',
@@ -491,6 +491,9 @@ function stage4Audit(rows, findings, stage6Rows = []) {
   const shortHistory = rows
     .filter((row) => Array.isArray(row?.priceHistory) && row.priceHistory.length < 80)
     .map((row) => ({ symbol: normalizeSymbol(row), bars: row.priceHistory.length }));
+  const stage5Symbols = new Set(stage5Rows.map((row) => normalizeSymbol(row)).filter(Boolean));
+  const stage6Symbols = new Set(stage6Rows.map((row) => normalizeSymbol(row)).filter(Boolean));
+  const stage6BySymbol = new Map(stage6Rows.map((row) => [normalizeSymbol(row), row]));
   const executableSymbols = new Set(stage6Rows
     .filter((row) => String(row?.finalDecision || '').toUpperCase() === 'EXECUTABLE_NOW')
     .map((row) => normalizeSymbol(row)));
@@ -532,17 +535,59 @@ function stage4Audit(rows, findings, stage6Rows = []) {
   const maxLastMs = Math.max(...historyDates.map((row) => row.lastMs || 0));
   const staleRelativeRows = historyDates
     .filter((row) => row.lastMs && maxLastMs && (maxLastMs - row.lastMs) > 86400000)
-    .map((row) => ({ symbol: row.symbol, lastDate: row.lastDate, lagDaysFromMax: round((maxLastMs - row.lastMs) / 86400000) }));
+    .map((row) => {
+      const sourceRow = rows.find((item) => normalizeSymbol(item) === row.symbol) || {};
+      const stage6Row = stage6BySymbol.get(row.symbol) || null;
+      return {
+        symbol: row.symbol,
+        lastDate: row.lastDate,
+        lagDaysFromMax: round((maxLastMs - row.lastMs) / 86400000),
+        bars: Array.isArray(sourceRow?.priceHistory) ? sourceRow.priceHistory.length : 0,
+        dataSource: sourceRow?.dataSource || null,
+        dataQualityState: sourceRow?.techMetrics?.dataQualityState || null,
+        technicalScore: round(sourceRow?.technicalScore),
+        promotedToStage5: stage5Symbols.has(row.symbol),
+        presentInStage6: stage6Symbols.has(row.symbol),
+        executableInStage6: executableSymbols.has(row.symbol),
+        stage6Decision: stage6Row ? `${stage6Row.finalDecision || 'UNKNOWN'}/${stage6Row.decisionReason || 'unknown'}` : null
+      };
+    });
   if (staleRelativeRows.length) {
-    addFinding(
-      findings,
-      'Stage4',
-      'medium',
-      'stage4_ohlcv_relative_stale_rows',
-      'Some Stage4 rows have OHLCV tails older than the freshest row in the same artifact.',
-      staleRelativeRows,
-      'Keep stale-relative rows out of breakout/structure promotion or refresh their OHLCV group before Stage5.'
-    );
+    const staleExecutableRows = staleRelativeRows.filter((row) => row.executableInStage6);
+    const stalePromotedRows = staleRelativeRows.filter((row) => row.promotedToStage5 || row.presentInStage6);
+    const staleTelemetryRows = staleRelativeRows.filter((row) => !row.promotedToStage5 && !row.presentInStage6);
+    if (staleExecutableRows.length) {
+      addFinding(
+        findings,
+        'Stage4',
+        'high',
+        'stage4_ohlcv_relative_stale_executable_rows',
+        'Relative-stale OHLCV rows reached Stage6 executable status.',
+        staleExecutableRows,
+        'Block executable promotion until the Stage4 OHLCV group is refreshed or the row carries an explicit stale-data waiver.'
+      );
+    } else if (stalePromotedRows.length) {
+      addFinding(
+        findings,
+        'Stage4',
+        'medium',
+        'stage4_ohlcv_relative_stale_promoted_rows',
+        'Relative-stale OHLCV rows were promoted beyond Stage4.',
+        stalePromotedRows,
+        'Keep promoted stale-relative rows out of breakout/structure promotion or refresh their OHLCV group before Stage5.'
+      );
+    }
+    if (staleTelemetryRows.length) {
+      addFinding(
+        findings,
+        'Stage4',
+        'low',
+        'stage4_ohlcv_relative_stale_non_promoted_observation',
+        'Relative-stale OHLCV rows were observed but did not advance to Stage5/Stage6.',
+        staleTelemetryRows,
+        'Keep this as data-quality telemetry; escalate only if stale rows are promoted or become executable.'
+      );
+    }
   }
   return {
     coverage: cov,
@@ -554,7 +599,10 @@ function stage4Audit(rows, findings, stage6Rows = []) {
     historyFreshness: {
       maxLastDate: historyDates.find((row) => row.lastMs === maxLastMs)?.lastDate || null,
       missingLastDateRows: historyDates.filter((row) => !row.lastDate).map((row) => row.symbol),
-      staleRelativeRows
+      staleRelativeRows,
+      staleRelativeRowsPromotedCount: staleRelativeRows.filter((row) => row.promotedToStage5 || row.presentInStage6).length,
+      staleRelativeRowsExecutableCount: staleRelativeRows.filter((row) => row.executableInStage6).length,
+      staleRelativeRowsTelemetryOnlyCount: staleRelativeRows.filter((row) => !row.promotedToStage5 && !row.presentInStage6).length
     },
     scoreStats: numericStats(rows, 'technicalScore'),
     dataSourceCounts: countBy(rows, (row) => String(row?.dataSource || 'missing')),
@@ -880,7 +928,7 @@ function main() {
 
   const stageAudits = {
     Stage3: stage3Audit(stage3Rows.rows, findings),
-    Stage4: stage4Audit(stage4Rows.rows, findings, rows),
+    Stage4: stage4Audit(stage4Rows.rows, findings, rows, stage5Rows.rows),
     Stage5: stage5Audit(stage5Rows.rows, findings),
     Stage5ToStage6: contractLinkAudit(stage6, rows, findings)
   };

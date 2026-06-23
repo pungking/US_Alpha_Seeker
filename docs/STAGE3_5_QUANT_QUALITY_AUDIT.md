@@ -1,13 +1,13 @@
 # Stage3-5 Quant Quality Audit
 
-- GeneratedAt: 2026-06-23T05:33:14.465Z
+- GeneratedAt: 2026-06-23T06:01:24.686Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json
 - Hash: b149b044845b848196bfd08608b6e2f71ecca9634499ccea806a8c637259b49a
 - Stage6 finalist rows audited: 2
 - Stage3 rows audited: 300
 - Stage4 rows audited: 300
 - Stage5 rows audited: 50
-- Overall: **review_required_medium**
+- Overall: **pass_report_only**
 - Safety: report-only; no broker/state mutation.
 
 ## Summary
@@ -15,7 +15,7 @@
 | Stage | Score | Main Risk |
 | --- | ---: | --- |
 | Stage3 | 100/100 | none |
-| Stage4 | 89/100 | Some Stage4 rows have OHLCV tails older than the freshest row in the same artifact. |
+| Stage4 | 94/100 | Short technical history was observed, but it did not reach Stage6 executable rows. |
 | Stage5 | 100/100 | none |
 | Stage5ToStage6 | 100/100 | none |
 
@@ -31,8 +31,8 @@
 
 | Severity | Stage | ID | Evidence | Recommendation | File | Line |
 | --- | --- | --- | --- | --- | --- | ---: |
-| medium | Stage4 | stage4_ohlcv_relative_stale_rows | [{"symbol":"LC","lastDate":"2026-06-18","lagDaysFromMax":4}] | Keep stale-relative rows out of breakout/structure promotion or refresh their OHLCV group before Stage5. | N/A | 0 |
 | low | Stage4 | stage4_short_history_non_executable_observation | [{"symbol":"PAYP","bars":70}] | Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable. | N/A | 0 |
+| low | Stage4 | stage4_ohlcv_relative_stale_non_promoted_observation | [{"symbol":"LC","lastDate":"2026-06-18","lagDaysFromMax":4,"bars":120,"dataSource":"DRIVE","dataQualityState":"THIN","technicalScore":78.24,"promotedToStage5":false,"presentInStage6":false,"executableInStage6":false,"stage6Decision":null}] | Keep this as data-quality telemetry; escalate only if stale rows are promoted or become executable. | N/A | 0 |
 
 ## Latest Row Score Table
 
@@ -60,7 +60,7 @@
 | --- | --- |
 | scoreStats | {"count":300,"min":1,"max":96,"avg":37.03} |
 | shortHistoryPolicy | {"policyPresent":true,"shortHistoryRows":1,"shortHistoryExecutableRows":0,"status":"short_history_non_executable_observation"} |
-| historyFreshness | {"maxLastDate":"2026-06-22","missingLastDateRows":[],"staleRelativeRows":[{"symbol":"LC","lastDate":"2026-06-18","lagDaysFromMax":4}]} |
+| historyFreshness | {"maxLastDate":"2026-06-22","missingLastDateRows":[],"staleRelativeRows":[{"symbol":"LC","lastDate":"2026-06-18","lagDaysFromMax":4,"bars":120,"dataSource":"DRIVE","dataQualityState":"THIN","technicalScore":78.24,"promotedToStage5":false,"presentInStage6":false,"executableInStage6":false,"stage6Decision":null}],"staleRelativeRowsPromotedCount":0,"staleRelativeRowsExecutableCount":0,"staleRelativeRowsTelemetryOnlyCount":1} |
 | dataSourceCounts | DRIVE:300 |
 | techDataQualityCounts | THIN:271, NORMAL:29 |
 
@@ -93,7 +93,7 @@
 | Stage5 | yes | stage5_risk_on_weights | components/IctAnalysis.tsx | 994 |
 | Stage5 | yes | stage5_data_quality_multiplier | components/IctAnalysis.tsx | 1043 |
 | Stage5 | yes | stage5_geometry_fallback_counter | components/IctAnalysis.tsx | 1141 |
-| Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 6439 |
+| Stage6Bridge | yes | stage6_final_gate_pillars | components/AlphaAnalysis.tsx | 6541 |
 
 ## Interpretation
 
