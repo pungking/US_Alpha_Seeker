@@ -110,7 +110,10 @@
           "targetRecalibrationRequiredTargetByExpectedReturnPrice",
           "targetRecalibrationExecutionFloorGapPct",
           "targetRecalibrationExecutionFloorViable",
-          "targetRecalibrationViabilityVerdict"
+          "targetRecalibrationViabilityVerdict",
+          "targetRecalibrationExecutionFloorShortfallPct",
+          "targetRecalibrationExpectedReturnShortfallPct",
+          "targetRecalibrationRequiredTargetDominantReason"
         ],
         "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": [
           "riskGeometryRequiredTargetPrice",
@@ -122,7 +125,10 @@
           "riskGeometryRequiredStopValid",
           "riskGeometryRequiredStopDistanceValid",
           "riskGeometryRecalculatedStopRrOk",
-          "riskGeometryTargetBufferOk"
+          "riskGeometryTargetBufferOk",
+          "riskGeometryRequiredTargetDominantReason",
+          "riskGeometryStopDistancePolicyVerdict",
+          "riskGeometryTargetShortfallPolicyVerdict"
         ],
         "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": [
           "riskGeometryRequiredTargetPrice",
@@ -130,7 +136,9 @@
           "riskGeometryTargetShortfallPct",
           "riskGeometryTargetNoTradeConfirmed",
           "riskGeometryTargetRecalibrationGapPolicyPct",
-          "riskGeometryTargetAboveCurrent"
+          "riskGeometryTargetAboveCurrent",
+          "riskGeometryRequiredTargetDominantReason",
+          "riskGeometryTargetShortfallPolicyVerdict"
         ],
         "BREAKOUT_PROOF_CONFIRMED_GENERATION": [
           "BREAKOUT_RETEST_PROOF_POLICY.maxBarsSinceRetest",
@@ -149,7 +157,9 @@
           "CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr",
           "CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr",
           "CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct",
-          "currentEntryStructureVerdict"
+          "currentEntryStructureVerdict",
+          "currentEntryStructureStopSupportRelation",
+          "currentEntryStructureSupportStopGapPct"
         ],
         "NO_ZERO_EXECUTABLE_TUNING_ACTION": []
       },
@@ -228,7 +238,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "CURRENT_RECALC_EXEC",
@@ -322,7 +342,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "WAIT1",
@@ -391,7 +421,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "SPEC_WAIT",
@@ -467,7 +507,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "STRUCT_REJECT_WAIT",
@@ -564,7 +614,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "STRUCT_OVERBLOCK_REVIEW_WAIT",
@@ -660,7 +720,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "BREAKOUT_REVIEW_WAIT",
@@ -765,7 +835,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
@@ -864,7 +944,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "TARGET_NEAR_WAIT",
@@ -1008,7 +1098,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "actual_stop_risk_required_target_dominates",
+      "riskGeometryRequiredTargetDominantReason": "stop_min_rr_required_target_dominates",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_INVALID",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -1155,7 +1255,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "expected_return_and_actual_stop_risk_required_target_dominates",
+      "riskGeometryRequiredTargetDominantReason": "expected_return_required_target_dominates",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_INVALID",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "TARGET_REACHED_NO_TRADE",
@@ -1299,7 +1409,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "actual_stop_risk_required_target_dominates",
+      "riskGeometryRequiredTargetDominantReason": "stop_min_rr_required_target_dominates",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_INVALID",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -1403,7 +1523,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "expected_return_required_target_dominates",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_INVALID",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_RECALC_WAIT",
@@ -1527,7 +1657,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "expected_return_required_target_dominates",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_OK",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_RECALIBRATION_CANDIDATE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "WEAK_PILLAR_WAIT",
@@ -1615,7 +1755,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_UNAVAILABLE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_GAP_NO_TRADE",
@@ -1742,7 +1892,17 @@
       "targetRecalibrationExecutionFloorViable": null,
       "riskGeometryRrAtRequiredTargetAndRecalculatedStop": null,
       "riskGeometryTargetBufferAtRequiredTargetPct": null,
-      "riskGeometryTargetRecalibrationProofReady": null
+      "riskGeometryTargetRecalibrationProofReady": null,
+      "targetRecalibrationExecutionFloorShortfallPct": 0,
+      "targetRecalibrationExpectedReturnShortfallPct": 0,
+      "targetRecalibrationRequiredTargetDominantReason": "required_target_source_unavailable",
+      "riskGeometryRequiredTargetDominantReason": "expected_return_required_target_dominates",
+      "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_OK",
+      "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GAP_TOO_WIDE_NO_TRADE",
+      "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+      "currentEntryStructureSupportStopGapPct": 0,
+      "currentEntryStructureStopAboveSupportPct": 0,
+      "currentEntryStructureStopBelowSupportPct": 0
     }
   ]
 }

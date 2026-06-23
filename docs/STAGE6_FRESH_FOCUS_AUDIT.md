@@ -1,10 +1,10 @@
 # Stage6 Fresh Focus Audit
 
-- GeneratedAt: 2026-06-22T23:57:59.232Z
+- GeneratedAt: 2026-06-23T05:55:22.625Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json
 - Hash: b149b044845b848196bfd08608b6e2f71ecca9634499ccea806a8c637259b49a
 - Source SHA: 3b5c01c1bc52594b13d641f94624e1d36b6836ac
-- Overall: **pass_executable_present_focus_fields_ok**
+- Overall: **warn_formula_contract_missing_or_mismatch**
 - Rows: 7
 - Executable Rows: 2
 - Contract Executable Picks: 2
@@ -23,14 +23,14 @@
 | targetRecalibrationRequiredTargetSourceCounts | {"expected_return_and_actual_stop_risk":3,"actual_stop_risk":4} |
 | riskGeometryTargetRecalibrationCandidateCounts | {"false":7} |
 | zeroExecutableFormulaBottleneckCounts | {"NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK":3,"TARGET_RECALIBRATION_FORMULA":2,"RISK_GEOMETRY_RECALCULATION_FORMULA":1,"BREAKOUT_PROOF_FORMULA":1} |
-| formulaManifestContractIssues | 0 |
+| formulaManifestContractIssues | 10 |
 | formulaLaneConsistencyIssues | 0 |
 | formulaEvidenceQualityIssues | 0 |
 | laneSpecificFormulaEvidenceIssues | 0 |
 | blockerCategoryCounts | {"entry_distance":1,"risk_geometry":3,"target_recalibration":1,"other":1,"breakout":1} |
 | rawExecutableDowngrades | [] |
-| runtimeProof.status | pass_formula_v4_runtime_proof |
-| guardrails.nextAction | monitor_next_sidecar_fresh_hash_consumption |
+| runtimeProof.status | pending_fresh_stage6_formula_v4_runtime_proof |
+| guardrails.nextAction | generate_fresh_stage6_after_formula_v4_head |
 
 ## Runtime Proof Gate
 
@@ -42,13 +42,13 @@
 | sourceShaMatchesExpected | N/A |
 | formulaCoveragePass | true |
 | requiredCoveragePass | true |
-| formulaManifestIssues | 0 |
+| formulaManifestIssues | 10 |
 | formulaLaneConsistencyIssues | 0 |
 | formulaEvidenceQualityIssues | 0 |
 | laneSpecificFormulaEvidenceIssues | 0 |
-| nextAction | monitor_next_sidecar_fresh_hash_consumption |
+| nextAction | generate_fresh_stage6_after_formula_v4_head |
 | enforceFreshContract | false |
-| freshContractViolation | false |
+| freshContractViolation | true |
 
 ## Field Coverage
 

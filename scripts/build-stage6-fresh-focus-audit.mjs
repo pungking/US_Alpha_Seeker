@@ -86,27 +86,35 @@ const EXPECTED_FORMULA_CONTRACT = {
       'targetRecalibrationRequiredTargetByExecutionFloorPrice',
       'targetRecalibrationRequiredTargetByExpectedReturnPrice',
       'targetRecalibrationExecutionFloorGapPct',
+      'targetRecalibrationExecutionFloorShortfallPct',
+      'targetRecalibrationExpectedReturnShortfallPct',
       'targetRecalibrationExecutionFloorViable',
+      'targetRecalibrationRequiredTargetDominantReason',
       'targetRecalibrationViabilityVerdict'
     ],
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
       'riskGeometryRequiredTargetPrice',
       'riskGeometryRequiredTargetSource',
+      'riskGeometryRequiredTargetDominantReason',
       'riskGeometryTargetShortfallPct',
       'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
       'riskGeometryTargetBufferAtRequiredTargetPct',
       'riskGeometryTargetRecalibrationProofReady',
       'riskGeometryRequiredStopValid',
       'riskGeometryRequiredStopDistanceValid',
+      'riskGeometryStopDistancePolicyVerdict',
+      'riskGeometryTargetShortfallPolicyVerdict',
       'riskGeometryRecalculatedStopRrOk',
       'riskGeometryTargetBufferOk'
     ],
     RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
       'riskGeometryRequiredTargetPrice',
       'riskGeometryRequiredTargetSource',
+      'riskGeometryRequiredTargetDominantReason',
       'riskGeometryTargetShortfallPct',
       'riskGeometryTargetNoTradeConfirmed',
       'riskGeometryTargetRecalibrationGapPolicyPct',
+      'riskGeometryTargetShortfallPolicyVerdict',
       'riskGeometryTargetAboveCurrent'
     ],
     BREAKOUT_PROOF_CONFIRMED_GENERATION: [
@@ -126,7 +134,9 @@ const EXPECTED_FORMULA_CONTRACT = {
       'CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr',
       'CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr',
       'CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct',
-      'currentEntryStructureVerdict'
+      'currentEntryStructureVerdict',
+      'currentEntryStructureStopSupportRelation',
+      'currentEntryStructureSupportStopGapPct'
     ],
     NO_ZERO_EXECUTABLE_TUNING_ACTION: []
   },

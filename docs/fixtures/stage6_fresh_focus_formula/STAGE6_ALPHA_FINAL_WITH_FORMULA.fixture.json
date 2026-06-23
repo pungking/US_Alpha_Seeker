@@ -95,27 +95,35 @@
             "targetRecalibrationRequiredTargetByExecutionFloorPrice",
             "targetRecalibrationRequiredTargetByExpectedReturnPrice",
             "targetRecalibrationExecutionFloorGapPct",
+            "targetRecalibrationExecutionFloorShortfallPct",
+            "targetRecalibrationExpectedReturnShortfallPct",
             "targetRecalibrationExecutionFloorViable",
+            "targetRecalibrationRequiredTargetDominantReason",
             "targetRecalibrationViabilityVerdict"
           ],
           "STOP_TARGET_RISK_GEOMETRY_RECALCULATION": [
             "riskGeometryRequiredTargetPrice",
             "riskGeometryRequiredTargetSource",
+            "riskGeometryRequiredTargetDominantReason",
             "riskGeometryTargetShortfallPct",
             "riskGeometryRrAtRequiredTargetAndRecalculatedStop",
             "riskGeometryTargetBufferAtRequiredTargetPct",
             "riskGeometryTargetRecalibrationProofReady",
             "riskGeometryRequiredStopValid",
             "riskGeometryRequiredStopDistanceValid",
+            "riskGeometryStopDistancePolicyVerdict",
+            "riskGeometryTargetShortfallPolicyVerdict",
             "riskGeometryRecalculatedStopRrOk",
             "riskGeometryTargetBufferOk"
           ],
           "RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION": [
             "riskGeometryRequiredTargetPrice",
             "riskGeometryRequiredTargetSource",
+            "riskGeometryRequiredTargetDominantReason",
             "riskGeometryTargetShortfallPct",
             "riskGeometryTargetNoTradeConfirmed",
             "riskGeometryTargetRecalibrationGapPolicyPct",
+            "riskGeometryTargetShortfallPolicyVerdict",
             "riskGeometryTargetAboveCurrent"
           ],
           "BREAKOUT_PROOF_CONFIRMED_GENERATION": [
@@ -135,7 +143,9 @@
             "CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr",
             "CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr",
             "CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct",
-            "currentEntryStructureVerdict"
+            "currentEntryStructureVerdict",
+            "currentEntryStructureStopSupportRelation",
+            "currentEntryStructureSupportStopGapPct"
           ],
           "NO_ZERO_EXECUTABLE_TUNING_ACTION": []
         },
@@ -200,7 +210,15 @@
         "structurePolicyFormulaObservedValue": 1.25,
         "structurePolicyFormulaThresholdValue": 1.8,
         "structurePolicyFormulaDeltaValue": 0.55,
-        "structurePolicyFormulaUnit": "rr"
+        "structurePolicyFormulaUnit": "rr",
+        "targetRecalibrationExecutionFloorShortfallPct": 0,
+        "targetRecalibrationExpectedReturnShortfallPct": 0,
+        "targetRecalibrationRequiredTargetDominantReason": "target_buffer_required_target_dominates",
+        "riskGeometryRequiredTargetDominantReason": "required_target_unavailable",
+        "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+        "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
+        "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+        "currentEntryStructureSupportStopGapPct": 0
       },
       {
         "symbol": "FORMBRK",
@@ -242,7 +260,15 @@
         "breakoutRetestProofFormulaObservedValue": 10.5,
         "breakoutRetestProofFormulaThresholdValue": 8,
         "breakoutRetestProofFormulaDeltaValue": 2.5,
-        "breakoutRetestProofFormulaUnit": "pct"
+        "breakoutRetestProofFormulaUnit": "pct",
+        "targetRecalibrationExecutionFloorShortfallPct": 0,
+        "targetRecalibrationExpectedReturnShortfallPct": 0,
+        "targetRecalibrationRequiredTargetDominantReason": "target_buffer_required_target_dominates",
+        "riskGeometryRequiredTargetDominantReason": "required_target_unavailable",
+        "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+        "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
+        "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+        "currentEntryStructureSupportStopGapPct": 0
       },
       {
         "symbol": "FORMTGT",
@@ -284,7 +310,15 @@
         "targetRecalibrationFormulaObservedValue": 7.5,
         "targetRecalibrationFormulaThresholdValue": 0,
         "targetRecalibrationFormulaDeltaValue": 7.5,
-        "targetRecalibrationFormulaUnit": "pct_shortfall"
+        "targetRecalibrationFormulaUnit": "pct_shortfall",
+        "targetRecalibrationExecutionFloorShortfallPct": 0,
+        "targetRecalibrationExpectedReturnShortfallPct": 0,
+        "targetRecalibrationRequiredTargetDominantReason": "target_buffer_required_target_dominates",
+        "riskGeometryRequiredTargetDominantReason": "required_target_unavailable",
+        "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+        "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
+        "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+        "currentEntryStructureSupportStopGapPct": 0
       },
       {
         "symbol": "FORMRISK",
@@ -326,7 +360,15 @@
         "riskGeometryFormulaObservedValue": 13.6,
         "riskGeometryFormulaThresholdValue": 0,
         "riskGeometryFormulaDeltaValue": 13.6,
-        "riskGeometryFormulaUnit": "pct_shortfall"
+        "riskGeometryFormulaUnit": "pct_shortfall",
+        "targetRecalibrationExecutionFloorShortfallPct": 0,
+        "targetRecalibrationExpectedReturnShortfallPct": 0,
+        "targetRecalibrationRequiredTargetDominantReason": "target_buffer_required_target_dominates",
+        "riskGeometryRequiredTargetDominantReason": "required_target_unavailable",
+        "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+        "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
+        "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+        "currentEntryStructureSupportStopGapPct": 0
       },
       {
         "symbol": "FORMRISK_NO_TRADE",
@@ -375,7 +417,15 @@
         "riskGeometryFormulaObservedValue": 24.29,
         "riskGeometryFormulaThresholdValue": 0,
         "riskGeometryFormulaDeltaValue": 24.29,
-        "riskGeometryFormulaUnit": "pct_shortfall"
+        "riskGeometryFormulaUnit": "pct_shortfall",
+        "targetRecalibrationExecutionFloorShortfallPct": 0,
+        "targetRecalibrationExpectedReturnShortfallPct": 0,
+        "targetRecalibrationRequiredTargetDominantReason": "target_buffer_required_target_dominates",
+        "riskGeometryRequiredTargetDominantReason": "required_target_unavailable",
+        "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+        "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GAP_TOO_WIDE_NO_TRADE",
+        "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+        "currentEntryStructureSupportStopGapPct": 0
       },
       {
         "symbol": "FORMNO",
@@ -410,7 +460,15 @@
         "zeroExecutableFormulaAdjustmentKnob": "NONE",
         "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
         "zeroExecutableFormulaAdjustmentMagnitude": 0,
-        "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
+        "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row.",
+        "targetRecalibrationExecutionFloorShortfallPct": 0,
+        "targetRecalibrationExpectedReturnShortfallPct": 0,
+        "targetRecalibrationRequiredTargetDominantReason": "target_buffer_required_target_dominates",
+        "riskGeometryRequiredTargetDominantReason": "required_target_unavailable",
+        "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
+        "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
+        "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
+        "currentEntryStructureSupportStopGapPct": 0
       }
     ],
     "watchlistTop": [],

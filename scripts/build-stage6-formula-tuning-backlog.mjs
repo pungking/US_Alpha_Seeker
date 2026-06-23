@@ -89,28 +89,36 @@ const EXPECTED_TUNABLE_POLICY_FIELDS = {
     'targetRecalibrationRequiredTargetSource',
     'targetRecalibrationRequiredTargetByExecutionFloorPrice',
     'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+    'targetRecalibrationRequiredTargetDominantReason',
     'targetRecalibrationExecutionFloorGapPct',
+    'targetRecalibrationExecutionFloorShortfallPct',
+    'targetRecalibrationExpectedReturnShortfallPct',
     'targetRecalibrationExecutionFloorViable',
     'targetRecalibrationViabilityVerdict'
   ],
   STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
     'riskGeometryRequiredTargetPrice',
     'riskGeometryRequiredTargetSource',
+    'riskGeometryRequiredTargetDominantReason',
     'riskGeometryTargetShortfallPct',
     'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
     'riskGeometryTargetBufferAtRequiredTargetPct',
     'riskGeometryTargetRecalibrationProofReady',
     'riskGeometryRequiredStopValid',
     'riskGeometryRequiredStopDistanceValid',
+    'riskGeometryStopDistancePolicyVerdict',
+    'riskGeometryTargetShortfallPolicyVerdict',
     'riskGeometryRecalculatedStopRrOk',
     'riskGeometryTargetBufferOk'
   ],
   RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
     'riskGeometryRequiredTargetPrice',
     'riskGeometryRequiredTargetSource',
+    'riskGeometryRequiredTargetDominantReason',
     'riskGeometryTargetShortfallPct',
     'riskGeometryTargetNoTradeConfirmed',
     'riskGeometryTargetRecalibrationGapPolicyPct',
+    'riskGeometryTargetShortfallPolicyVerdict',
     'riskGeometryTargetAboveCurrent'
   ],
   BREAKOUT_PROOF_CONFIRMED_GENERATION: [
@@ -130,7 +138,9 @@ const EXPECTED_TUNABLE_POLICY_FIELDS = {
     'CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr',
     'CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr',
     'CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct',
-    'currentEntryStructureVerdict'
+    'currentEntryStructureVerdict',
+    'currentEntryStructureStopSupportRelation',
+    'currentEntryStructureSupportStopGapPct'
   ],
   NO_ZERO_EXECUTABLE_TUNING_ACTION: []
 };
@@ -443,6 +453,7 @@ function producerFieldRecommendationsForGroup(groupRows, base) {
       ),
       producerFieldRecommendation(
         'targetRecalibrationExecutionFloorViable',
+      'targetRecalibrationRequiredTargetDominantReason',
         'Boolean proof gate for whether target recalibration can produce an executable entry.',
         'set_true_only_with_rr_and_buffer_pass',
         commonContext

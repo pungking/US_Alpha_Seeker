@@ -183,6 +183,7 @@ function validateProducerSourceContract() {
     'CURRENT_ENTRY_STRUCTURE_POLICY.maxReviewDistancePct',
     'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
     'targetRecalibrationExecutionFloorViable',
+    'targetRecalibrationRequiredTargetDominantReason',
     'breakoutRetestProofUndercutReclaimFound',
     'breakout_review_ready_never_promotes',
     'target_already_reached_requires_recalibration_or_no_trade',

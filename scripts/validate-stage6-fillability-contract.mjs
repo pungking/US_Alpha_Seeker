@@ -76,23 +76,31 @@ const EXPECTED_TUNABLE_POLICY_FIELDS = {
     'targetRecalibrationRequiredTargetPrice',
     'targetRecalibrationRequiredTargetSource',
     'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+    'targetRecalibrationExecutionFloorShortfallPct',
+    'targetRecalibrationExpectedReturnShortfallPct',
+    'targetRecalibrationRequiredTargetDominantReason',
     'targetRecalibrationViabilityVerdict'
   ],
   STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
     'riskGeometryRequiredTargetPrice',
     'riskGeometryRequiredTargetSource',
+    'riskGeometryRequiredTargetDominantReason',
     'riskGeometryTargetShortfallPct',
     'riskGeometryRequiredStopValid',
     'riskGeometryRequiredStopDistanceValid',
+    'riskGeometryStopDistancePolicyVerdict',
+    'riskGeometryTargetShortfallPolicyVerdict',
     'riskGeometryRecalculatedStopRrOk',
     'riskGeometryTargetBufferOk'
   ],
   RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
     'riskGeometryRequiredTargetPrice',
     'riskGeometryRequiredTargetSource',
+    'riskGeometryRequiredTargetDominantReason',
     'riskGeometryTargetShortfallPct',
     'riskGeometryTargetNoTradeConfirmed',
     'riskGeometryTargetRecalibrationGapPolicyPct',
+    'riskGeometryTargetShortfallPolicyVerdict',
     'riskGeometryTargetAboveCurrent'
   ],
   BREAKOUT_PROOF_CONFIRMED_GENERATION: [
@@ -110,7 +118,9 @@ const EXPECTED_TUNABLE_POLICY_FIELDS = {
     'CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr',
     'CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr',
     'CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct',
-    'currentEntryStructureVerdict'
+    'currentEntryStructureVerdict',
+    'currentEntryStructureStopSupportRelation',
+    'currentEntryStructureSupportStopGapPct'
   ],
   NO_ZERO_EXECUTABLE_TUNING_ACTION: []
 };
@@ -154,7 +164,10 @@ const requiredSchemaFields = [
   'targetRecalibrationRequiredTargetByRrPrice',
   'targetRecalibrationRequiredTargetByExecutionFloorPrice',
   'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+  'targetRecalibrationRequiredTargetDominantReason',
   'targetRecalibrationExecutionFloorGapPct',
+  'targetRecalibrationExecutionFloorShortfallPct',
+  'targetRecalibrationExpectedReturnShortfallPct',
   'targetRecalibrationExpectedReturnGapPct',
   'targetRecalibrationExecutionFloorViable',
   'targetRecalibrationSourcePrice',
@@ -174,6 +187,9 @@ const requiredSchemaFields = [
   'riskGeometryRequiredTargetBufferPct',
   'riskGeometryTargetRecalibrationCandidate',
   'riskGeometryTargetRecalibrationGapPolicyPct',
+  'riskGeometryRequiredTargetDominantReason',
+  'riskGeometryStopDistancePolicyVerdict',
+  'riskGeometryTargetShortfallPolicyVerdict',
   'riskGeometryTargetNoTradeConfirmed',
   'riskGeometryTargetBufferAtRequiredTargetPct',
   'riskGeometryTargetRecalibrationProofReady',
@@ -759,6 +775,9 @@ for (const [idx, row] of candidates.entries()) {
         'riskGeometryTargetNoTradeConfirmed'
       ]) {
         if (!isBooleanLike(row[field])) errors.push(`${label}: recalculated stop candidate missing boolean ${field}`);
+      }
+      for (const field of ['riskGeometryStopDistancePolicyVerdict', 'riskGeometryTargetShortfallPolicyVerdict']) {
+        if (!String(row[field] || '').trim()) errors.push(`${label}: recalculated stop candidate missing policy verdict ${field}`);
       }
       if (!isFiniteNumber(row.riskGeometryTargetRecalibrationGapPolicyPct)) {
         errors.push(`${label}: recalculated stop candidate missing numeric riskGeometryTargetRecalibrationGapPolicyPct`);

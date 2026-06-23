@@ -125,6 +125,10 @@ interface AlphaCandidate {
   currentEntryStructureStopAlignedSupportLow?: number | null;
   currentEntryStructureStopAlignedSupportGapAtr?: number | null;
   currentEntryStructurePriceDriftPct?: number | null;
+  currentEntryStructureStopSupportRelation?: string | null;
+  currentEntryStructureSupportStopGapPct?: number | null;
+  currentEntryStructureStopAboveSupportPct?: number | null;
+  currentEntryStructureStopBelowSupportPct?: number | null;
   structurePolicyVerdict?: string | null;
   structurePolicyReviewReady?: boolean | null;
   structurePolicyBlockerLane?: string | null;
@@ -206,8 +210,11 @@ interface AlphaCandidate {
   targetRecalibrationCurrentTargetGapPct?: number | null;
   targetRecalibrationExecutionFloorGapPct?: number | null;
   targetRecalibrationExpectedReturnGapPct?: number | null;
+  targetRecalibrationExecutionFloorShortfallPct?: number | null;
+  targetRecalibrationExpectedReturnShortfallPct?: number | null;
   targetRecalibrationExecutionFloorViable?: boolean | null;
   targetRecalibrationRequiredTargetSource?: string | null;
+  targetRecalibrationRequiredTargetDominantReason?: string | null;
   targetRecalibrationSourcePrice?: number | null;
   targetRecalibrationSourceStopPrice?: number | null;
   targetRecalibrationStopDistanceAtCurrent?: number | null;
@@ -239,6 +246,7 @@ interface AlphaCandidate {
   riskGeometryRequiredTargetByBufferPrice?: number | null;
   riskGeometryRequiredTargetByExpectedReturnPrice?: number | null;
   riskGeometryRequiredTargetSource?: string | null;
+  riskGeometryRequiredTargetDominantReason?: string | null;
   riskGeometryRequiredTargetBufferPct?: number | null;
   riskGeometryTargetGapPct?: number | null;
   riskGeometryTargetShortfallPct?: number | null;
@@ -249,6 +257,8 @@ interface AlphaCandidate {
   riskGeometryTargetAboveCurrent?: boolean | null;
   riskGeometryRequiredStopValid?: boolean | null;
   riskGeometryRequiredStopDistanceValid?: boolean | null;
+  riskGeometryStopDistancePolicyVerdict?: string | null;
+  riskGeometryTargetShortfallPolicyVerdict?: string | null;
   riskGeometryRecalculatedStopRrOk?: boolean | null;
   riskGeometryTargetBufferOk?: boolean | null;
   riskGeometryTargetBufferAtRequiredTargetPct?: number | null;
@@ -722,6 +732,10 @@ type CurrentEntryStructurePayload = {
   stopAlignedSupportLow: number | null;
   stopAlignedSupportGapAtr: number | null;
   priceDriftPct: number | null;
+  stopSupportRelation: string | null;
+  supportStopGapPct: number | null;
+  stopAboveSupportPct: number | null;
+  stopBelowSupportPct: number | null;
 };
 
 type BreakoutRetestProofPayload = {
@@ -829,8 +843,11 @@ type Stage6TargetPolicyPayload = {
   currentTargetGapPct: number | null;
   executionFloorGapPct: number | null;
   expectedReturnGapPct: number | null;
+  executionFloorShortfallPct: number | null;
+  expectedReturnShortfallPct: number | null;
   executionFloorViable: boolean;
   requiredTargetSource: string | null;
+  requiredTargetDominantReason: string | null;
   sourcePrice: number | null;
   sourceStopPrice: number | null;
   stopDistanceAtCurrent: number | null;
@@ -865,6 +882,7 @@ type Stage6RiskGeometryPolicyPayload = {
   requiredTargetByBufferPrice: number | null;
   requiredTargetByExpectedReturnPrice: number | null;
   requiredTargetSource: string | null;
+  requiredTargetDominantReason: string | null;
   requiredTargetBufferPct: number | null;
   targetGapPct: number | null;
   targetShortfallPct: number | null;
@@ -875,6 +893,8 @@ type Stage6RiskGeometryPolicyPayload = {
   targetAboveCurrent: boolean;
   requiredStopValid: boolean;
   requiredStopDistanceValid: boolean;
+  stopDistancePolicyVerdict: string;
+  targetShortfallPolicyVerdict: string;
   recalculatedStopRrOk: boolean;
   targetBufferOk: boolean;
   targetBufferAtRequiredTargetPct: number | null;
@@ -1023,27 +1043,35 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
       'targetRecalibrationRequiredTargetByExecutionFloorPrice',
       'targetRecalibrationRequiredTargetByExpectedReturnPrice',
       'targetRecalibrationExecutionFloorGapPct',
+      'targetRecalibrationExecutionFloorShortfallPct',
+      'targetRecalibrationExpectedReturnShortfallPct',
       'targetRecalibrationExecutionFloorViable',
+      'targetRecalibrationRequiredTargetDominantReason',
       'targetRecalibrationViabilityVerdict'
     ],
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
       'riskGeometryRequiredTargetPrice',
       'riskGeometryRequiredTargetSource',
+      'riskGeometryRequiredTargetDominantReason',
       'riskGeometryTargetShortfallPct',
       'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
       'riskGeometryTargetBufferAtRequiredTargetPct',
       'riskGeometryTargetRecalibrationProofReady',
       'riskGeometryRequiredStopValid',
       'riskGeometryRequiredStopDistanceValid',
+      'riskGeometryStopDistancePolicyVerdict',
+      'riskGeometryTargetShortfallPolicyVerdict',
       'riskGeometryRecalculatedStopRrOk',
       'riskGeometryTargetBufferOk'
     ],
     RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION: [
       'riskGeometryRequiredTargetPrice',
       'riskGeometryRequiredTargetSource',
+      'riskGeometryRequiredTargetDominantReason',
       'riskGeometryTargetShortfallPct',
       'riskGeometryTargetNoTradeConfirmed',
       'riskGeometryTargetRecalibrationGapPolicyPct',
+      'riskGeometryTargetShortfallPolicyVerdict',
       'riskGeometryTargetAboveCurrent'
     ],
     BREAKOUT_PROOF_CONFIRMED_GENERATION: [
@@ -1063,7 +1091,9 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
       'CURRENT_ENTRY_STRUCTURE_POLICY.minStopAtr',
       'CURRENT_ENTRY_STRUCTURE_POLICY.maxStopAtr',
       'CURRENT_ENTRY_STRUCTURE_POLICY.maxPriceDriftPct',
-      'currentEntryStructureVerdict'
+      'currentEntryStructureVerdict',
+      'currentEntryStructureStopSupportRelation',
+      'currentEntryStructureSupportStopGapPct'
     ],
     NO_ZERO_EXECUTABLE_TUNING_ACTION: []
   },
@@ -1212,6 +1242,10 @@ const deriveCurrentEntryStructure = (input: {
     nearestSupportGapAtr: null as number | null,
     stopAlignedSupportLow: null as number | null,
     stopAlignedSupportGapAtr: null as number | null,
+    stopSupportRelation: null as string | null,
+    supportStopGapPct: null as number | null,
+    stopAboveSupportPct: null as number | null,
+    stopBelowSupportPct: null as number | null,
     priceDriftPct:
       latest && price != null && price > 0
         ? roundOrNull(Math.abs(((latest.close - price) / price) * 100), 2)
@@ -1252,6 +1286,21 @@ const deriveCurrentEntryStructure = (input: {
   const supportGapAtr = support?.low ? (support.low - requiredStop) / atr : null;
   const nearestSupportGapAtr = nearestSupport?.low ? (nearestSupport.low - requiredStop) / atr : null;
   const stopAlignedSupportGapAtr = stopAlignedSupport?.low ? Math.abs((stopAlignedSupport.low - requiredStop) / atr) : null;
+  const supportStopGapPct =
+    support?.low && price > 0 ? ((support.low - requiredStop) / price) * 100 : null;
+  const stopAboveSupportPct =
+    supportStopGapPct != null && supportStopGapPct < 0 ? Math.abs(supportStopGapPct) : null;
+  const stopBelowSupportPct =
+    supportStopGapPct != null && supportStopGapPct > 0 ? supportStopGapPct : null;
+  const stopSupportRelation = !support
+    ? 'support_missing'
+    : supportStopGapPct == null
+      ? 'support_stop_gap_unavailable'
+      : supportStopGapPct < 0
+        ? 'stop_above_support'
+        : supportGapAtr != null && supportGapAtr > policy.supportBufferAtr
+          ? 'stop_below_support_beyond_buffer'
+          : 'stop_below_support_within_buffer';
   const reasons: string[] = [];
   if (driftPct > policy.maxPriceDriftPct) reasons.push('price_drift_high');
   if (stopAtr < policy.minStopAtr || stopAtr > policy.maxStopAtr) reasons.push('stop_atr_out_of_band');
@@ -1280,6 +1329,10 @@ const deriveCurrentEntryStructure = (input: {
     nearestSupportGapAtr: roundOrNull(nearestSupportGapAtr, 2),
     stopAlignedSupportLow: roundOrNull(stopAlignedSupport?.low ?? null, 4),
     stopAlignedSupportGapAtr: roundOrNull(stopAlignedSupportGapAtr, 2),
+    stopSupportRelation,
+    supportStopGapPct: roundOrNull(supportStopGapPct, 2),
+    stopAboveSupportPct: roundOrNull(stopAboveSupportPct, 2),
+    stopBelowSupportPct: roundOrNull(stopBelowSupportPct, 2),
     priceDriftPct: roundOrNull(driftPct, 2)
   };
 };
@@ -2068,6 +2121,11 @@ const deriveTargetRecalibrationPolicy = (input: {
         : inferredStopDistanceAtCurrent != null
           ? 'inferred_rr_risk'
           : 'target_buffer_only';
+  const requiredTargetDominantReason = requiredTargetSource?.includes('expected_return')
+    ? 'expected_return_required_target_dominates'
+    : requiredTargetSource?.includes('stop_risk') || requiredTargetSource?.includes('rr_risk')
+      ? 'risk_stop_required_target_dominates'
+      : 'target_buffer_required_target_dominates';
   const requiredTargetBufferPct =
     requiredTargetPrice != null && input.price != null && Number.isFinite(input.price) && input.price > 0
       ? ((requiredTargetPrice - input.price) / input.price) * 100
@@ -2102,6 +2160,10 @@ const deriveTargetRecalibrationPolicy = (input: {
   const executionFloorShortfallPct =
     executionFloorGapPct != null && Number.isFinite(executionFloorGapPct) && executionFloorGapPct < 0
       ? Math.abs(executionFloorGapPct)
+      : 0;
+  const expectedReturnShortfallPct =
+    expectedReturnGapPct != null && Number.isFinite(expectedReturnGapPct) && expectedReturnGapPct < 0
+      ? Math.abs(expectedReturnGapPct)
       : 0;
   const targetAlreadyReachedGapPct =
     targetAlreadyReached &&
@@ -2142,25 +2204,25 @@ const deriveTargetRecalibrationPolicy = (input: {
     (targetGeometryRequiresAction &&
       !targetRecalibrationCandidate &&
       (!targetInputsValid || currentTargetShortfallPct > targetRecalibrationGapPolicyPct));
-	  const viabilityReasons = [
-	    ...(targetAlreadyReached ? ['target_not_above_current'] : []),
-	    ...(!targetInputsValid && targetGeometryRequiresAction ? ['target_recalibration_inputs_incomplete'] : []),
-	    ...(currentTargetGapPct != null && currentTargetGapPct < 0 ? ['current_target_below_required_target'] : []),
-	    ...(currentTargetShortfallPct > targetRecalibrationGapPolicyPct ? ['target_recalibration_gap_above_policy'] : []),
-	    ...(executionFloorViable ? ['execution_floor_target_recalibration_viable'] : []),
-	    ...(targetRecalibrationCandidate ? ['target_recalibration_gap_within_policy'] : []),
+  const viabilityReasons = [
+    ...(targetAlreadyReached ? ['target_not_above_current'] : []),
+    ...(!targetInputsValid && targetGeometryRequiresAction ? ['target_recalibration_inputs_incomplete'] : []),
+    ...(currentTargetGapPct != null && currentTargetGapPct < 0 ? ['current_target_below_required_target'] : []),
+    ...(currentTargetShortfallPct > targetRecalibrationGapPolicyPct ? ['target_recalibration_gap_above_policy'] : []),
+    ...(executionFloorViable ? ['execution_floor_target_recalibration_viable'] : []),
+    ...(targetRecalibrationCandidate ? ['target_recalibration_gap_within_policy'] : []),
     ...(targetNoTradeConfirmed && !targetAlreadyReached ? ['target_no_trade_until_fresh_thesis'] : [])
   ];
   const viabilityVerdict = targetRecalibrationCandidate
     ? 'TARGET_RECALIBRATION_CANDIDATE_WITHIN_GAP_POLICY'
-	    : targetNoTradeConfirmed
-	      ? targetAlreadyReached
-	        ? 'TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT'
-	        : executionFloorViable
-	          ? 'TARGET_EXECUTION_FLOOR_VIABLE_EXPECTED_RETURN_GAP_TOO_WIDE'
-	          : currentTargetShortfallPct > targetRecalibrationGapPolicyPct
-	            ? 'TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_GAP_TOO_WIDE'
-	            : 'TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_EVIDENCE_INCOMPLETE'
+    : targetNoTradeConfirmed
+      ? targetAlreadyReached
+        ? 'TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT'
+        : executionFloorViable
+          ? 'TARGET_EXECUTION_FLOOR_VIABLE_EXPECTED_RETURN_GAP_TOO_WIDE'
+          : currentTargetShortfallPct > targetRecalibrationGapPolicyPct
+            ? 'TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_GAP_TOO_WIDE'
+            : 'TARGET_NO_TRADE_CONFIRMED_RECALIBRATION_EVIDENCE_INCOMPLETE'
       : 'TARGET_VIABILITY_NOT_APPLICABLE';
   const targetFormulaEvidence = (() => {
     const sourceKey = String(requiredTargetSource || 'unknown')
@@ -2204,20 +2266,23 @@ const deriveTargetRecalibrationPolicy = (input: {
       unit: 'none'
     };
   })();
-	  const targetEvidence = {
-	    currentTargetPrice: roundOrNull(input.target, 4),
-	    requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
-	    requiredTargetByBufferPrice: roundOrNull(requiredTargetByBuffer, 4),
-	    requiredTargetByRrPrice: roundOrNull(requiredTargetByRr, 4),
-	    requiredTargetByExecutionFloorPrice: roundOrNull(requiredTargetByExecutionFloor, 4),
-	    requiredTargetByExpectedReturnPrice: roundOrNull(requiredTargetByExpectedReturn, 4),
-	    requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
-	    requiredRr: roundOrNull(minRr, 2),
-	    currentTargetGapPct: roundOrNull(currentTargetGapPct, 2),
-	    executionFloorGapPct: roundOrNull(executionFloorGapPct, 2),
-	    expectedReturnGapPct: roundOrNull(expectedReturnGapPct, 2),
-	    executionFloorViable,
-	    requiredTargetSource,
+  const targetEvidence = {
+    currentTargetPrice: roundOrNull(input.target, 4),
+    requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
+    requiredTargetByBufferPrice: roundOrNull(requiredTargetByBuffer, 4),
+    requiredTargetByRrPrice: roundOrNull(requiredTargetByRr, 4),
+    requiredTargetByExecutionFloorPrice: roundOrNull(requiredTargetByExecutionFloor, 4),
+    requiredTargetByExpectedReturnPrice: roundOrNull(requiredTargetByExpectedReturn, 4),
+    requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
+    requiredRr: roundOrNull(minRr, 2),
+    currentTargetGapPct: roundOrNull(currentTargetGapPct, 2),
+    executionFloorGapPct: roundOrNull(executionFloorGapPct, 2),
+    expectedReturnGapPct: roundOrNull(expectedReturnGapPct, 2),
+    executionFloorShortfallPct: roundOrNull(executionFloorShortfallPct, 2),
+    expectedReturnShortfallPct: roundOrNull(expectedReturnShortfallPct, 2),
+    executionFloorViable,
+    requiredTargetSource,
+    requiredTargetDominantReason,
     sourcePrice: roundOrNull(input.price, 4),
     sourceStopPrice: roundOrNull(input.stop, 4),
     stopDistanceAtCurrent: roundOrNull(stopDistanceAtCurrent, 4),
@@ -2342,6 +2407,7 @@ const deriveRiskGeometryPolicy = (input: {
       requiredTargetByBufferPrice: null,
       requiredTargetByExpectedReturnPrice: null,
       requiredTargetSource: null,
+      requiredTargetDominantReason: null,
       requiredTargetBufferPct: null,
       targetGapPct: null,
       targetShortfallPct: null,
@@ -2352,6 +2418,8 @@ const deriveRiskGeometryPolicy = (input: {
       targetAboveCurrent: false,
       requiredStopValid: false,
       requiredStopDistanceValid: false,
+      stopDistancePolicyVerdict: 'not_applicable',
+      targetShortfallPolicyVerdict: 'not_applicable',
       recalculatedStopRrOk: false,
       targetBufferOk: false,
       repairLane: 'not_applicable',
@@ -2437,6 +2505,13 @@ const deriveRiskGeometryPolicy = (input: {
   );
   const requiredTargetPrice = requiredTargetWinner.value;
   const requiredTargetSource = requiredTargetWinner.source;
+  const requiredTargetDominantReason = requiredTargetSource === 'expected_return'
+    ? 'expected_return_required_target_dominates'
+    : requiredTargetSource === 'stop_min_rr'
+      ? 'min_rr_required_target_dominates'
+      : requiredTargetSource === 'target_buffer'
+        ? 'target_buffer_required_target_dominates'
+        : 'required_target_unavailable';
   const rrAtRequiredTargetAndRecalculatedStop =
     requiredTargetPrice != null &&
     input.price != null &&
@@ -2512,6 +2587,30 @@ const deriveRiskGeometryPolicy = (input: {
     requiredTargetRrOk &&
     requiredTargetBufferOk
   );
+  const stopDistancePolicyVerdict = !requiredStopValid
+    ? 'REQUIRED_STOP_INVALID'
+    : requiredStopDistanceValid
+      ? 'REQUIRED_STOP_DISTANCE_OK'
+      : input.currentEntryRequiredStopDistancePct != null &&
+        Number.isFinite(input.currentEntryRequiredStopDistancePct) &&
+        input.currentEntryRequiredStopDistancePct < input.minStopDistancePct
+        ? 'REQUIRED_STOP_DISTANCE_BELOW_MIN'
+        : input.currentEntryRequiredStopDistancePct != null &&
+          Number.isFinite(input.currentEntryRequiredStopDistancePct) &&
+          input.currentEntryRequiredStopDistancePct > input.maxStopDistancePct
+          ? 'REQUIRED_STOP_DISTANCE_ABOVE_MAX'
+          : 'REQUIRED_STOP_DISTANCE_UNAVAILABLE';
+  const targetShortfallPolicyVerdict = !targetAboveCurrent
+    ? 'TARGET_NOT_ABOVE_CURRENT_NO_TRADE'
+    : targetNoTradeConfirmed
+      ? 'TARGET_GAP_TOO_WIDE_NO_TRADE'
+      : targetRecalibrationProofReady
+        ? 'TARGET_RECALIBRATION_PROOF_READY'
+        : targetRecalibrationCandidate
+          ? 'TARGET_RECALIBRATION_CANDIDATE'
+          : targetShortfallPct != null && targetShortfallPct > 0
+            ? 'TARGET_SHORTFALL_REVIEW'
+            : 'TARGET_GEOMETRY_OK';
   const recalculatedStopProofConfirmed =
     recalculatedStopCandidate &&
     recalculatedStopRrOk &&
@@ -2643,17 +2742,18 @@ const deriveRiskGeometryPolicy = (input: {
       unit: 'proof_gap_count'
     };
   })();
-	  const proofEvidence = {
-	    proofVerdict,
-	    recalculatedStopPrice: roundOrNull(input.currentEntryRequiredStopPrice, 4),
-	    recalculatedStopDistancePct: roundOrNull(input.currentEntryRequiredStopDistancePct, 2),
-	    rrAtRecalculatedStop: roundOrNull(rrAtRecalculatedStop, 2),
-	    rrAtRequiredTargetAndRecalculatedStop: roundOrNull(rrAtRequiredTargetAndRecalculatedStop, 2),
-	    requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
+  const proofEvidence = {
+    proofVerdict,
+    recalculatedStopPrice: roundOrNull(input.currentEntryRequiredStopPrice, 4),
+    recalculatedStopDistancePct: roundOrNull(input.currentEntryRequiredStopDistancePct, 2),
+    rrAtRecalculatedStop: roundOrNull(rrAtRecalculatedStop, 2),
+    rrAtRequiredTargetAndRecalculatedStop: roundOrNull(rrAtRequiredTargetAndRecalculatedStop, 2),
+    requiredTargetPrice: roundOrNull(requiredTargetPrice, 4),
     requiredTargetByStopPrice: roundOrNull(requiredTargetByRecalculatedStop, 4),
     requiredTargetByBufferPrice: roundOrNull(requiredTargetByBuffer, 4),
     requiredTargetByExpectedReturnPrice: roundOrNull(requiredTargetByExpectedReturn, 4),
     requiredTargetSource,
+    requiredTargetDominantReason,
     requiredTargetBufferPct: roundOrNull(requiredTargetBufferPct, 2),
     targetGapPct: roundOrNull(targetGapPct, 2),
     targetShortfallPct: roundOrNull(targetShortfallPct, 2),
@@ -2664,11 +2764,13 @@ const deriveRiskGeometryPolicy = (input: {
     targetAboveCurrent,
     requiredStopValid,
     requiredStopDistanceValid,
-	    recalculatedStopRrOk,
-	    targetBufferOk,
-	    targetBufferAtRequiredTargetPct: roundOrNull(requiredTargetBufferPct, 2),
-	    targetRecalibrationProofReady,
-	    repairLane,
+    stopDistancePolicyVerdict,
+    targetShortfallPolicyVerdict,
+    recalculatedStopRrOk,
+    targetBufferOk,
+    targetBufferAtRequiredTargetPct: roundOrNull(requiredTargetBufferPct, 2),
+    targetRecalibrationProofReady,
+    repairLane,
     proofConfirmed: recalculatedStopProofConfirmed,
     proofReasons,
     formulaEvidenceBasis: riskFormulaEvidence.basis,
@@ -7462,6 +7564,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const currentEntryStructureStopAlignedSupportLow = derivedCurrentEntryStructure.stopAlignedSupportLow;
           const currentEntryStructureStopAlignedSupportGapAtr = derivedCurrentEntryStructure.stopAlignedSupportGapAtr;
           const currentEntryStructurePriceDriftPct = derivedCurrentEntryStructure.priceDriftPct;
+          const currentEntryStructureStopSupportRelation = derivedCurrentEntryStructure.stopSupportRelation;
+          const currentEntryStructureSupportStopGapPct = derivedCurrentEntryStructure.supportStopGapPct;
+          const currentEntryStructureStopAboveSupportPct = derivedCurrentEntryStructure.stopAboveSupportPct;
+          const currentEntryStructureStopBelowSupportPct = derivedCurrentEntryStructure.stopBelowSupportPct;
           const currentEntryStructureGatePassed = !STAGE6_CURRENT_ENTRY_STRUCTURE_GATE_REQUIRED || currentEntryStructureConfirmed;
           const breakoutRetestProof = deriveBreakoutRetestProof({
               price: livePrice,
@@ -8113,6 +8219,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureStopAlignedSupportLow,
               currentEntryStructureStopAlignedSupportGapAtr,
               currentEntryStructurePriceDriftPct,
+              currentEntryStructureStopSupportRelation,
+              currentEntryStructureSupportStopGapPct,
+              currentEntryStructureStopAboveSupportPct,
+              currentEntryStructureStopBelowSupportPct,
               structurePolicyVerdict: structurePolicyReview.verdict,
               structurePolicyReviewReady: structurePolicyReview.reviewReady,
               structurePolicyBlockerLane: structurePolicyReview.blockerLane,
@@ -8185,17 +8295,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetNoChaseRequired: targetRecalibrationPolicy.noChaseRequired,
               targetRecalibrationCurrentTargetPrice: targetRecalibrationPolicy.currentTargetPrice,
               targetRecalibrationRequiredTargetPrice: targetRecalibrationPolicy.requiredTargetPrice,
-	              targetRecalibrationRequiredTargetByBufferPrice: targetRecalibrationPolicy.requiredTargetByBufferPrice,
-	              targetRecalibrationRequiredTargetByRrPrice: targetRecalibrationPolicy.requiredTargetByRrPrice,
-	              targetRecalibrationRequiredTargetByExecutionFloorPrice: targetRecalibrationPolicy.requiredTargetByExecutionFloorPrice,
-	              targetRecalibrationRequiredTargetByExpectedReturnPrice: targetRecalibrationPolicy.requiredTargetByExpectedReturnPrice,
+              targetRecalibrationRequiredTargetByBufferPrice: targetRecalibrationPolicy.requiredTargetByBufferPrice,
+              targetRecalibrationRequiredTargetByRrPrice: targetRecalibrationPolicy.requiredTargetByRrPrice,
+              targetRecalibrationRequiredTargetByExecutionFloorPrice: targetRecalibrationPolicy.requiredTargetByExecutionFloorPrice,
+              targetRecalibrationRequiredTargetByExpectedReturnPrice: targetRecalibrationPolicy.requiredTargetByExpectedReturnPrice,
               targetRecalibrationRequiredTargetBufferPct: targetRecalibrationPolicy.requiredTargetBufferPct,
-	              targetRecalibrationRequiredRr: targetRecalibrationPolicy.requiredRr,
-	              targetRecalibrationCurrentTargetGapPct: targetRecalibrationPolicy.currentTargetGapPct,
-	              targetRecalibrationExecutionFloorGapPct: targetRecalibrationPolicy.executionFloorGapPct,
-	              targetRecalibrationExpectedReturnGapPct: targetRecalibrationPolicy.expectedReturnGapPct,
-	              targetRecalibrationExecutionFloorViable: targetRecalibrationPolicy.executionFloorViable,
-	              targetRecalibrationRequiredTargetSource: targetRecalibrationPolicy.requiredTargetSource,
+              targetRecalibrationRequiredRr: targetRecalibrationPolicy.requiredRr,
+              targetRecalibrationCurrentTargetGapPct: targetRecalibrationPolicy.currentTargetGapPct,
+              targetRecalibrationExecutionFloorGapPct: targetRecalibrationPolicy.executionFloorGapPct,
+              targetRecalibrationExpectedReturnGapPct: targetRecalibrationPolicy.expectedReturnGapPct,
+              targetRecalibrationExecutionFloorShortfallPct: targetRecalibrationPolicy.executionFloorShortfallPct,
+              targetRecalibrationExpectedReturnShortfallPct: targetRecalibrationPolicy.expectedReturnShortfallPct,
+              targetRecalibrationExecutionFloorViable: targetRecalibrationPolicy.executionFloorViable,
+              targetRecalibrationRequiredTargetSource: targetRecalibrationPolicy.requiredTargetSource,
+              targetRecalibrationRequiredTargetDominantReason: targetRecalibrationPolicy.requiredTargetDominantReason,
               targetRecalibrationSourcePrice: targetRecalibrationPolicy.sourcePrice,
               targetRecalibrationSourceStopPrice: targetRecalibrationPolicy.sourceStopPrice,
               targetRecalibrationStopDistanceAtCurrent: targetRecalibrationPolicy.stopDistanceAtCurrent,
@@ -8218,15 +8331,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryNoTradeRequired: riskGeometryPolicy.noTradeRequired,
               riskGeometryRecalculatedStopCandidate: riskGeometryPolicy.recalculatedStopCandidate,
               riskGeometryProofVerdict: riskGeometryPolicy.proofVerdict,
-	              riskGeometryRecalculatedStopPrice: riskGeometryPolicy.recalculatedStopPrice,
-	              riskGeometryRecalculatedStopDistancePct: riskGeometryPolicy.recalculatedStopDistancePct,
-	              riskGeometryRrAtRecalculatedStop: riskGeometryPolicy.rrAtRecalculatedStop,
-	              riskGeometryRrAtRequiredTargetAndRecalculatedStop: riskGeometryPolicy.rrAtRequiredTargetAndRecalculatedStop,
+              riskGeometryRecalculatedStopPrice: riskGeometryPolicy.recalculatedStopPrice,
+              riskGeometryRecalculatedStopDistancePct: riskGeometryPolicy.recalculatedStopDistancePct,
+              riskGeometryRrAtRecalculatedStop: riskGeometryPolicy.rrAtRecalculatedStop,
+              riskGeometryRrAtRequiredTargetAndRecalculatedStop: riskGeometryPolicy.rrAtRequiredTargetAndRecalculatedStop,
               riskGeometryRequiredTargetPrice: riskGeometryPolicy.requiredTargetPrice,
               riskGeometryRequiredTargetByStopPrice: riskGeometryPolicy.requiredTargetByStopPrice,
               riskGeometryRequiredTargetByBufferPrice: riskGeometryPolicy.requiredTargetByBufferPrice,
               riskGeometryRequiredTargetByExpectedReturnPrice: riskGeometryPolicy.requiredTargetByExpectedReturnPrice,
               riskGeometryRequiredTargetSource: riskGeometryPolicy.requiredTargetSource,
+              riskGeometryRequiredTargetDominantReason: riskGeometryPolicy.requiredTargetDominantReason,
               riskGeometryRequiredTargetBufferPct: riskGeometryPolicy.requiredTargetBufferPct,
               riskGeometryTargetGapPct: riskGeometryPolicy.targetGapPct,
               riskGeometryTargetShortfallPct: riskGeometryPolicy.targetShortfallPct,
@@ -8236,12 +8350,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryTargetBufferPct: riskGeometryPolicy.targetBufferPct,
               riskGeometryTargetAboveCurrent: riskGeometryPolicy.targetAboveCurrent,
               riskGeometryRequiredStopValid: riskGeometryPolicy.requiredStopValid,
-	              riskGeometryRequiredStopDistanceValid: riskGeometryPolicy.requiredStopDistanceValid,
-	              riskGeometryRecalculatedStopRrOk: riskGeometryPolicy.recalculatedStopRrOk,
-	              riskGeometryTargetBufferOk: riskGeometryPolicy.targetBufferOk,
-	              riskGeometryTargetBufferAtRequiredTargetPct: riskGeometryPolicy.targetBufferAtRequiredTargetPct,
-	              riskGeometryTargetRecalibrationProofReady: riskGeometryPolicy.targetRecalibrationProofReady,
-	              riskGeometryRepairLane: riskGeometryPolicy.repairLane,
+              riskGeometryRequiredStopDistanceValid: riskGeometryPolicy.requiredStopDistanceValid,
+              riskGeometryStopDistancePolicyVerdict: riskGeometryPolicy.stopDistancePolicyVerdict,
+              riskGeometryTargetShortfallPolicyVerdict: riskGeometryPolicy.targetShortfallPolicyVerdict,
+              riskGeometryRecalculatedStopRrOk: riskGeometryPolicy.recalculatedStopRrOk,
+              riskGeometryTargetBufferOk: riskGeometryPolicy.targetBufferOk,
+              riskGeometryTargetBufferAtRequiredTargetPct: riskGeometryPolicy.targetBufferAtRequiredTargetPct,
+              riskGeometryTargetRecalibrationProofReady: riskGeometryPolicy.targetRecalibrationProofReady,
+              riskGeometryRepairLane: riskGeometryPolicy.repairLane,
               riskGeometryProofConfirmed: riskGeometryPolicy.proofConfirmed,
               riskGeometryProofReasons: riskGeometryPolicy.proofReasons,
               riskGeometryFormulaEvidenceBasis: riskGeometryPolicy.formulaEvidenceBasis,
@@ -8397,6 +8513,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureStopAlignedSupportLow: executionContract.currentEntryStructureStopAlignedSupportLow,
               currentEntryStructureStopAlignedSupportGapAtr: executionContract.currentEntryStructureStopAlignedSupportGapAtr,
               currentEntryStructurePriceDriftPct: executionContract.currentEntryStructurePriceDriftPct,
+              currentEntryStructureStopSupportRelation: executionContract.currentEntryStructureStopSupportRelation,
+              currentEntryStructureSupportStopGapPct: executionContract.currentEntryStructureSupportStopGapPct,
+              currentEntryStructureStopAboveSupportPct: executionContract.currentEntryStructureStopAboveSupportPct,
+              currentEntryStructureStopBelowSupportPct: executionContract.currentEntryStructureStopBelowSupportPct,
               structurePolicyVerdict: executionContract.structurePolicyVerdict,
               structurePolicyReviewReady: executionContract.structurePolicyReviewReady,
               structurePolicyBlockerLane: executionContract.structurePolicyBlockerLane,
@@ -9357,6 +9477,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureStopAlignedSupportLow: toOptionalFiniteNumber(item.currentEntryStructureStopAlignedSupportLow),
               currentEntryStructureStopAlignedSupportGapAtr: toOptionalFiniteNumber(item.currentEntryStructureStopAlignedSupportGapAtr),
               currentEntryStructurePriceDriftPct: toOptionalFiniteNumber(item.currentEntryStructurePriceDriftPct),
+              currentEntryStructureStopSupportRelation: normalizeOptionalText(item.currentEntryStructureStopSupportRelation),
+              currentEntryStructureSupportStopGapPct: toOptionalFiniteNumber(item.currentEntryStructureSupportStopGapPct),
+              currentEntryStructureStopAboveSupportPct: toOptionalFiniteNumber(item.currentEntryStructureStopAboveSupportPct),
+              currentEntryStructureStopBelowSupportPct: toOptionalFiniteNumber(item.currentEntryStructureStopBelowSupportPct),
               structurePolicyVerdict: normalizeOptionalText(item.structurePolicyVerdict),
               structurePolicyReviewReady: Boolean(item.structurePolicyReviewReady),
               structurePolicyBlockerLane: normalizeOptionalText(item.structurePolicyBlockerLane),
@@ -9428,11 +9552,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetPrice),
               targetRecalibrationRequiredTargetByBufferPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetByBufferPrice),
               targetRecalibrationRequiredTargetByRrPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetByRrPrice),
+              targetRecalibrationRequiredTargetByExecutionFloorPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetByExecutionFloorPrice),
               targetRecalibrationRequiredTargetByExpectedReturnPrice: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetByExpectedReturnPrice),
               targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetBufferPct),
               targetRecalibrationRequiredRr: toOptionalFiniteNumber(item.targetRecalibrationRequiredRr),
               targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item.targetRecalibrationCurrentTargetGapPct),
+              targetRecalibrationExecutionFloorGapPct: toOptionalFiniteNumber(item.targetRecalibrationExecutionFloorGapPct),
+              targetRecalibrationExpectedReturnGapPct: toOptionalFiniteNumber(item.targetRecalibrationExpectedReturnGapPct),
+              targetRecalibrationExecutionFloorShortfallPct: toOptionalFiniteNumber(item.targetRecalibrationExecutionFloorShortfallPct),
+              targetRecalibrationExpectedReturnShortfallPct: toOptionalFiniteNumber(item.targetRecalibrationExpectedReturnShortfallPct),
+              targetRecalibrationExecutionFloorViable: item.targetRecalibrationExecutionFloorViable == null ? null : Boolean(item.targetRecalibrationExecutionFloorViable),
               targetRecalibrationRequiredTargetSource: normalizeOptionalText(item.targetRecalibrationRequiredTargetSource),
+              targetRecalibrationRequiredTargetDominantReason: normalizeOptionalText(item.targetRecalibrationRequiredTargetDominantReason),
               targetRecalibrationSourcePrice: toOptionalFiniteNumber(item.targetRecalibrationSourcePrice),
               targetRecalibrationSourceStopPrice: toOptionalFiniteNumber(item.targetRecalibrationSourceStopPrice),
               targetRecalibrationStopDistanceAtCurrent: toOptionalFiniteNumber(item.targetRecalibrationStopDistanceAtCurrent),
@@ -9463,6 +9594,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRequiredTargetByBufferPrice: toOptionalFiniteNumber(item.riskGeometryRequiredTargetByBufferPrice),
               riskGeometryRequiredTargetByExpectedReturnPrice: toOptionalFiniteNumber(item.riskGeometryRequiredTargetByExpectedReturnPrice),
               riskGeometryRequiredTargetSource: normalizeOptionalText(item.riskGeometryRequiredTargetSource),
+              riskGeometryRequiredTargetDominantReason: normalizeOptionalText(item.riskGeometryRequiredTargetDominantReason),
               riskGeometryRequiredTargetBufferPct: toOptionalFiniteNumber(item.riskGeometryRequiredTargetBufferPct),
               riskGeometryTargetGapPct: toOptionalFiniteNumber(item.riskGeometryTargetGapPct),
               riskGeometryTargetShortfallPct: toOptionalFiniteNumber(item.riskGeometryTargetShortfallPct),
@@ -9473,6 +9605,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryTargetAboveCurrent: item.riskGeometryTargetAboveCurrent == null ? null : Boolean(item.riskGeometryTargetAboveCurrent),
               riskGeometryRequiredStopValid: item.riskGeometryRequiredStopValid == null ? null : Boolean(item.riskGeometryRequiredStopValid),
               riskGeometryRequiredStopDistanceValid: item.riskGeometryRequiredStopDistanceValid == null ? null : Boolean(item.riskGeometryRequiredStopDistanceValid),
+              riskGeometryStopDistancePolicyVerdict: normalizeOptionalText(item.riskGeometryStopDistancePolicyVerdict),
+              riskGeometryTargetShortfallPolicyVerdict: normalizeOptionalText(item.riskGeometryTargetShortfallPolicyVerdict),
               riskGeometryRecalculatedStopRrOk: item.riskGeometryRecalculatedStopRrOk == null ? null : Boolean(item.riskGeometryRecalculatedStopRrOk),
               riskGeometryTargetBufferOk: item.riskGeometryTargetBufferOk == null ? null : Boolean(item.riskGeometryTargetBufferOk),
               riskGeometryRepairLane: normalizeOptionalText(item.riskGeometryRepairLane),
@@ -9605,6 +9739,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentEntryStructureStopAlignedSupportLow: toOptionalFiniteNumber(item?.currentEntryStructureStopAlignedSupportLow),
               currentEntryStructureStopAlignedSupportGapAtr: toOptionalFiniteNumber(item?.currentEntryStructureStopAlignedSupportGapAtr),
               currentEntryStructurePriceDriftPct: toOptionalFiniteNumber(item?.currentEntryStructurePriceDriftPct),
+              currentEntryStructureStopSupportRelation: normalizeOptionalText(item?.currentEntryStructureStopSupportRelation),
+              currentEntryStructureSupportStopGapPct: toOptionalFiniteNumber(item?.currentEntryStructureSupportStopGapPct),
+              currentEntryStructureStopAboveSupportPct: toOptionalFiniteNumber(item?.currentEntryStructureStopAboveSupportPct),
+              currentEntryStructureStopBelowSupportPct: toOptionalFiniteNumber(item?.currentEntryStructureStopBelowSupportPct),
               structurePolicyVerdict: normalizeOptionalText(item?.structurePolicyVerdict),
               structurePolicyReviewReady: Boolean(item?.structurePolicyReviewReady),
               structurePolicyBlockerLane: normalizeOptionalText(item?.structurePolicyBlockerLane),
@@ -9676,11 +9814,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationRequiredTargetPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetPrice),
               targetRecalibrationRequiredTargetByBufferPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetByBufferPrice),
               targetRecalibrationRequiredTargetByRrPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetByRrPrice),
+              targetRecalibrationRequiredTargetByExecutionFloorPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetByExecutionFloorPrice),
               targetRecalibrationRequiredTargetByExpectedReturnPrice: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetByExpectedReturnPrice),
               targetRecalibrationRequiredTargetBufferPct: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetBufferPct),
               targetRecalibrationRequiredRr: toOptionalFiniteNumber(item?.targetRecalibrationRequiredRr),
               targetRecalibrationCurrentTargetGapPct: toOptionalFiniteNumber(item?.targetRecalibrationCurrentTargetGapPct),
+              targetRecalibrationExecutionFloorGapPct: toOptionalFiniteNumber(item?.targetRecalibrationExecutionFloorGapPct),
+              targetRecalibrationExpectedReturnGapPct: toOptionalFiniteNumber(item?.targetRecalibrationExpectedReturnGapPct),
+              targetRecalibrationExecutionFloorShortfallPct: toOptionalFiniteNumber(item?.targetRecalibrationExecutionFloorShortfallPct),
+              targetRecalibrationExpectedReturnShortfallPct: toOptionalFiniteNumber(item?.targetRecalibrationExpectedReturnShortfallPct),
+              targetRecalibrationExecutionFloorViable: item?.targetRecalibrationExecutionFloorViable == null ? null : Boolean(item.targetRecalibrationExecutionFloorViable),
               targetRecalibrationRequiredTargetSource: normalizeOptionalText(item?.targetRecalibrationRequiredTargetSource),
+              targetRecalibrationRequiredTargetDominantReason: normalizeOptionalText(item?.targetRecalibrationRequiredTargetDominantReason),
               targetRecalibrationSourcePrice: toOptionalFiniteNumber(item?.targetRecalibrationSourcePrice),
               targetRecalibrationSourceStopPrice: toOptionalFiniteNumber(item?.targetRecalibrationSourceStopPrice),
               targetRecalibrationStopDistanceAtCurrent: toOptionalFiniteNumber(item?.targetRecalibrationStopDistanceAtCurrent),
@@ -9711,6 +9856,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryRequiredTargetByBufferPrice: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetByBufferPrice),
               riskGeometryRequiredTargetByExpectedReturnPrice: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetByExpectedReturnPrice),
               riskGeometryRequiredTargetSource: normalizeOptionalText(item?.riskGeometryRequiredTargetSource),
+              riskGeometryRequiredTargetDominantReason: normalizeOptionalText(item?.riskGeometryRequiredTargetDominantReason),
               riskGeometryRequiredTargetBufferPct: toOptionalFiniteNumber(item?.riskGeometryRequiredTargetBufferPct),
               riskGeometryTargetGapPct: toOptionalFiniteNumber(item?.riskGeometryTargetGapPct),
               riskGeometryTargetShortfallPct: toOptionalFiniteNumber(item?.riskGeometryTargetShortfallPct),
@@ -9721,6 +9867,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskGeometryTargetAboveCurrent: item?.riskGeometryTargetAboveCurrent == null ? null : Boolean(item.riskGeometryTargetAboveCurrent),
               riskGeometryRequiredStopValid: item?.riskGeometryRequiredStopValid == null ? null : Boolean(item.riskGeometryRequiredStopValid),
               riskGeometryRequiredStopDistanceValid: item?.riskGeometryRequiredStopDistanceValid == null ? null : Boolean(item.riskGeometryRequiredStopDistanceValid),
+              riskGeometryStopDistancePolicyVerdict: normalizeOptionalText(item?.riskGeometryStopDistancePolicyVerdict),
+              riskGeometryTargetShortfallPolicyVerdict: normalizeOptionalText(item?.riskGeometryTargetShortfallPolicyVerdict),
               riskGeometryRecalculatedStopRrOk: item?.riskGeometryRecalculatedStopRrOk == null ? null : Boolean(item.riskGeometryRecalculatedStopRrOk),
               riskGeometryTargetBufferOk: item?.riskGeometryTargetBufferOk == null ? null : Boolean(item.riskGeometryTargetBufferOk),
               riskGeometryRepairLane: normalizeOptionalText(item?.riskGeometryRepairLane),
