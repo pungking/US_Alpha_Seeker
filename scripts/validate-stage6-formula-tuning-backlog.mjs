@@ -181,6 +181,18 @@ function runCase(testCase) {
     if (Number(report.summary?.producerTrackDiagnosticCount || 0) <= 0) {
       throw new Error(`${testCase.name}: expected producerTrackDiagnosticCount > 0`);
     }
+    const malformedEvidenceRows = (report.backlogRows || []).filter(
+      (row) =>
+        typeof row.rowEvidenceSummary !== 'string' ||
+        !row.rowEvidenceSummary ||
+        !row.targetRecalibrationEvidence ||
+        typeof row.targetRecalibrationEvidence !== 'object' ||
+        !row.structureProofEvidence ||
+        typeof row.structureProofEvidence !== 'object'
+    );
+    if (malformedEvidenceRows.length > 0) {
+      throw new Error(`${testCase.name}: backlog rows missing row-level target/structure evidence`);
+    }
     const diagnosticTracks = new Set((report.producerTrackDiagnostics || []).map((row) => row.producerTrack));
     const tracks = new Set((report.tuningRecommendations || []).map((row) => row.producerTrack));
     for (const track of testCase.expectedProducerTracks || []) {
@@ -218,6 +230,9 @@ function runCase(testCase) {
   }
   for (const token of ['missingLaneSpecificRows', 'formulaLaneMismatchRows', 'formulaEvidenceWeakRows', 'tuningRecommendationCount', 'producerFieldRecommendationCount', 'Lane Mismatch', 'Weak Evidence', 'Missing Lane Fields', 'Tuning Recommendations']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing lane-specific token ${token}`);
+  }
+  for (const token of ['Row Evidence', 'Target Evidence', 'Structure Evidence']) {
+    if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing row-level evidence token ${token}`);
   }
   if (testCase.expectedRecommendations > 0 && !md.includes('Contract fields')) {
     throw new Error(`${testCase.name}: markdown missing tuning contract fields`);
