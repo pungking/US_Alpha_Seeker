@@ -1,6 +1,6 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-23T06:01:25.319Z
+- GeneratedAt: 2026-06-23T07:04:57.695Z
 - Overall: **warn_lineage_incomplete**
 - Lineage: **warn_lineage_incomplete**; final quality judgement: **withheld**
 - Stage6 Runtime Proof: **pass_runtime_proof_fields_present**
@@ -59,8 +59,8 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 
 | Report | Present | Overall | GeneratedAt | Path |
 | --- | --- | --- | --- | --- |
-| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-23T06:01:22.748Z | state/stage3-5-methodology-audit.json |
-| stage35QuantQuality | yes | pass_report_only | 2026-06-23T06:01:24.686Z | state/stage3-5-quant-quality-audit.json |
+| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-23T07:04:55.465Z | state/stage3-5-methodology-audit.json |
+| stage35QuantQuality | yes | pass_report_only | 2026-06-23T07:04:57.199Z | state/stage3-5-quant-quality-audit.json |
 | stage6FreshFocus | yes | warn_formula_contract_missing_or_mismatch | 2026-06-23T05:55:22.625Z | state/stage6-fresh-focus-audit.json |
 | stage6FormulaTuningBacklog | yes | pass_formula_tuning_backlog_ready | 2026-06-22T23:54:23.322Z | state/stage6-formula-tuning-backlog.json |
 | stage6RuntimeFormulaContractProof | yes | pass_formula_contract_present_executable_candidates_exist | 2026-06-23T00:05:11.494Z | state/stage6-runtime-formula-contract-proof.json |

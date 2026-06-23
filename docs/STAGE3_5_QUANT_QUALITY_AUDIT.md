@@ -1,6 +1,6 @@
 # Stage3-5 Quant Quality Audit
 
-- GeneratedAt: 2026-06-23T06:01:24.686Z
+- GeneratedAt: 2026-06-23T07:04:57.199Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json
 - Hash: b149b044845b848196bfd08608b6e2f71ecca9634499ccea806a8c637259b49a
 - Stage6 finalist rows audited: 2
@@ -31,7 +31,7 @@
 
 | Severity | Stage | ID | Evidence | Recommendation | File | Line |
 | --- | --- | --- | --- | --- | --- | ---: |
-| low | Stage4 | stage4_short_history_non_executable_observation | [{"symbol":"PAYP","bars":70}] | Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable. | N/A | 0 |
+| low | Stage4 | stage4_short_history_non_executable_observation | [{"symbol":"PAYP","bars":70,"dataSource":"DRIVE","dataQualityState":"NORMAL","technicalScore":7.72,"promotedToStage5":false,"presentInStage6":false,"executableInStage6":false,"stage6Decision":null}] | Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable. | N/A | 0 |
 | low | Stage4 | stage4_ohlcv_relative_stale_non_promoted_observation | [{"symbol":"LC","lastDate":"2026-06-18","lagDaysFromMax":4,"bars":120,"dataSource":"DRIVE","dataQualityState":"THIN","technicalScore":78.24,"promotedToStage5":false,"presentInStage6":false,"executableInStage6":false,"stage6Decision":null}] | Keep this as data-quality telemetry; escalate only if stale rows are promoted or become executable. | N/A | 0 |
 
 ## Latest Row Score Table
@@ -50,7 +50,7 @@
 | scoreStats | {"count":300,"min":4.51,"max":100,"avg":59.94} |
 | scoreSemanticsContract | {"dataDictionaryPresent":true,"boundsFixturePresent":true,"status":"documented_expected_divergence"} |
 | sectorBonusStats | {"sectorBonusRows":66,"rawAfterSectorAbove100Rows":21,"clampAppliedRows":21} |
-| imputationStats | {"imputedCount":0,"imputedPct":0,"integrityReasonsCoveragePct":100,"roicDebtSourceCoveragePct":100} |
+| imputationStats | {"imputedCount":0,"imputedPct":0,"integrityReasonsCoveragePct":100,"roicDebtSourceCoveragePct":100,"imputedStage6Rows":0,"imputedExecutableRows":0,"missingRoicDebtSourceRows":0,"missingRoicDebtSourceExecutableRows":0} |
 | compositeAlphaStats | {"count":300,"min":9.88,"max":100,"avg":55.71} |
 | dataQualityCounts | HIGH:300 |
 
@@ -59,7 +59,7 @@
 | Metric | Value |
 | --- | --- |
 | scoreStats | {"count":300,"min":1,"max":96,"avg":37.03} |
-| shortHistoryPolicy | {"policyPresent":true,"shortHistoryRows":1,"shortHistoryExecutableRows":0,"status":"short_history_non_executable_observation"} |
+| shortHistoryPolicy | {"policyPresent":true,"shortHistoryRows":1,"shortHistoryExecutableRows":0,"shortHistoryPromotedRows":0,"shortHistoryTelemetryOnlyRows":1,"status":"short_history_non_executable_observation"} |
 | historyFreshness | {"maxLastDate":"2026-06-22","missingLastDateRows":[],"staleRelativeRows":[{"symbol":"LC","lastDate":"2026-06-18","lagDaysFromMax":4,"bars":120,"dataSource":"DRIVE","dataQualityState":"THIN","technicalScore":78.24,"promotedToStage5":false,"presentInStage6":false,"executableInStage6":false,"stage6Decision":null}],"staleRelativeRowsPromotedCount":0,"staleRelativeRowsExecutableCount":0,"staleRelativeRowsTelemetryOnlyCount":1} |
 | dataSourceCounts | DRIVE:300 |
 | techDataQualityCounts | THIN:271, NORMAL:29 |
@@ -71,7 +71,7 @@
 | scoreStats | {"count":50,"min":46.08,"max":93.07,"avg":71.85} |
 | pdZoneCounts | PREMIUM:38, DISCOUNT:11, EQUILIBRIUM:1 |
 | geometrySourceCounts | RECENT_SWING_ATR:50 |
-| executionGeometryStats | {"fallback52wRows":0,"validEntryStopRows":50,"invalidExecutionBoxRows":0} |
+| executionGeometryStats | {"fallback52wRows":0,"fallback52wStage6Rows":0,"fallback52wExecutableRows":0,"validEntryStopRows":50,"invalidExecutionBoxRows":0} |
 
 ### Stage5ToStage6
 

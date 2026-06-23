@@ -298,7 +298,7 @@ function extractStaticFormulaEvidence() {
   }));
 }
 
-function stage3Audit(rows, findings) {
+function stage3Audit(rows, findings, stage6Rows = []) {
   const fields = [
     'fundamentalScore',
     'qualityScore',
@@ -404,6 +404,72 @@ function stage3Audit(rows, findings) {
       );
     }
   }
+  const stage6Symbols = new Set(stage6Rows.map((row) => normalizeSymbol(row)).filter(Boolean));
+  const executableSymbols = new Set(stage6Rows
+    .filter((row) => String(row?.finalDecision || '').toUpperCase() === 'EXECUTABLE_NOW')
+    .map((row) => normalizeSymbol(row)));
+  const rowsWithPropagation = rows.map((row) => {
+    const symbol = normalizeSymbol(row);
+    return {
+      row,
+      symbol,
+      presentInStage6: stage6Symbols.has(symbol),
+      executableInStage6: executableSymbols.has(symbol)
+    };
+  });
+  const imputedPropagationRows = rowsWithPropagation
+    .filter((item) => bool(item.row?.isImputed))
+    .map((item) => ({
+      symbol: item.symbol,
+      dataQuality: item.row?.dataQuality || null,
+      integrityReasons: Array.isArray(item.row?.integrityReasons) ? item.row.integrityReasons : [],
+      presentInStage6: item.presentInStage6,
+      executableInStage6: item.executableInStage6
+    }));
+  const missingRoicDebtRows = rowsWithPropagation
+    .filter((item) => !String(item.row?.roicDebtSource || '').trim())
+    .map((item) => ({
+      symbol: item.symbol,
+      fundamentalScore: round(item.row?.fundamentalScore),
+      dataQuality: item.row?.dataQuality || null,
+      presentInStage6: item.presentInStage6,
+      executableInStage6: item.executableInStage6
+    }));
+  const imputedExecutableRows = imputedPropagationRows.filter((row) => row.executableInStage6);
+  const imputedStage6Rows = imputedPropagationRows.filter((row) => row.presentInStage6);
+  const missingRoicDebtExecutableRows = missingRoicDebtRows.filter((row) => row.executableInStage6);
+  if (imputedExecutableRows.length) {
+    addFinding(
+      findings,
+      'Stage3',
+      'high',
+      'stage3_imputed_data_executable_rows',
+      'Imputed Stage3 rows reached Stage6 executable status.',
+      imputedExecutableRows,
+      'Require an explicit data-quality waiver before imputed fundamental rows can become executable.'
+    );
+  } else if (imputedStage6Rows.length) {
+    addFinding(
+      findings,
+      'Stage3',
+      'medium',
+      'stage3_imputed_data_stage6_rows',
+      'Imputed Stage3 rows reached Stage6 final rows.',
+      imputedStage6Rows,
+      'Keep imputed rows out of executable promotion unless downstream evidence provides a waiver.'
+    );
+  }
+  if (missingRoicDebtExecutableRows.length) {
+    addFinding(
+      findings,
+      'Stage3',
+      'medium',
+      'stage3_roic_debt_source_missing_executable_rows',
+      'Rows without roicDebtSource reached Stage6 executable status.',
+      missingRoicDebtExecutableRows,
+      'Require roic/debt source lineage before executable promotion or downgrade the quality gate.'
+    );
+  }
   return {
     coverage: cov,
     outOfRange,
@@ -423,7 +489,11 @@ function stage3Audit(rows, findings) {
       imputedCount: rows.filter((row) => bool(row?.isImputed)).length,
       imputedPct: pct(rows.filter((row) => bool(row?.isImputed)).length, rows.length),
       integrityReasonsCoveragePct: cov.integrityReasons?.pct ?? 0,
-      roicDebtSourceCoveragePct: cov.roicDebtSource?.pct ?? 0
+      roicDebtSourceCoveragePct: cov.roicDebtSource?.pct ?? 0,
+      imputedStage6Rows: imputedStage6Rows.length,
+      imputedExecutableRows: imputedExecutableRows.length,
+      missingRoicDebtSourceRows: missingRoicDebtRows.length,
+      missingRoicDebtSourceExecutableRows: missingRoicDebtExecutableRows.length
     },
     imputedCount: rows.filter((row) => bool(row?.isImputed)).length
   };
@@ -472,6 +542,32 @@ function stage4Audit(rows, findings, stage6Rows = [], stage5Rows = []) {
       lineOf(SOURCE_FILES.stage4, /scoreBreakdownCoverage/)
     );
   }
+  const scoreOutOfRange = rows
+    .filter((row) => {
+      const score = num(row?.technicalScore);
+      const finalScore = num(row?.scoreBreakdown?.finalScore);
+      return score == null || score < 0 || score > 100 || finalScore == null || finalScore < 0 || finalScore > 100;
+    })
+    .map((row) => ({
+      symbol: normalizeSymbol(row),
+      technicalScore: row?.technicalScore,
+      finalScore: row?.scoreBreakdown?.finalScore,
+      dataSource: row?.dataSource || null,
+      dataQualityState: row?.techMetrics?.dataQualityState || null
+    }));
+  if (scoreOutOfRange.length) {
+    addFinding(
+      findings,
+      'Stage4',
+      'critical',
+      'stage4_technical_score_out_of_range',
+      'technicalScore or scoreBreakdown.finalScore escaped the expected 0-100 score scale.',
+      scoreOutOfRange,
+      'Clamp technicalScore and scoreBreakdown.finalScore after every overlay/cap before writing Stage4 artifacts.',
+      SOURCE_FILES.stage4,
+      lineOf(SOURCE_FILES.stage4, /finalScore/)
+    );
+  }
   const heuristicHighScore = rows
     .filter((row) => String(row?.dataSource || '').toUpperCase() === 'HEURISTIC' && (num(row?.technicalScore) ?? 0) > 58)
     .map((row) => ({ symbol: normalizeSymbol(row), technicalScore: row?.technicalScore, dataSource: row?.dataSource }));
@@ -488,35 +584,68 @@ function stage4Audit(rows, findings, stage6Rows = [], stage5Rows = []) {
       lineOf(SOURCE_FILES.stage4, /dataSource:\s*'HEURISTIC'/)
     );
   }
-  const shortHistory = rows
-    .filter((row) => Array.isArray(row?.priceHistory) && row.priceHistory.length < 80)
-    .map((row) => ({ symbol: normalizeSymbol(row), bars: row.priceHistory.length }));
   const stage5Symbols = new Set(stage5Rows.map((row) => normalizeSymbol(row)).filter(Boolean));
   const stage6Symbols = new Set(stage6Rows.map((row) => normalizeSymbol(row)).filter(Boolean));
   const stage6BySymbol = new Map(stage6Rows.map((row) => [normalizeSymbol(row), row]));
+  const shortHistory = rows
+    .filter((row) => Array.isArray(row?.priceHistory) && row.priceHistory.length < 80)
+    .map((row) => {
+      const symbol = normalizeSymbol(row);
+      const stage6Row = stage6BySymbol.get(symbol) || null;
+      return {
+        symbol,
+        bars: row.priceHistory.length,
+        dataSource: row?.dataSource || null,
+        dataQualityState: row?.techMetrics?.dataQualityState || null,
+        technicalScore: round(row?.technicalScore),
+        promotedToStage5: stage5Symbols.has(symbol),
+        presentInStage6: stage6Symbols.has(symbol),
+        executableInStage6: false,
+        stage6Decision: stage6Row ? `${stage6Row.finalDecision || 'UNKNOWN'}/${stage6Row.decisionReason || 'unknown'}` : null
+      };
+    });
   const executableSymbols = new Set(stage6Rows
     .filter((row) => String(row?.finalDecision || '').toUpperCase() === 'EXECUTABLE_NOW')
     .map((row) => normalizeSymbol(row)));
-  const shortHistoryExecutable = shortHistory.filter((row) => executableSymbols.has(row.symbol));
+  for (const row of shortHistory) {
+    row.executableInStage6 = executableSymbols.has(row.symbol);
+  }
+  const shortHistoryExecutable = shortHistory.filter((row) => row.executableInStage6);
+  const shortHistoryPromoted = shortHistory.filter((row) => row.promotedToStage5 || row.presentInStage6);
+  const shortHistoryTelemetry = shortHistory.filter((row) => !row.promotedToStage5 && !row.presentInStage6);
   const shortHistoryPolicy = {
     policyPresent: fileExists(POLICY_FILES.stage4ShortHistoryPolicy),
     shortHistoryRows: shortHistory.length,
     shortHistoryExecutableRows: shortHistoryExecutable.length,
+    shortHistoryPromotedRows: shortHistoryPromoted.length,
+    shortHistoryTelemetryOnlyRows: shortHistoryTelemetry.length,
     status: shortHistoryExecutable.length
       ? 'short_history_executable_review_required'
+      : shortHistoryPromoted.length
+        ? 'short_history_promoted_review_required'
       : shortHistory.length
         ? 'short_history_non_executable_observation'
         : 'no_short_history_rows'
   };
   if (shortHistory.length) {
-    if (shortHistoryExecutable.length || !shortHistoryPolicy.policyPresent) {
+    if (shortHistoryExecutable.length) {
+      addFinding(
+        findings,
+        'Stage4',
+        'high',
+        'stage4_price_history_short_executable_rows',
+        'Short-history technical rows reached Stage6 executable status.',
+        shortHistoryExecutable,
+        'Block executable promotion until the OHLCV history is long enough or an explicit short-history waiver is present.'
+      );
+    } else if (shortHistoryPromoted.length || !shortHistoryPolicy.policyPresent) {
       addFinding(
         findings,
         'Stage4',
         'medium',
-        'stage4_price_history_short',
-        'Some technical rows carry fewer than 80 priceHistory bars.',
-        { shortHistory, shortHistoryExecutable, policyPresent: shortHistoryPolicy.policyPresent },
+        'stage4_price_history_short_promoted_rows',
+        'Some technical rows carry fewer than 80 priceHistory bars and were promoted beyond Stage4.',
+        { shortHistoryPromoted, policyPresent: shortHistoryPolicy.policyPresent },
         'Downgrade ICT/structure confidence when Stage4 evidence has short history.'
       );
     } else {
@@ -526,7 +655,7 @@ function stage4Audit(rows, findings, stage6Rows = [], stage5Rows = []) {
         'low',
         'stage4_short_history_non_executable_observation',
         'Short technical history was observed, but it did not reach Stage6 executable rows.',
-        shortHistory,
+        shortHistoryTelemetry,
         'Keep this visible as data-quality telemetry; escalate only if a short-history row is promoted to executable.'
       );
     }
@@ -611,7 +740,7 @@ function stage4Audit(rows, findings, stage6Rows = [], stage5Rows = []) {
   };
 }
 
-function stage5Audit(rows, findings) {
+function stage5Audit(rows, findings, stage6Rows = []) {
   const fields = [
     'ictScore',
     'ictMetrics',
@@ -713,6 +842,52 @@ function stage5Audit(rows, findings) {
       lineOf(SOURCE_FILES.stage5, /ictStopLoss/)
     );
   }
+  const stage6Symbols = new Set(stage6Rows.map((row) => normalizeSymbol(row)).filter(Boolean));
+  const stage6BySymbol = new Map(stage6Rows.map((row) => [normalizeSymbol(row), row]));
+  const executableSymbols = new Set(stage6Rows
+    .filter((row) => String(row?.finalDecision || '').toUpperCase() === 'EXECUTABLE_NOW')
+    .map((row) => normalizeSymbol(row)));
+  const fallback52wRows = rows
+    .filter((row) => String(row?.executionGeometrySource || '').toLowerCase().includes('fallback_52w'))
+    .map((row) => {
+      const symbol = normalizeSymbol(row);
+      const stage6Row = stage6BySymbol.get(symbol) || null;
+      return {
+        symbol,
+        ictScore: round(row?.ictScore),
+        ictPos: round(row?.ictPos),
+        pdZone: row?.pdZone || null,
+        otePrice: round(row?.otePrice, 4),
+        ictStopLoss: round(row?.ictStopLoss, 4),
+        executionGeometrySource: row?.executionGeometrySource || null,
+        presentInStage6: stage6Symbols.has(symbol),
+        executableInStage6: executableSymbols.has(symbol),
+        stage6Decision: stage6Row ? `${stage6Row.finalDecision || 'UNKNOWN'}/${stage6Row.decisionReason || 'unknown'}` : null
+      };
+    });
+  const fallback52wExecutableRows = fallback52wRows.filter((row) => row.executableInStage6);
+  const fallback52wStage6Rows = fallback52wRows.filter((row) => row.presentInStage6);
+  if (fallback52wExecutableRows.length) {
+    addFinding(
+      findings,
+      'Stage5',
+      'high',
+      'stage5_fallback_52w_executable_rows',
+      'Stage5 fallback_52w execution geometry reached Stage6 executable status.',
+      fallback52wExecutableRows,
+      'Require recent swing geometry or an explicit fallback waiver before executable promotion.'
+    );
+  } else if (fallback52wStage6Rows.length) {
+    addFinding(
+      findings,
+      'Stage5',
+      'medium',
+      'stage5_fallback_52w_stage6_rows',
+      'Stage5 fallback_52w execution geometry reached Stage6 final rows.',
+      fallback52wStage6Rows,
+      'Keep fallback_52w geometry out of executable promotion unless current RR/structure proof is independently confirmed.'
+    );
+  }
   return {
     coverage: cov,
     nestedCoverage: nested,
@@ -725,7 +900,9 @@ function stage5Audit(rows, findings) {
     geometrySourceCounts: countBy(rows, (row) => String(row?.executionGeometrySource || 'missing')),
     factorCarryGuardCounts: countBy(rows, (row) => String(row?.factorCarryGuard || row?.compositeBreakdown?.factorCarryGuard || 'missing')),
     executionGeometryStats: {
-      fallback52wRows: rows.filter((row) => String(row?.executionGeometrySource || '').toLowerCase().includes('fallback_52w')).length,
+      fallback52wRows: fallback52wRows.length,
+      fallback52wStage6Rows: fallback52wStage6Rows.length,
+      fallback52wExecutableRows: fallback52wExecutableRows.length,
       validEntryStopRows: rows.filter((row) => num(row?.otePrice) != null && num(row?.ictStopLoss) != null && num(row?.ictStopLoss) < num(row?.otePrice)).length,
       invalidExecutionBoxRows: invalidExecutionBox.length
     }
@@ -927,9 +1104,9 @@ function main() {
   }
 
   const stageAudits = {
-    Stage3: stage3Audit(stage3Rows.rows, findings),
+    Stage3: stage3Audit(stage3Rows.rows, findings, rows),
     Stage4: stage4Audit(stage4Rows.rows, findings, rows, stage5Rows.rows),
-    Stage5: stage5Audit(stage5Rows.rows, findings),
+    Stage5: stage5Audit(stage5Rows.rows, findings, rows),
     Stage5ToStage6: contractLinkAudit(stage6, rows, findings)
   };
   const stageScores = {};
