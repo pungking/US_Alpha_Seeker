@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const sourcePath = 'components/IctAnalysis.tsx';
 const text = fs.readFileSync(sourcePath, 'utf8');
@@ -12,15 +15,69 @@ const requiredSnippets = [
 ];
 
 const missing = requiredSnippets.filter((snippet) => !text.includes(snippet));
+
+function writeJson(filePath, payload) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function verifyFullAuditLineage() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage5-lineage-contract-'));
+  const stage3 = path.join(tmp, 'STAGE3_FUNDAMENTAL_FULL_2099-01-02_09-30-00.json');
+  const stage4 = path.join(tmp, 'STAGE4_TECHNICAL_FULL_2099-01-02_09-40-00.json');
+  const stage5 = path.join(tmp, 'STAGE5_ICT_ELITE_50_2099-01-02_09-50-00.json');
+  const stage6 = path.join(tmp, 'STAGE6_ALPHA_FINAL_2099-01-02_10-00-00.json');
+  const outJson = path.join(tmp, 'full-audit.json');
+  const outMd = path.join(tmp, 'full-audit.md');
+
+  writeJson(stage3, { manifest: { timestamp: '2099-01-02T09:30:00Z' }, fundamental_universe: [{ symbol: 'TEST' }] });
+  writeJson(stage4, { manifest: { sourceStage3File: path.basename(stage3), timestamp: '2099-01-02T09:40:00Z' }, technical_universe: [{ symbol: 'TEST' }] });
+  writeJson(stage5, { manifest: { sourceStage4File: path.basename(stage4), timestamp: '2099-01-02T09:50:00Z' }, ict_universe: [{ symbol: 'TEST' }] });
+  writeJson(stage6, { manifest: { sourceStage5File: path.basename(stage5), timestamp: '2099-01-02T10:00:00Z' }, alpha_candidates: [{ symbol: 'TEST' }] });
+
+  const result = spawnSync(process.execPath, ['scripts/build-stage3-6-full-stage-audit.mjs'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      STAGE36_FULL_AUDIT_STAGE3_PATH: stage3,
+      STAGE36_FULL_AUDIT_STAGE4_PATH: stage4,
+      STAGE36_FULL_AUDIT_STAGE5_PATH: stage5,
+      STAGE36_FULL_AUDIT_STAGE6_PATH: stage6,
+      STAGE36_FULL_AUDIT_OUT_JSON: outJson,
+      STAGE36_FULL_AUDIT_OUT_MD: outMd
+    },
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) {
+    throw new Error(`full-stage lineage fixture failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  }
+
+  const audit = JSON.parse(fs.readFileSync(outJson, 'utf8'));
+  const lineage = audit.lineage || {};
+  if (lineage.status !== 'pass_same_run_lineage' || lineage.stage5MatchesStage4 !== true) {
+    throw new Error(`lineage fixture expected pass_same_run_lineage with stage5MatchesStage4=true, got ${JSON.stringify(lineage)}`);
+  }
+  return { status: 'pass_same_run_lineage', stage5MatchesStage4: true };
+}
+
+let lineageFixture;
+try {
+  lineageFixture = missing.length ? { status: 'skipped_source_contract_missing' } : verifyFullAuditLineage();
+} catch (error) {
+  lineageFixture = { status: 'fail_full_stage_lineage_fixture', error: String(error?.message || error) };
+}
+
+const failed = missing.length > 0 || lineageFixture.status !== 'pass_same_run_lineage';
 const report = {
   generatedAt: new Date().toISOString(),
-  overall: missing.length ? 'fail_stage5_lineage_contract_missing' : 'pass_stage5_lineage_contract',
+  overall: failed ? 'fail_stage5_lineage_contract_missing' : 'pass_stage5_lineage_contract',
   sourcePath,
   requiredSnippets,
-  missing
+  missing,
+  lineageFixture
 };
 
 fs.mkdirSync('state', { recursive: true });
 fs.writeFileSync('state/stage5-lineage-contract-validation.json', `${JSON.stringify(report, null, 2)}\n`);
-console.log(`[STAGE5_LINEAGE_CONTRACT] overall=${report.overall} missing=${missing.length}`);
-if (missing.length) process.exit(1);
+console.log(`[STAGE5_LINEAGE_CONTRACT] overall=${report.overall} missing=${missing.length} fixture=${lineageFixture.status}`);
+if (failed) process.exit(1);
