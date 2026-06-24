@@ -1,9 +1,9 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-23T21:51:52.898Z
-- Overall: **pass_stage3_6_full_stage_audit**
+- GeneratedAt: 2026-06-24T00:30:58.688Z
+- Overall: **warn_stage6_runtime_proof_pending**
 - Lineage: **pass_same_run_lineage**; final quality judgement: **enabled**
-- Stage6 Runtime Proof: **pass_runtime_proof_fields_present**
+- Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
 - Safety: report-only; brokerMutationAllowed=false; sidecarMutationAllowed=false.
 
 ## Lineage
@@ -23,7 +23,7 @@ Reasons: stage3_stage4_stage5_stage6_chain_consistent
 | Stage3 | audited_report_only | 300 | STAGE3_FUNDAMENTAL_FULL_2026-06-24_01-08-10.json | fundamentalScore:300/300<br>compositeAlpha:300/300<br>qualityScore:300/300<br>integrityReasons:37/300<br>isImputed:300/300<br>dataQuality:300/300<br>roicDebtSource:300/300 |
 | Stage4 | audited_report_only | 300 | STAGE4_TECHNICAL_FULL_2026-06-24_01-26-17.json | technicalScore:300/300<br>scoreBreakdown.finalScore:300/300<br>techMetrics:300/300<br>priceHistory:300/300<br>dataSource:300/300<br>techMetrics.dataQualityState:300/300<br>techMetrics.avgDollarVolume20:300/300 |
 | Stage5 | audited_report_only | 50 | STAGE5_ICT_ELITE_50_2026-06-24_01-26-27.json | ictScore:50/50<br>ictMetrics:50/50<br>otePrice:50/50<br>ictStopLoss:50/50<br>executionGeometrySource:50/50<br>pdZone:50/50<br>compositeBreakdown.dataQualityMultiplier:50/50 |
-| Stage6 | audited_runtime_proof_present | 1 | STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json | finalDecision:1/1<br>decisionReason:1/1<br>weakPillarGateVerdict:1/1<br>qualityGateLane:0/1<br>zeroExecutableTuningLane:1/1<br>targetRecalibrationViabilityVerdict:1/1<br>riskGeometryRepairLane:1/1<br>breakoutRetestProofConfirmed:1/1 |
+| Stage6 | warn_runtime_proof_pending | 1 | STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json | finalDecision:1/1<br>decisionReason:1/1<br>weakPillarGateVerdict:1/1<br>qualityGateLane:0/1<br>zeroExecutableTuningLane:1/1<br>targetRecalibrationViabilityVerdict:1/1<br>riskGeometryRepairLane:1/1<br>breakoutRetestProofConfirmed:1/1 |
 
 ## Stage6 Runtime Proof Gate
 
@@ -39,7 +39,7 @@ Expected producer head: e3708e2f_or_later
 | structurePolicyBlockerLane | 1/1 | 100 |
 | qualityGateLane | 0/1 | 0 |
 
-Raw finalist-only missing fields (non-blocking; subreport proof passed): targetRecalibrationExecutionFloorViable, riskGeometryTargetRecalibrationProofReady, riskGeometryRrAtRequiredTargetAndRecalculatedStop, breakoutRetestProofUndercutReclaimFound, qualityGateLane
+Missing/Pending fields: targetRecalibrationExecutionFloorViable, riskGeometryTargetRecalibrationProofReady, riskGeometryRrAtRequiredTargetAndRecalculatedStop, breakoutRetestProofUndercutReclaimFound, qualityGateLane
 
 ## Blocker Summary
 
@@ -59,18 +59,19 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 
 | Report | Present | Overall | GeneratedAt | Path |
 | --- | --- | --- | --- | --- |
-| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-23T07:33:53.479Z | state/stage3-5-methodology-audit.json |
-| stage35QuantQuality | yes | pass_report_only | 2026-06-23T07:33:55.124Z | state/stage3-5-quant-quality-audit.json |
+| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-24T00:30:56.319Z | state/stage3-5-methodology-audit.json |
+| stage35QuantQuality | yes | pass_report_only | 2026-06-24T00:30:57.916Z | state/stage3-5-quant-quality-audit.json |
 | stage6FreshFocus | yes | pass_executable_present_focus_fields_ok | 2026-06-23T21:51:49.964Z | state/stage6-fresh-focus-audit.json |
 | stage6FormulaTuningBacklog | yes | pass_formula_tuning_backlog_ready | 2026-06-23T21:51:48.943Z | state/stage6-formula-tuning-backlog.json |
-| stage6RuntimeFormulaContractProof | yes | pass_formula_contract_present_executable_candidates_exist | 2026-06-23T21:51:49.298Z | state/stage6-runtime-formula-contract-proof.json |
+| stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-24T00:30:57.381Z | state/stage6-runtime-formula-contract-proof.json |
 | stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-23T21:51:52.447Z | state/stage6-formula-audit-backlog-alignment.json |
 | stage6BlockerRootCause | yes | not_available | 2026-06-22T16:07:32.922Z | state/stage6-blocker-root-cause-audit.json |
 | stage6QualityTrend | yes | not_available | 2026-06-22T16:07:34.780Z | state/stage6-quality-trend-audit.json |
 
 ## Next Actions
 
-- Proceed to bounded Stage6 producer tuning only for proven formula or blocker defects.
+- Wait for the next Auto-Scheduler run on e3708e2f or later, then run Track S6 runtime proof.
+- Continue report-only Stage3-6 audit expansion; do not submit, replace, reprice, or mutate sidecar state.
 
 ## Interpretation
 

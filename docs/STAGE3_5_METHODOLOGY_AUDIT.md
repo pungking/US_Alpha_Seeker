@@ -1,8 +1,8 @@
 # Stage3-5 Methodology Audit
 
-- GeneratedAt: 2026-06-23T07:33:53.479Z
-- Stage6: STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json
-- Stage6Hash: b149b044845b848196bfd08608b6e2f71ecca9634499ccea806a8c637259b49a
+- GeneratedAt: 2026-06-24T00:30:56.319Z
+- Stage6: STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json
+- Stage6Hash: ea95063da8d317a9815b98329be26842853ee1678e4db93f385192ac61d12a49
 - Overall: **pass_full_artifact_methodology_review**
 - Safety: report-only; no broker/state mutation.
 
@@ -19,10 +19,10 @@
 
 | Stage | Mode | File | Rows | Hash |
 | --- | --- | --- | ---: | --- |
-| Stage3 | full_stage_artifact | STAGE3_FUNDAMENTAL_FULL_2026-06-23_00-40-55.json | 300 | 487eb0917936 |
-| Stage4 | full_stage_artifact | STAGE4_TECHNICAL_FULL_2026-06-23_01-02-53.json | 300 | d34f4d6621e4 |
-| Stage5 | full_stage_artifact | STAGE5_ICT_ELITE_50_2026-06-23_01-03-03.json | 50 | e9119680a05f |
-| InterStage | stage6_contract | STAGE6_ALPHA_FINAL_2026-06-23_01-06-52.json | 2 | b149b044845b |
+| Stage3 | full_stage_artifact | STAGE3_FUNDAMENTAL_FULL_2026-06-24_01-08-10.json | 300 | c84abb37a9aa |
+| Stage4 | full_stage_artifact | STAGE4_TECHNICAL_FULL_2026-06-24_01-26-17.json | 300 | 5afb20aa673e |
+| Stage5 | full_stage_artifact | STAGE5_ICT_ELITE_50_2026-06-24_01-26-27.json | 50 | 3cc7dca68615 |
+| InterStage | stage6_contract | STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json | 1 | ea95063da8d3 |
 
 ## Findings
 
@@ -58,7 +58,7 @@
 | Metric | Value |
 | --- | --- |
 | rows | 300 |
-| scoreStats | {"count":300,"min":4.51,"max":100,"avg":59.94} |
+| scoreStats | {"count":300,"min":0,"max":100,"avg":59.54} |
 | formulaConsistency | {"compositeFormula":"clamp(qualityScore * 0.3 + fundamentalScore * 0.7)","tolerance":0.15,"mismatches":0,"sample":[]} |
 | dataQualityCounts | {"HIGH":300} |
 
@@ -67,7 +67,7 @@
 | Metric | Value |
 | --- | --- |
 | rows | 300 |
-| scoreStats | {"count":300,"min":1,"max":96,"avg":37.03} |
+| scoreStats | {"count":300,"min":1,"max":99,"avg":35.68} |
 | formulaConsistency | {"finalScoreContract":"technicalScore == scoreBreakdown.finalScore after all Stage4 overlays","tolerance":0.15,"mismatches":0,"sample":[]} |
 | shortHistoryPolicy | {"policyPresent":true,"shortHistoryRows":1,"shortHistoryExecutableRows":0,"status":"short_history_non_executable_observation"} |
 | dataSourceCounts | {"DRIVE":300} |
@@ -77,9 +77,9 @@
 | Metric | Value |
 | --- | --- |
 | rows | 50 |
-| scoreStats | {"count":50,"min":46.08,"max":93.07,"avg":71.85} |
+| scoreStats | {"count":50,"min":47.05,"max":100,"avg":75.03} |
 | formulaConsistency | {"baseWeightContract":"baseFundamentalPart=fundamentalScore*0.20; baseTechnicalPart=technicalScore*0.30; baseIctPart=ictScore*0.50","tolerance":0.15,"mismatches":0,"sample":[]} |
-| pdZoneCounts | {"PREMIUM":38,"DISCOUNT":11,"EQUILIBRIUM":1} |
+| pdZoneCounts | {"PREMIUM":41,"DISCOUNT":8,"EQUILIBRIUM":1} |
 
 ## Interpretation
 
