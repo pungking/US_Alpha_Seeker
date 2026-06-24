@@ -24,11 +24,12 @@ If the Stage6 hash was generated on a weekend or NYSE full-day holiday, it is an
 Run the focused audit after downloading the fresh Stage6 artifact:
 
 ```bash
+npm run ops:stage3-6:full:audit
 npm run ops:stage6:exec:audit
 npm run ops:stage6:fresh-focus:audit
 ```
 
-The second command writes:
+The full-stage command verifies Stage3 -> Stage4 -> Stage5 -> Stage6 same-run lineage and keeps Stage6 runtime proof separate from methodology quality. The focused Stage6 command writes:
 
 - `state/stage6-fresh-focus-audit.json`
 - `docs/STAGE6_FRESH_FOCUS_AUDIT.md`
@@ -124,7 +125,7 @@ Expected zero-executable routing:
 - stop/target geometry issues -> `STOP_TARGET_RISK_GEOMETRY_RECALCULATION` or `RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION`
 - breakout waits -> `BREAKOUT_PROOF_CONFIRMED_GENERATION`
 - explicit structure rejects -> `STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION`
-- non-actionable verdicts -> `quality_gate`
+- weak-pillar, earnings coverage, unusable verdict, conviction, or non-actionable verdict issues -> `quality_gate`
 
 ## Exit Rules
 
@@ -144,7 +145,7 @@ Record the one-shot result in this shape:
   "stage6Hash": "<fresh hash>",
   "sidecarConsumedHash": "<sidecar hash>",
   "previewStale": false,
-  "decisionAuditRows": 0,
+  "decisionAuditRows": 1,
   "payloadExpectation": "<status>",
   "topSkipReasonCategories": {},
   "brokerMutationAttempted": false,

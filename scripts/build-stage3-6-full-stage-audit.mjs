@@ -439,18 +439,22 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
 function deriveBlockerSummary(stage6Rows, subreports) {
   const fresh = subreports.stage6FreshFocus.summary || {};
   const blocker = subreports.stage6BlockerRootCause.summary || {};
+  const qualityGateRootCauses =
+    fresh.latestQualityGateLaneCounts && Object.keys(fresh.latestQualityGateLaneCounts).length
+      ? fresh.latestQualityGateLaneCounts
+      : blocker.qualityGateRootCauses || {};
   return {
     blockerCategoryCounts: fresh.blockerCategoryCounts || {},
     zeroExecutableTuningLaneCounts: fresh.zeroExecutableTuningLaneCounts || countBy(stage6Rows, (row) => row.zeroExecutableTuningLane),
-    qualityGateLaneCounts: countBy(stage6Rows, (row) => row.qualityGateLane),
-    structurePolicyBlockerLaneCounts: countBy(stage6Rows, (row) => row.structurePolicyBlockerLane),
-    riskGeometryRepairLaneCounts: countBy(stage6Rows, (row) => row.riskGeometryRepairLane),
-    breakoutRetestProofConfirmedCounts: countBy(stage6Rows, (row) => boolString(row.breakoutRetestProofConfirmed)),
+    qualityGateLaneCounts: fresh.latestQualityGateLaneCounts || countBy(stage6Rows, (row) => row.qualityGateLane),
+    structurePolicyBlockerLaneCounts: fresh.structurePolicyBlockerLaneCounts || countBy(stage6Rows, (row) => row.structurePolicyBlockerLane),
+    riskGeometryRepairLaneCounts: fresh.riskGeometryRepairLaneCounts || countBy(stage6Rows, (row) => row.riskGeometryRepairLane),
+    breakoutRetestProofConfirmedCounts: fresh.breakoutRetestProofConfirmedCounts || countBy(stage6Rows, (row) => boolString(row.breakoutRetestProofConfirmed)),
     targetRecalibrationViabilityVerdictCounts: fresh.targetRecalibrationViabilityVerdictCounts || countBy(stage6Rows, (row) => row.targetRecalibrationViabilityVerdict),
     rootCauseSummary: {
       structureWaitRootCauses: blocker.structureWaitRootCauses || {},
       riskGeometryRootCauses: blocker.riskGeometryRootCauses || {},
-      qualityGateRootCauses: blocker.qualityGateRootCauses || {}
+      qualityGateRootCauses
     }
   };
 }
