@@ -103,6 +103,33 @@ const STAGE_FIELD_GROUPS = {
   ]
 };
 
+const STAGE_DATA_HEALTH_CONFIGS = {
+  stage3: {
+    scoreFields: ['fundamentalScore', 'compositeAlpha', 'qualityScore'],
+    sourceFields: ['dataQuality', 'source', 'quoteSource', 'netIncomeSource', 'roicDebtSource'],
+    freshnessFields: ['updated', 'quoteTimestamp', 'netIncomeAsOf'],
+    fallbackFlags: ['isImputed', 'cashflowProxyUsed', 'fundamentalScoreClampApplied']
+  },
+  stage4: {
+    scoreFields: ['technicalScore', 'scoreBreakdown.finalScore', 'fundamentalScore', 'compositeAlpha'],
+    sourceFields: ['dataQuality', 'dataSource', 'quoteSource', 'techMetrics.dataQualityState'],
+    freshnessFields: ['updated', 'quoteTimestamp', 'lastUpdate'],
+    fallbackFlags: ['isImputed', 'cashflowProxyUsed', 'isTechnicalBreakout']
+  },
+  stage5: {
+    scoreFields: ['ictScore', 'technicalScore', 'fundamentalScore', 'compositeAlpha'],
+    sourceFields: ['dataQuality', 'dataSource', 'executionGeometrySource', 'factorCarryGuard', 'compositeBreakdown.dataQualityMultiplier'],
+    freshnessFields: ['updated', 'quoteTimestamp', 'lastUpdate'],
+    fallbackFlags: ['isImputed', 'cashflowProxyUsed', 'isDataDoubtful']
+  },
+  stage6: {
+    scoreFields: ['convictionScore', 'expectedReturn', 'fundamentalScore', 'technicalScore', 'ictScore'],
+    sourceFields: ['dataQuality', 'aiProvider', 'finalDecision', 'decisionReason', 'zeroExecutableTuningLane'],
+    freshnessFields: ['updated', 'quoteTimestamp', 'lastUpdate'],
+    fallbackFlags: ['aiFallbackDetected', 'breakoutRetestProofConfirmed']
+  }
+};
+
 function resolveRepo(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(ROOT, filePath);
 }
@@ -187,6 +214,17 @@ function nestedGet(row, fieldPath) {
   return String(fieldPath).split('.').reduce((cur, part) => cur?.[part], row);
 }
 
+function toNumber(value) {
+  if (value == null || value === '' || typeof value === 'boolean') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function round(value, digits = 2) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Number(n.toFixed(digits)) : null;
+}
+
 function rowsFromStageArtifact(payload, config) {
   if (Array.isArray(payload)) return payload.filter((row) => normalizeSymbol(row));
   for (const key of config.rowKeys) {
@@ -250,6 +288,61 @@ function boolString(value) {
   if (value === false) return 'false';
   if (value == null || value === '') return 'missing';
   return String(value);
+}
+
+function scoreHealth(rows, fields) {
+  return Object.fromEntries(fields.map((field) => {
+    const values = rows
+      .map((row) => toNumber(nestedGet(row, field)))
+      .filter((value) => value != null);
+    const outOfBounds = values.filter((value) => value < 0 || value > 100).length;
+    return [field, {
+      present: values.length,
+      total: rows.length,
+      min: values.length ? round(Math.min(...values)) : null,
+      max: values.length ? round(Math.max(...values)) : null,
+      outOfBounds
+    }];
+  }));
+}
+
+function flagCounts(rows, fields) {
+  return Object.fromEntries(fields.map((field) => {
+    const counts = countBy(rows, (row) => boolString(nestedGet(row, field)));
+    return [field, counts];
+  }));
+}
+
+function sourceHealth(rows, fields) {
+  return Object.fromEntries(fields.map((field) => [field, countBy(rows, (row) => nestedGet(row, field))]));
+}
+
+function priceHistoryHealth(rows) {
+  const lengths = rows.map((row) => Array.isArray(row?.priceHistory) ? row.priceHistory.length : 0);
+  const withHistory = lengths.filter((length) => length > 0);
+  return {
+    present: withHistory.length,
+    total: rows.length,
+    minBars: withHistory.length ? Math.min(...withHistory) : null,
+    maxBars: withHistory.length ? Math.max(...withHistory) : null,
+    shortHistoryRowsLt80: lengths.filter((length) => length > 0 && length < 80).length,
+    missingHistoryRows: lengths.filter((length) => length === 0).length
+  };
+}
+
+function deriveStageDataHealth(stages) {
+  return Object.fromEntries(Object.entries(stages).map(([stageKey, stage]) => {
+    const config = STAGE_DATA_HEALTH_CONFIGS[stageKey];
+    return [stageKey, {
+      rows: stage.rowCount,
+      source: stage.file,
+      scoreBounds: scoreHealth(stage.rows, config.scoreFields),
+      sourceCounts: sourceHealth(stage.rows, config.sourceFields),
+      freshnessCoverage: coverage(stage.rows, config.freshnessFields),
+      fallbackFlagCounts: flagCounts(stage.rows, config.fallbackFlags),
+      priceHistory: ['stage4', 'stage5', 'stage6'].includes(stageKey) ? priceHistoryHealth(stage.rows) : null
+    }];
+  }));
 }
 
 function pickOverall(report) {
@@ -436,6 +529,22 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
   };
 }
 
+function dataHealthFindingRows(stageDataHealth) {
+  const findings = [];
+  for (const [stage, health] of Object.entries(stageDataHealth)) {
+    for (const [field, info] of Object.entries(health.scoreBounds || {})) {
+      if (info.outOfBounds > 0) {
+        findings.push([stage, 'score_bounds', field, `${info.outOfBounds} out-of-bounds`, `${info.min}..${info.max}`]);
+      }
+    }
+    const priceHistory = health.priceHistory;
+    if (priceHistory?.missingHistoryRows > 0) {
+      findings.push([stage, 'price_history', 'priceHistory', `${priceHistory.missingHistoryRows} missing`, `present=${priceHistory.present}/${priceHistory.total}`]);
+    }
+  }
+  return findings;
+}
+
 function deriveBlockerSummary(stage6Rows, subreports) {
   const fresh = subreports.stage6FreshFocus.summary || {};
   const blocker = subreports.stage6BlockerRootCause.summary || {};
@@ -530,6 +639,15 @@ function buildMarkdown(report) {
   const blockerRows = Object.entries(report.blockerSummary)
     .filter(([key]) => key !== 'rootCauseSummary')
     .map(([key, value]) => [key, compactJson(value)]);
+  const dataHealthRows = Object.entries(report.stageDataHealth).map(([stage, health]) => [
+    stage,
+    health.rows,
+    compactJson(health.scoreBounds),
+    compactJson(health.freshnessCoverage),
+    compactJson(health.fallbackFlagCounts),
+    health.priceHistory ? compactJson(health.priceHistory) : 'N/A'
+  ]);
+  const dataHealthFindings = dataHealthFindingRows(report.stageDataHealth);
 
   return `# Stage3-6 Full Stage Audit\n\n` +
     `- GeneratedAt: ${report.generatedAt}\n` +
@@ -540,6 +658,9 @@ function buildMarkdown(report) {
     `## Lineage\n\n${mdTable(['Edge', 'Producer Source', 'Local Artifact', 'Match', 'Source Status'], lineageRows)}\n\n` +
     `Reasons: ${report.lineage.reason.join(', ')}\n\n` +
     `## Stage Verdicts\n\n${mdTable(['Stage', 'Verdict', 'Rows', 'Source', 'Coverage'], stageRows)}\n\n` +
+    `## Stage Data Health\n\n${mdTable(['Stage', 'Rows', 'Score Bounds', 'Freshness Coverage', 'Fallback Flags', 'Price History'], dataHealthRows)}\n\n` +
+    `Data health findings: ${dataHealthFindings.length ? '' : 'none'}\n\n` +
+    `${dataHealthFindings.length ? `${mdTable(['Stage', 'Category', 'Field', 'Finding', 'Range / Coverage'], dataHealthFindings)}\n\n` : ''}` +
     `## Stage6 Runtime Proof Gate\n\n` +
     `Expected producer head: ${report.runtimeProof.expectedProducerHead}\n\n` +
     `${mdTable(['Field', 'Present / Total', 'Pct'], runtimeRows)}\n\n` +
@@ -562,6 +683,7 @@ function main() {
   const lineage = deriveLineage(stages);
   const runtimeProof = deriveRuntimeProof(stages.stage6.rows, subreports);
   const stageVerdicts = deriveStageVerdicts(stages, subreports, runtimeProof);
+  const stageDataHealth = deriveStageDataHealth(stages);
   const blockerSummary = deriveBlockerSummary(stages.stage6.rows, subreports);
   const overall = deriveOverall({ lineage, runtimeProof, stages });
   const report = {
@@ -586,6 +708,7 @@ function main() {
     lineage,
     runtimeProof,
     stageVerdicts,
+    stageDataHealth,
     blockerSummary,
     auditSources: subreports,
     nextActions: nextActions(overall, lineage, runtimeProof)
