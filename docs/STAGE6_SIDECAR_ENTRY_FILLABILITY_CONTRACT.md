@@ -38,6 +38,8 @@ If the original Stage6 entry is too far from current price, or the current price
 | `executionFeasibilityAtCurrentMaxDistancePct` | number | Adaptive max distance used for Stage6-sidecar fillability alignment. |
 | `executionFeasibilityAtCurrentMinTargetBufferPct` | number | Minimum target buffer from current price. |
 | `executionFeasibilityAtCurrentBasis` | string | Basis such as `ORIGINAL_STAGE6_STOP_AT_CURRENT`, `ADAPTIVE_CURRENT_ENTRY_CONTRACT`, or `RECALCULATED_STOP_CURRENT_ENTRY_CONTRACT`. |
+| `fillabilityPolicyVerdict` | string | Sidecar-friendly alias derived from `executionFeasibilityAtCurrent`. |
+| `entryTimingPolicyVerdict` | string | Sidecar-friendly alias derived from `executionFeasibilityAtCurrentVerdict`. |
 
 ## Downgrade Semantics
 

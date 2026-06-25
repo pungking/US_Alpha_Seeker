@@ -105,6 +105,8 @@ interface AlphaCandidate {
   executionFeasibilityAtCurrentMaxDistancePct?: number | null;
   executionFeasibilityAtCurrentMinTargetBufferPct?: number | null;
   executionFeasibilityAtCurrentBasis?: string | null;
+  fillabilityPolicyVerdict?: string | null;
+  entryTimingPolicyVerdict?: string | null;
   currentEntryRequiredStopPrice?: number | null;
   currentEntryRequiredStopDistancePct?: number | null;
   currentEntryRecalcFeasible?: boolean | null;
@@ -8030,6 +8032,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               : useBreakoutRetestCurrentEntry
                   ? breakoutRetestCurrentEntryFeasibility
                   : originalStopCurrentFeasibility;
+          const fillabilityPolicyVerdict =
+              executionFeasibilityAtCurrent.status === 'PASS'
+                  ? 'FILLABILITY_POLICY_PASS'
+                  : executionFeasibilityAtCurrent.status === 'BLOCKED'
+                      ? 'FILLABILITY_POLICY_BLOCKED'
+                      : 'FILLABILITY_POLICY_UNKNOWN';
+          const entryTimingPolicyVerdict = executionFeasibilityAtCurrent.verdict;
           const contractTradePlanStatus: AlphaCandidate["tradePlanStatusShadow"] =
               useAdaptiveCurrentEntry || useRecalculatedCurrentEntry ? 'VALID_EXEC' : tradePlanStatusShadow;
           const contractExecutionReason: AlphaCandidate["executionReason"] =
@@ -8192,6 +8201,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionFeasibilityAtCurrentMaxDistancePct: executionFeasibilityAtCurrent.maxDistancePct,
               executionFeasibilityAtCurrentMinTargetBufferPct: executionFeasibilityAtCurrent.minTargetBufferPct,
               executionFeasibilityAtCurrentBasis: executionFeasibilityAtCurrent.basis,
+              fillabilityPolicyVerdict,
+              entryTimingPolicyVerdict,
               earningsDate: earningsLineage.earningsDate,
               earningsDaysToEvent: earningsLineage.earningsDaysToEvent,
               earningsSource: earningsLineage.earningsSource,
@@ -8493,6 +8504,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionFeasibilityAtCurrentMaxDistancePct: executionContract.executionFeasibilityAtCurrentMaxDistancePct,
               executionFeasibilityAtCurrentMinTargetBufferPct: executionContract.executionFeasibilityAtCurrentMinTargetBufferPct,
               executionFeasibilityAtCurrentBasis: executionContract.executionFeasibilityAtCurrentBasis,
+              fillabilityPolicyVerdict: executionContract.fillabilityPolicyVerdict,
+              entryTimingPolicyVerdict: executionContract.entryTimingPolicyVerdict,
               currentEntryRequiredStopPrice: executionContract.currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct: executionContract.currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible: executionContract.currentEntryRecalcFeasible,
@@ -9061,6 +9074,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionFeasibilityAtCurrentMaxDistancePct: executionContract.executionFeasibilityAtCurrentMaxDistancePct,
               executionFeasibilityAtCurrentMinTargetBufferPct: executionContract.executionFeasibilityAtCurrentMinTargetBufferPct,
               executionFeasibilityAtCurrentBasis: executionContract.executionFeasibilityAtCurrentBasis,
+              fillabilityPolicyVerdict: executionContract.fillabilityPolicyVerdict,
+              entryTimingPolicyVerdict: executionContract.entryTimingPolicyVerdict,
               currentEntryRequiredStopPrice: executionContract.currentEntryRequiredStopPrice,
               currentEntryRequiredStopDistancePct: executionContract.currentEntryRequiredStopDistancePct,
               currentEntryRecalcFeasible: executionContract.currentEntryRecalcFeasible,
@@ -9457,6 +9472,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionFeasibilityAtCurrentMaxDistancePct: toOptionalFiniteNumber(item.executionFeasibilityAtCurrentMaxDistancePct),
               executionFeasibilityAtCurrentMinTargetBufferPct: toOptionalFiniteNumber(item.executionFeasibilityAtCurrentMinTargetBufferPct),
               executionFeasibilityAtCurrentBasis: normalizeOptionalText(item.executionFeasibilityAtCurrentBasis),
+              fillabilityPolicyVerdict: normalizeOptionalText(item.fillabilityPolicyVerdict),
+              entryTimingPolicyVerdict: normalizeOptionalText(item.entryTimingPolicyVerdict),
               currentEntryRequiredStopPrice: toOptionalFiniteNumber(item.currentEntryRequiredStopPrice),
               currentEntryRequiredStopDistancePct: toOptionalFiniteNumber(item.currentEntryRequiredStopDistancePct),
               currentEntryRecalcFeasible: Boolean(item.currentEntryRecalcFeasible),
@@ -9719,6 +9736,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionFeasibilityAtCurrentMaxDistancePct: toOptionalFiniteNumber(item?.executionFeasibilityAtCurrentMaxDistancePct),
               executionFeasibilityAtCurrentMinTargetBufferPct: toOptionalFiniteNumber(item?.executionFeasibilityAtCurrentMinTargetBufferPct),
               executionFeasibilityAtCurrentBasis: normalizeOptionalText(item?.executionFeasibilityAtCurrentBasis),
+              fillabilityPolicyVerdict: normalizeOptionalText(item?.fillabilityPolicyVerdict),
+              entryTimingPolicyVerdict: normalizeOptionalText(item?.entryTimingPolicyVerdict),
               currentEntryRequiredStopPrice: toOptionalFiniteNumber(item?.currentEntryRequiredStopPrice),
               currentEntryRequiredStopDistancePct: toOptionalFiniteNumber(item?.currentEntryRequiredStopDistancePct),
               currentEntryRecalcFeasible: Boolean(item?.currentEntryRecalcFeasible),
