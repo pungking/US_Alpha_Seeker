@@ -1,6 +1,6 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-24T00:30:58.688Z
+- GeneratedAt: 2026-06-24T23:18:00.714Z
 - Overall: **warn_stage6_runtime_proof_pending**
 - Lineage: **pass_same_run_lineage**; final quality judgement: **enabled**
 - Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
@@ -45,26 +45,26 @@ Missing/Pending fields: targetRecalibrationExecutionFloorViable, riskGeometryTar
 
 | Metric | Counts |
 | --- | --- |
-| blockerCategoryCounts | {"risk_geometry":3,"target_recalibration":1,"structure":1,"breakout":1,"other":1} |
+| blockerCategoryCounts | {"risk_geometry":3,"target_recalibration":1,"structure":1,"breakout":1,"quality_gate":1} |
 | zeroExecutableTuningLaneCounts | {"NO_ZERO_EXECUTABLE_TUNING_ACTION":2,"TARGET_RECALIBRATION":2,"STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION":1,"BREAKOUT_PROOF_CONFIRMED_GENERATION":1,"RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION":1} |
-| qualityGateLaneCounts | {"unknown":1} |
-| structurePolicyBlockerLaneCounts | {"not_applicable":1} |
-| riskGeometryRepairLaneCounts | {"not_applicable":1} |
-| breakoutRetestProofConfirmedCounts | {"true":1} |
+| qualityGateLaneCounts | {"weak_pillar_execution_gate":1} |
+| structurePolicyBlockerLaneCounts | {"not_applicable":6,"STRUCTURE_CURRENT_RR_WEAK":1} |
+| riskGeometryRepairLaneCounts | {"not_applicable":4,"TARGET_NO_TRADE":2,"RISK_GEOMETRY_PROOF_INCOMPLETE":1} |
+| breakoutRetestProofConfirmedCounts | {"true":1,"false":6} |
 | targetRecalibrationViabilityVerdictCounts | {"TARGET_VIABILITY_NOT_APPLICABLE":5,"TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT":2} |
 
-Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RISK_GEOMETRY_INVALID_NO_TRADE":2,"STOP_GEOMETRY_RECALIBRATION_REQUIRED":1},"qualityGateRootCauses":{"QUALITY_GATE_REASON_UNRESOLVED":1}}
+Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RISK_GEOMETRY_INVALID_NO_TRADE":2,"STOP_GEOMETRY_RECALIBRATION_REQUIRED":1},"qualityGateRootCauses":{"weak_pillar_execution_gate":1}}
 
 ## Integrated Subreports
 
 | Report | Present | Overall | GeneratedAt | Path |
 | --- | --- | --- | --- | --- |
-| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-24T00:30:56.319Z | state/stage3-5-methodology-audit.json |
-| stage35QuantQuality | yes | pass_report_only | 2026-06-24T00:30:57.916Z | state/stage3-5-quant-quality-audit.json |
-| stage6FreshFocus | yes | pass_executable_present_focus_fields_ok | 2026-06-23T21:51:49.964Z | state/stage6-fresh-focus-audit.json |
-| stage6FormulaTuningBacklog | yes | pass_formula_tuning_backlog_ready | 2026-06-23T21:51:48.943Z | state/stage6-formula-tuning-backlog.json |
-| stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-24T00:30:57.381Z | state/stage6-runtime-formula-contract-proof.json |
-| stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-23T21:51:52.447Z | state/stage6-formula-audit-backlog-alignment.json |
+| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-24T23:17:54.475Z | state/stage3-5-methodology-audit.json |
+| stage35QuantQuality | yes | pass_report_only | 2026-06-24T23:17:55.696Z | state/stage3-5-quant-quality-audit.json |
+| stage6FreshFocus | yes | pass_executable_present_focus_fields_ok | 2026-06-24T23:17:56.382Z | state/stage6-fresh-focus-audit.json |
+| stage6FormulaTuningBacklog | yes | pass_formula_tuning_backlog_ready | 2026-06-24T23:17:57.616Z | state/stage6-formula-tuning-backlog.json |
+| stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-24T23:17:57.929Z | state/stage6-runtime-formula-contract-proof.json |
+| stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-24T23:18:00.404Z | state/stage6-formula-audit-backlog-alignment.json |
 | stage6BlockerRootCause | yes | not_available | 2026-06-22T16:07:32.922Z | state/stage6-blocker-root-cause-audit.json |
 | stage6QualityTrend | yes | not_available | 2026-06-22T16:07:34.780Z | state/stage6-quality-trend-audit.json |
 

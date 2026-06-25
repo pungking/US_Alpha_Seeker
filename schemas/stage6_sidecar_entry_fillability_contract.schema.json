@@ -112,6 +112,8 @@
         "executionFeasibilityAtCurrentMaxDistancePct": { "$ref": "#/$defs/nullableNumber" },
         "executionFeasibilityAtCurrentMinTargetBufferPct": { "$ref": "#/$defs/nullableNumber" },
         "executionFeasibilityAtCurrentBasis": { "$ref": "#/$defs/nullableString" },
+        "fillabilityPolicyVerdict": { "$ref": "#/$defs/nullableString" },
+        "entryTimingPolicyVerdict": { "$ref": "#/$defs/nullableString" },
         "chosenPlanType": { "$ref": "#/$defs/nullableString" },
         "currentEntryRecalcFeasible": { "$ref": "#/$defs/nullableBoolean" },
         "currentEntryStructureConfirmed": { "$ref": "#/$defs/nullableBoolean" },

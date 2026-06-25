@@ -248,7 +248,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
     },
     {
       "symbol": "CURRENT_RECALC_EXEC",
@@ -352,7 +354,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
     },
     {
       "symbol": "WAIT1",
@@ -431,7 +435,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND"
     },
     {
       "symbol": "SPEC_WAIT",
@@ -517,7 +523,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
     },
     {
       "symbol": "STRUCT_REJECT_WAIT",
@@ -624,7 +632,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN"
     },
     {
       "symbol": "STRUCT_OVERBLOCK_REVIEW_WAIT",
@@ -730,7 +740,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
     },
     {
       "symbol": "BREAKOUT_REVIEW_WAIT",
@@ -845,7 +857,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND"
     },
     {
       "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
@@ -954,7 +968,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND"
     },
     {
       "symbol": "TARGET_NEAR_WAIT",
@@ -1108,7 +1124,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN"
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -1265,7 +1283,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN"
     },
     {
       "symbol": "TARGET_REACHED_NO_TRADE",
@@ -1419,7 +1439,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN"
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -1533,7 +1555,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_RECALC_WAIT",
@@ -1667,7 +1691,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN"
     },
     {
       "symbol": "WEAK_PILLAR_WAIT",
@@ -1765,7 +1791,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_GAP_NO_TRADE",
@@ -1902,7 +1930,9 @@
       "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
       "currentEntryStructureSupportStopGapPct": 0,
       "currentEntryStructureStopAboveSupportPct": 0,
-      "currentEntryStructureStopBelowSupportPct": 0
+      "currentEntryStructureStopBelowSupportPct": 0,
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
+      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN"
     }
   ]
 }

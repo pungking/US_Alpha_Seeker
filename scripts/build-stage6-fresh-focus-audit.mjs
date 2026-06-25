@@ -312,7 +312,7 @@ function blockerCategory(row) {
   if (reason.includes('structure')) return 'structure';
   if (reason.includes('breakout') || reason.includes('retest')) return 'breakout';
   if (reason.includes('target')) return 'target_recalibration';
-  if (reason.includes('earnings') || reason.includes('quality') || reason.includes('verdict')) return 'quality_gate';
+  if (qualityGateLane(row) || reason.includes('earnings') || reason.includes('quality') || reason.includes('verdict')) return 'quality_gate';
   if (reason.includes('rr') || reason.includes('stop') || reason.includes('geometry')) return 'risk_geometry';
   if (reason.includes('pullback') || reason.includes('distance')) return 'entry_distance';
   return 'other';
@@ -1024,6 +1024,8 @@ function main() {
       rawExecutableDowngradedRows: rawExecutableDowngradeRows.length,
       latestQualityGateLaneCounts: countBy(qualityGateRows, qualityGateLane),
       zeroExecutableTuningLaneCounts: countBy(rows, (row) => row?.zeroExecutableTuningLane || 'missing'),
+      structurePolicyBlockerLaneCounts: countBy(rows, (row) => row?.structurePolicyBlockerLane || 'missing'),
+      riskGeometryRepairLaneCounts: countBy(rows, (row) => row?.riskGeometryRepairLane || 'missing'),
       breakoutRetestProofConfirmedCounts: countBy(rows, (row) => String(row?.breakoutRetestProofConfirmed ?? 'missing')),
       breakoutRetestProofReviewReadyCounts: countBy(rows, (row) => String(row?.breakoutRetestProofReviewReady ?? 'missing')),
       breakoutContinuationConfirmedCounts: countBy(rows, (row) => String(row?.breakoutRetestProofContinuationConfirmed ?? 'missing')),

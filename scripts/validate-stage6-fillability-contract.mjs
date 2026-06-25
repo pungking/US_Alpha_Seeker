@@ -242,7 +242,9 @@ const requiredSchemaFields = [
   'currentEntryStructureConfirmed',
   'currentEntryRequiredStopPrice',
   'currentEntryRequiredStopDistancePct',
-  'executionActionableVerdict'
+  'executionActionableVerdict',
+  'fillabilityPolicyVerdict',
+  'entryTimingPolicyVerdict'
 ];
 for (const field of requiredSchemaFields) {
   if (!Object.prototype.hasOwnProperty.call(schemaCandidateProperties, field)) {
@@ -314,6 +316,18 @@ for (const [idx, row] of candidates.entries()) {
   if (!row.symbol) errors.push(`${label}: symbol missing`);
   if (!['EXECUTABLE_NOW', 'WAIT_PRICE', 'BLOCKED_RISK', 'BLOCKED_EVENT'].includes(row.finalDecision)) errors.push(`${label}: invalid finalDecision`);
   if (!['PASS', 'BLOCKED', 'UNKNOWN'].includes(row.executionFeasibilityAtCurrent)) errors.push(`${label}: invalid executionFeasibilityAtCurrent`);
+  const expectedFillabilityPolicyVerdict =
+    row.executionFeasibilityAtCurrent === 'PASS'
+      ? 'FILLABILITY_POLICY_PASS'
+      : row.executionFeasibilityAtCurrent === 'BLOCKED'
+        ? 'FILLABILITY_POLICY_BLOCKED'
+        : 'FILLABILITY_POLICY_UNKNOWN';
+  if (row.fillabilityPolicyVerdict !== expectedFillabilityPolicyVerdict) {
+    errors.push(`${label}: fillabilityPolicyVerdict must mirror executionFeasibilityAtCurrent`);
+  }
+  if (row.entryTimingPolicyVerdict !== row.executionFeasibilityAtCurrentVerdict) {
+    errors.push(`${label}: entryTimingPolicyVerdict must mirror executionFeasibilityAtCurrentVerdict`);
+  }
   const actionableVerdict = actionableVerdicts.has(verdictKey(row.aiVerdict || row.verdictFinal || row.verdict));
   if (row.finalDecision === 'EXECUTABLE_NOW') {
     if (!actionableVerdict) errors.push(`${label}: executable verdict is not sidecar-actionable`);
