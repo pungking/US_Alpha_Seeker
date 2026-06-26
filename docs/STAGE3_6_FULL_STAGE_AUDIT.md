@@ -1,6 +1,6 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-25T23:31:34.289Z
+- GeneratedAt: 2026-06-26T04:28:57.207Z
 - Overall: **warn_stage6_runtime_proof_pending**
 - Lineage: **pass_same_run_lineage**; final quality judgement: **enabled**
 - Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
@@ -36,6 +36,31 @@ Reasons: stage3_stage4_stage5_stage6_chain_consistent
 
 Data health findings: none
 
+## Stage6 Entry / Fillability Evidence
+
+| Field | Present / Total | Pct | Numeric Range |
+| --- | --- | --- | --- |
+| entryDistancePct | 1/1 | 100 | 0..0 |
+| rrAtCurrent | 1/1 | 100 | 2..2 |
+| rrAtEntry | 0/1 | 0 | N/A..N/A |
+| targetBufferPct | 1/1 | 100 | 23.03..23.03 |
+| fillabilityPolicyVerdict | 0/1 | 0 | N/A |
+| entryTimingPolicyVerdict | 1/1 | 100 | N/A |
+| zeroExecutableTuningLane | 1/1 | 100 | N/A |
+| qualityGateLane | 0/1 | 0 | N/A |
+| targetRecalibrationViabilityVerdict | 1/1 | 100 | N/A |
+| riskGeometryPolicyVerdict | 1/1 | 100 | N/A |
+| breakoutRetestProofConfirmed | 1/1 | 100 | N/A |
+
+| Policy Field | Counts |
+| --- | --- |
+| fillabilityPolicyVerdict | {"unknown":1} |
+| entryTimingPolicyVerdict | {"CURRENT_ENTRY_FEASIBLE":1} |
+| finalDecision | {"EXECUTABLE_NOW":1} |
+| decisionReason | {"executable_current_recalculated_stop":1} |
+| zeroExecutableTuningLane | {"NO_ZERO_EXECUTABLE_TUNING_ACTION":1} |
+| qualityGateLane | {"unknown":1} |
+
 ## Stage6 Runtime Proof Gate
 
 Expected producer head: e3708e2f_or_later
@@ -70,9 +95,9 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 
 | Report | Present | Overall | GeneratedAt | Path |
 | --- | --- | --- | --- | --- |
-| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-25T23:31:29.248Z | state/stage3-5-methodology-audit.json |
-| stage35QuantQuality | yes | pass_report_only | 2026-06-25T23:31:31.837Z | state/stage3-5-quant-quality-audit.json |
-| stage6FreshFocus | yes | pass_executable_present_focus_fields_ok | 2026-06-25T23:31:33.499Z | state/stage6-fresh-focus-audit.json |
+| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-26T04:24:31.268Z | state/stage3-5-methodology-audit.json |
+| stage35QuantQuality | yes | pass_report_only | 2026-06-26T04:24:33.535Z | state/stage3-5-quant-quality-audit.json |
+| stage6FreshFocus | yes | pass_executable_present_focus_fields_ok | 2026-06-26T04:24:34.856Z | state/stage6-fresh-focus-audit.json |
 | stage6FormulaTuningBacklog | yes | pass_formula_tuning_backlog_ready | 2026-06-24T23:17:57.616Z | state/stage6-formula-tuning-backlog.json |
 | stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-25T23:16:57.643Z | state/stage6-runtime-formula-contract-proof.json |
 | stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-24T23:18:00.404Z | state/stage6-formula-audit-backlog-alignment.json |
