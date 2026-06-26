@@ -1,6 +1,6 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-26T04:32:39.327Z
+- GeneratedAt: 2026-06-26T05:00:17.602Z
 - Overall: **warn_stage6_runtime_proof_pending**
 - Lineage: **pass_same_run_lineage**; final quality judgement: **enabled**
 - Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
@@ -38,13 +38,13 @@ Data health findings: none
 
 ## Stage6 Entry / Fillability Evidence
 
-Status: **pending_entry_fillability_evidence**. Missing core fields: rrAtEntry, fillabilityPolicyVerdict
+Status: **pending_entry_fillability_evidence**. Missing core fields: fillabilityPolicyVerdict
 
 | Field | Present / Total | Pct | Numeric Range |
 | --- | --- | --- | --- |
 | entryDistancePct | 1/1 | 100 | 0..0 |
 | rrAtCurrent | 1/1 | 100 | 2..2 |
-| rrAtEntry | 0/1 | 0 | N/A..N/A |
+| rrAtEntry | 1/1 | 100 | 2..2 |
 | targetBufferPct | 1/1 | 100 | 23.03..23.03 |
 | fillabilityPolicyVerdict | 0/1 | 0 | N/A |
 | entryTimingPolicyVerdict | 1/1 | 100 | N/A |
@@ -109,7 +109,7 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 ## Next Actions
 
 - Wait for the next Auto-Scheduler run on e3708e2f or later, then run Track S6 runtime proof.
-- Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: rrAtEntry, fillabilityPolicyVerdict.
+- Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: fillabilityPolicyVerdict.
 - Continue report-only Stage3-6 audit expansion; do not submit, replace, reprice, or mutate sidecar state.
 
 ## Interpretation
