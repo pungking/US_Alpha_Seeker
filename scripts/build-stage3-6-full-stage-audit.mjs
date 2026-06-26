@@ -133,7 +133,7 @@ const STAGE_DATA_HEALTH_CONFIGS = {
 const STAGE6_ENTRY_EVIDENCE_FIELDS = [
   { label: 'entryDistancePct', fields: ['entryDistancePct', 'entryDistancePctShadow'] },
   { label: 'rrAtCurrent', fields: ['rrAtCurrent', 'rrAtCurrentPrice'] },
-  { label: 'rrAtEntry', fields: ['rrAtEntry', 'riskRewardRatio'] },
+  { label: 'rrAtEntry', fields: ['rrAtEntry', 'riskRewardRatioValue', 'riskRewardRatio'] },
   { label: 'targetBufferPct', fields: ['targetBufferPct', 'targetBufferFromCurrentPct'] },
   { label: 'fillabilityPolicyVerdict', fields: ['fillabilityPolicyVerdict'] },
   { label: 'entryTimingPolicyVerdict', fields: ['entryTimingPolicyVerdict', 'executionFeasibilityAtCurrentVerdict'] },

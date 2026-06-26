@@ -93,6 +93,7 @@ interface AlphaCandidate {
     | 'NO_TRADE_CURRENT_RR_BAD'
     | 'OBSERVE_ONLY';
   rrAtCurrentPrice?: number | null;
+  rrAtEntry?: number | null;
   targetBufferFromCurrentPct?: number | null;
   currentPriceStopDistancePct?: number | null;
   executionFeasibilityAtCurrent?: 'PASS' | 'BLOCKED' | 'UNKNOWN';
@@ -8203,6 +8204,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionFeasibilityAtCurrentBasis: executionFeasibilityAtCurrent.basis,
               fillabilityPolicyVerdict,
               entryTimingPolicyVerdict,
+              rrAtEntry: contractRiskRewardRatioValue,
               earningsDate: earningsLineage.earningsDate,
               earningsDaysToEvent: earningsLineage.earningsDaysToEvent,
               earningsSource: earningsLineage.earningsSource,
@@ -8492,6 +8494,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               chosenPlanType: executionContract.chosenPlanType,
               entryTactic: executionContract.entryTactic,
               rrAtCurrentPrice: executionContract.rrAtCurrentPrice,
+              rrAtEntry: executionContract.rrAtEntry,
               targetBufferFromCurrentPct: executionContract.targetBufferFromCurrentPct,
               currentPriceStopDistancePct: executionContract.currentPriceStopDistancePct,
               executionFeasibilityAtCurrent: executionContract.executionFeasibilityAtCurrent,
@@ -9062,6 +9065,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               chosenPlanType: executionContract.chosenPlanType,
               entryTactic: executionContract.entryTactic,
               rrAtCurrentPrice: executionContract.rrAtCurrentPrice,
+              rrAtEntry: executionContract.rrAtEntry,
               targetBufferFromCurrentPct: executionContract.targetBufferFromCurrentPct,
               currentPriceStopDistancePct: executionContract.currentPriceStopDistancePct,
               executionFeasibilityAtCurrent: executionContract.executionFeasibilityAtCurrent,
