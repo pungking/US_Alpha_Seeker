@@ -103,6 +103,56 @@ const STAGE_FIELD_GROUPS = {
   ]
 };
 
+const STAGE_DATA_HEALTH_CONFIGS = {
+  stage3: {
+    scoreFields: ['fundamentalScore', 'compositeAlpha', 'qualityScore'],
+    sourceFields: ['dataQuality', 'source', 'quoteSource', 'netIncomeSource', 'roicDebtSource'],
+    freshnessFields: ['updated', 'quoteTimestamp', 'netIncomeAsOf'],
+    fallbackFlags: ['isImputed', 'cashflowProxyUsed', 'fundamentalScoreClampApplied']
+  },
+  stage4: {
+    scoreFields: ['technicalScore', 'scoreBreakdown.finalScore', 'fundamentalScore', 'compositeAlpha'],
+    sourceFields: ['dataQuality', 'dataSource', 'quoteSource', 'techMetrics.dataQualityState'],
+    freshnessFields: ['updated', 'quoteTimestamp', 'lastUpdate'],
+    fallbackFlags: ['isImputed', 'cashflowProxyUsed', 'isTechnicalBreakout']
+  },
+  stage5: {
+    scoreFields: ['ictScore', 'technicalScore', 'fundamentalScore', 'compositeAlpha'],
+    sourceFields: ['dataQuality', 'dataSource', 'executionGeometrySource', 'factorCarryGuard', 'compositeBreakdown.dataQualityMultiplier'],
+    freshnessFields: ['updated', 'quoteTimestamp', 'lastUpdate'],
+    fallbackFlags: ['isImputed', 'cashflowProxyUsed', 'isDataDoubtful']
+  },
+  stage6: {
+    scoreFields: ['convictionScore', 'expectedReturn', 'fundamentalScore', 'technicalScore', 'ictScore'],
+    sourceFields: ['dataQuality', 'aiProvider', 'finalDecision', 'decisionReason', 'zeroExecutableTuningLane'],
+    freshnessFields: ['updated', 'quoteTimestamp', 'lastUpdate'],
+    fallbackFlags: ['aiFallbackDetected', 'breakoutRetestProofConfirmed']
+  }
+};
+
+const STAGE6_ENTRY_EVIDENCE_FIELDS = [
+  { label: 'entryDistancePct', fields: ['entryDistancePct', 'entryDistancePctShadow'] },
+  { label: 'rrAtCurrent', fields: ['rrAtCurrent', 'rrAtCurrentPrice'] },
+  { label: 'rrAtEntry', fields: ['rrAtEntry', 'riskRewardRatio'] },
+  { label: 'targetBufferPct', fields: ['targetBufferPct', 'targetBufferFromCurrentPct'] },
+  { label: 'fillabilityPolicyVerdict', fields: ['fillabilityPolicyVerdict'] },
+  { label: 'entryTimingPolicyVerdict', fields: ['entryTimingPolicyVerdict', 'executionFeasibilityAtCurrentVerdict'] },
+  { label: 'zeroExecutableTuningLane', fields: ['zeroExecutableTuningLane'] },
+  { label: 'qualityGateLane', fields: ['qualityGateLane'] },
+  { label: 'targetRecalibrationViabilityVerdict', fields: ['targetRecalibrationViabilityVerdict'] },
+  { label: 'riskGeometryPolicyVerdict', fields: ['riskGeometryPolicyVerdict'] },
+  { label: 'breakoutRetestProofConfirmed', fields: ['breakoutRetestProofConfirmed'] }
+];
+
+const STAGE6_ENTRY_CORE_EVIDENCE_FIELDS = [
+  'entryDistancePct',
+  'rrAtCurrent',
+  'rrAtEntry',
+  'targetBufferPct',
+  'fillabilityPolicyVerdict',
+  'entryTimingPolicyVerdict'
+];
+
 function resolveRepo(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(ROOT, filePath);
 }
@@ -187,6 +237,25 @@ function nestedGet(row, fieldPath) {
   return String(fieldPath).split('.').reduce((cur, part) => cur?.[part], row);
 }
 
+function firstPresent(row, fields) {
+  for (const field of fields) {
+    const value = nestedGet(row, field);
+    if (isPresent(value)) return value;
+  }
+  return null;
+}
+
+function toNumber(value) {
+  if (value == null || value === '' || typeof value === 'boolean') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function round(value, digits = 2) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Number(n.toFixed(digits)) : null;
+}
+
 function rowsFromStageArtifact(payload, config) {
   if (Array.isArray(payload)) return payload.filter((row) => normalizeSymbol(row));
   for (const key of config.rowKeys) {
@@ -250,6 +319,100 @@ function boolString(value) {
   if (value === false) return 'false';
   if (value == null || value === '') return 'missing';
   return String(value);
+}
+
+function scoreHealth(rows, fields) {
+  return Object.fromEntries(fields.map((field) => {
+    const values = rows
+      .map((row) => toNumber(nestedGet(row, field)))
+      .filter((value) => value != null);
+    const outOfBounds = values.filter((value) => value < 0 || value > 100).length;
+    return [field, {
+      present: values.length,
+      total: rows.length,
+      min: values.length ? round(Math.min(...values)) : null,
+      max: values.length ? round(Math.max(...values)) : null,
+      outOfBounds
+    }];
+  }));
+}
+
+function flagCounts(rows, fields) {
+  return Object.fromEntries(fields.map((field) => {
+    const counts = countBy(rows, (row) => boolString(nestedGet(row, field)));
+    return [field, counts];
+  }));
+}
+
+function sourceHealth(rows, fields) {
+  return Object.fromEntries(fields.map((field) => [field, countBy(rows, (row) => nestedGet(row, field))]));
+}
+
+function priceHistoryHealth(rows) {
+  const lengths = rows.map((row) => Array.isArray(row?.priceHistory) ? row.priceHistory.length : 0);
+  const withHistory = lengths.filter((length) => length > 0);
+  return {
+    present: withHistory.length,
+    total: rows.length,
+    minBars: withHistory.length ? Math.min(...withHistory) : null,
+    maxBars: withHistory.length ? Math.max(...withHistory) : null,
+    shortHistoryRowsLt80: lengths.filter((length) => length > 0 && length < 80).length,
+    missingHistoryRows: lengths.filter((length) => length === 0).length
+  };
+}
+
+function deriveStageDataHealth(stages) {
+  return Object.fromEntries(Object.entries(stages).map(([stageKey, stage]) => {
+    const config = STAGE_DATA_HEALTH_CONFIGS[stageKey];
+    return [stageKey, {
+      rows: stage.rowCount,
+      source: stage.file,
+      scoreBounds: scoreHealth(stage.rows, config.scoreFields),
+      sourceCounts: sourceHealth(stage.rows, config.sourceFields),
+      freshnessCoverage: coverage(stage.rows, config.freshnessFields),
+      fallbackFlagCounts: flagCounts(stage.rows, config.fallbackFlags),
+      priceHistory: ['stage4', 'stage5', 'stage6'].includes(stageKey) ? priceHistoryHealth(stage.rows) : null
+    }];
+  }));
+}
+
+function deriveStage6EntryEvidence(rows) {
+  const fieldCoverage = Object.fromEntries(STAGE6_ENTRY_EVIDENCE_FIELDS.map(({ label, fields }) => {
+    const present = rows.filter((row) => isPresent(firstPresent(row, fields))).length;
+    return [label, { present, total: rows.length, pct: rows.length ? round((present / rows.length) * 100, 1) : 0 }];
+  }));
+  const missingCoreFields = STAGE6_ENTRY_CORE_EVIDENCE_FIELDS.filter((field) => {
+    const info = fieldCoverage[field];
+    return !info || info.total === 0 || info.present < info.total;
+  });
+  const numericRanges = Object.fromEntries(STAGE6_ENTRY_EVIDENCE_FIELDS.slice(0, 4).map(({ label, fields }) => {
+    const values = rows.map((row) => toNumber(firstPresent(row, fields))).filter((value) => value != null);
+    return [label, {
+      present: values.length,
+      total: rows.length,
+      min: values.length ? round(Math.min(...values), 4) : null,
+      max: values.length ? round(Math.max(...values), 4) : null
+    }];
+  }));
+  return {
+    status: rows.length === 0
+      ? 'no_stage6_rows'
+      : missingCoreFields.length
+        ? 'pending_entry_fillability_evidence'
+        : 'pass_entry_fillability_evidence_present',
+    rows: rows.length,
+    missingCoreFields,
+    fieldCoverage,
+    numericRanges,
+    policyCounts: {
+      fillabilityPolicyVerdict: countBy(rows, (row) => firstPresent(row, ['fillabilityPolicyVerdict'])),
+      entryTimingPolicyVerdict: countBy(rows, (row) => firstPresent(row, ['entryTimingPolicyVerdict', 'executionFeasibilityAtCurrentVerdict'])),
+      finalDecision: countBy(rows, (row) => row.finalDecision),
+      decisionReason: countBy(rows, (row) => row.decisionReason),
+      zeroExecutableTuningLane: countBy(rows, (row) => row.zeroExecutableTuningLane),
+      qualityGateLane: countBy(rows, (row) => row.qualityGateLane)
+    }
+  };
 }
 
 function pickOverall(report) {
@@ -436,6 +599,22 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
   };
 }
 
+function dataHealthFindingRows(stageDataHealth) {
+  const findings = [];
+  for (const [stage, health] of Object.entries(stageDataHealth)) {
+    for (const [field, info] of Object.entries(health.scoreBounds || {})) {
+      if (info.outOfBounds > 0) {
+        findings.push([stage, 'score_bounds', field, `${info.outOfBounds} out-of-bounds`, `${info.min}..${info.max}`]);
+      }
+    }
+    const priceHistory = health.priceHistory;
+    if (priceHistory?.missingHistoryRows > 0) {
+      findings.push([stage, 'price_history', 'priceHistory', `${priceHistory.missingHistoryRows} missing`, `present=${priceHistory.present}/${priceHistory.total}`]);
+    }
+  }
+  return findings;
+}
+
 function deriveBlockerSummary(stage6Rows, subreports) {
   const fresh = subreports.stage6FreshFocus.summary || {};
   const blocker = subreports.stage6BlockerRootCause.summary || {};
@@ -469,7 +648,7 @@ function deriveOverall({ lineage, runtimeProof, stages }) {
   return 'pass_stage3_6_full_stage_audit';
 }
 
-function nextActions(overall, lineage, runtimeProof) {
+function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence) {
   const actions = [];
   if (lineage.status !== 'pass_same_run_lineage') {
     actions.push('Refresh or download same-run Stage3/4/5/6 artifacts before making a final full-chain quality judgement.');
@@ -481,6 +660,9 @@ function nextActions(overall, lineage, runtimeProof) {
     actions.push('Refresh Stage6 formula evidence so neutral rows do not expose positive zero-executable tuning gaps.');
   } else if (runtimeProof.status !== 'pass_runtime_proof_fields_present') {
     actions.push('Wait for the next Auto-Scheduler run on e3708e2f or later, then run Track S6 runtime proof.');
+  }
+  if (stage6EntryEvidence.status === 'pending_entry_fillability_evidence') {
+    actions.push(`Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: ${stage6EntryEvidence.missingCoreFields.join(', ')}.`);
   }
   if (overall === 'pass_stage3_6_full_stage_audit') {
     actions.push('Proceed to bounded Stage6 producer tuning only for proven formula or blocker defects.');
@@ -530,6 +712,24 @@ function buildMarkdown(report) {
   const blockerRows = Object.entries(report.blockerSummary)
     .filter(([key]) => key !== 'rootCauseSummary')
     .map(([key, value]) => [key, compactJson(value)]);
+  const dataHealthRows = Object.entries(report.stageDataHealth).map(([stage, health]) => [
+    stage,
+    health.rows,
+    compactJson(health.scoreBounds),
+    compactJson(health.freshnessCoverage),
+    compactJson(health.fallbackFlagCounts),
+    health.priceHistory ? compactJson(health.priceHistory) : 'N/A'
+  ]);
+  const dataHealthFindings = dataHealthFindingRows(report.stageDataHealth);
+  const entryEvidenceRows = Object.entries(report.stage6EntryEvidence.fieldCoverage).map(([field, info]) => [
+    field,
+    `${info.present}/${info.total}`,
+    info.pct,
+    report.stage6EntryEvidence.numericRanges[field]
+      ? `${report.stage6EntryEvidence.numericRanges[field].min ?? 'N/A'}..${report.stage6EntryEvidence.numericRanges[field].max ?? 'N/A'}`
+      : 'N/A'
+  ]);
+  const entryPolicyRows = Object.entries(report.stage6EntryEvidence.policyCounts).map(([field, counts]) => [field, compactJson(counts)]);
 
   return `# Stage3-6 Full Stage Audit\n\n` +
     `- GeneratedAt: ${report.generatedAt}\n` +
@@ -540,6 +740,13 @@ function buildMarkdown(report) {
     `## Lineage\n\n${mdTable(['Edge', 'Producer Source', 'Local Artifact', 'Match', 'Source Status'], lineageRows)}\n\n` +
     `Reasons: ${report.lineage.reason.join(', ')}\n\n` +
     `## Stage Verdicts\n\n${mdTable(['Stage', 'Verdict', 'Rows', 'Source', 'Coverage'], stageRows)}\n\n` +
+    `## Stage Data Health\n\n${mdTable(['Stage', 'Rows', 'Score Bounds', 'Freshness Coverage', 'Fallback Flags', 'Price History'], dataHealthRows)}\n\n` +
+    `Data health findings: ${dataHealthFindings.length ? '' : 'none'}\n\n` +
+    `${dataHealthFindings.length ? `${mdTable(['Stage', 'Category', 'Field', 'Finding', 'Range / Coverage'], dataHealthFindings)}\n\n` : ''}` +
+    `## Stage6 Entry / Fillability Evidence\n\n` +
+    `Status: **${report.stage6EntryEvidence.status}**. Missing core fields: ${report.stage6EntryEvidence.missingCoreFields.length ? report.stage6EntryEvidence.missingCoreFields.join(', ') : 'none'}\n\n` +
+    `${mdTable(['Field', 'Present / Total', 'Pct', 'Numeric Range'], entryEvidenceRows)}\n\n` +
+    `${mdTable(['Policy Field', 'Counts'], entryPolicyRows)}\n\n` +
     `## Stage6 Runtime Proof Gate\n\n` +
     `Expected producer head: ${report.runtimeProof.expectedProducerHead}\n\n` +
     `${mdTable(['Field', 'Present / Total', 'Pct'], runtimeRows)}\n\n` +
@@ -562,6 +769,8 @@ function main() {
   const lineage = deriveLineage(stages);
   const runtimeProof = deriveRuntimeProof(stages.stage6.rows, subreports);
   const stageVerdicts = deriveStageVerdicts(stages, subreports, runtimeProof);
+  const stageDataHealth = deriveStageDataHealth(stages);
+  const stage6EntryEvidence = deriveStage6EntryEvidence(stages.stage6.rows);
   const blockerSummary = deriveBlockerSummary(stages.stage6.rows, subreports);
   const overall = deriveOverall({ lineage, runtimeProof, stages });
   const report = {
@@ -586,9 +795,11 @@ function main() {
     lineage,
     runtimeProof,
     stageVerdicts,
+    stageDataHealth,
+    stage6EntryEvidence,
     blockerSummary,
     auditSources: subreports,
-    nextActions: nextActions(overall, lineage, runtimeProof)
+    nextActions: nextActions(overall, lineage, runtimeProof, stage6EntryEvidence)
   };
 
   writeJsonAtomic(OUT_JSON, report);
