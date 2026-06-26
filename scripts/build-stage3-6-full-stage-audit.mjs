@@ -144,6 +144,15 @@ const STAGE6_ENTRY_EVIDENCE_FIELDS = [
   { label: 'breakoutRetestProofConfirmed', fields: ['breakoutRetestProofConfirmed'] }
 ];
 
+const STAGE6_ENTRY_CORE_EVIDENCE_FIELDS = [
+  'entryDistancePct',
+  'rrAtCurrent',
+  'rrAtEntry',
+  'targetBufferPct',
+  'fillabilityPolicyVerdict',
+  'entryTimingPolicyVerdict'
+];
+
 function resolveRepo(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(ROOT, filePath);
 }
@@ -372,6 +381,10 @@ function deriveStage6EntryEvidence(rows) {
     const present = rows.filter((row) => isPresent(firstPresent(row, fields))).length;
     return [label, { present, total: rows.length, pct: rows.length ? round((present / rows.length) * 100, 1) : 0 }];
   }));
+  const missingCoreFields = STAGE6_ENTRY_CORE_EVIDENCE_FIELDS.filter((field) => {
+    const info = fieldCoverage[field];
+    return !info || info.total === 0 || info.present < info.total;
+  });
   const numericRanges = Object.fromEntries(STAGE6_ENTRY_EVIDENCE_FIELDS.slice(0, 4).map(({ label, fields }) => {
     const values = rows.map((row) => toNumber(firstPresent(row, fields))).filter((value) => value != null);
     return [label, {
@@ -382,7 +395,13 @@ function deriveStage6EntryEvidence(rows) {
     }];
   }));
   return {
+    status: rows.length === 0
+      ? 'no_stage6_rows'
+      : missingCoreFields.length
+        ? 'pending_entry_fillability_evidence'
+        : 'pass_entry_fillability_evidence_present',
     rows: rows.length,
+    missingCoreFields,
     fieldCoverage,
     numericRanges,
     policyCounts: {
@@ -629,7 +648,7 @@ function deriveOverall({ lineage, runtimeProof, stages }) {
   return 'pass_stage3_6_full_stage_audit';
 }
 
-function nextActions(overall, lineage, runtimeProof) {
+function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence) {
   const actions = [];
   if (lineage.status !== 'pass_same_run_lineage') {
     actions.push('Refresh or download same-run Stage3/4/5/6 artifacts before making a final full-chain quality judgement.');
@@ -641,6 +660,9 @@ function nextActions(overall, lineage, runtimeProof) {
     actions.push('Refresh Stage6 formula evidence so neutral rows do not expose positive zero-executable tuning gaps.');
   } else if (runtimeProof.status !== 'pass_runtime_proof_fields_present') {
     actions.push('Wait for the next Auto-Scheduler run on e3708e2f or later, then run Track S6 runtime proof.');
+  }
+  if (stage6EntryEvidence.status === 'pending_entry_fillability_evidence') {
+    actions.push(`Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: ${stage6EntryEvidence.missingCoreFields.join(', ')}.`);
   }
   if (overall === 'pass_stage3_6_full_stage_audit') {
     actions.push('Proceed to bounded Stage6 producer tuning only for proven formula or blocker defects.');
@@ -722,6 +744,7 @@ function buildMarkdown(report) {
     `Data health findings: ${dataHealthFindings.length ? '' : 'none'}\n\n` +
     `${dataHealthFindings.length ? `${mdTable(['Stage', 'Category', 'Field', 'Finding', 'Range / Coverage'], dataHealthFindings)}\n\n` : ''}` +
     `## Stage6 Entry / Fillability Evidence\n\n` +
+    `Status: **${report.stage6EntryEvidence.status}**. Missing core fields: ${report.stage6EntryEvidence.missingCoreFields.length ? report.stage6EntryEvidence.missingCoreFields.join(', ') : 'none'}\n\n` +
     `${mdTable(['Field', 'Present / Total', 'Pct', 'Numeric Range'], entryEvidenceRows)}\n\n` +
     `${mdTable(['Policy Field', 'Counts'], entryPolicyRows)}\n\n` +
     `## Stage6 Runtime Proof Gate\n\n` +
@@ -776,7 +799,7 @@ function main() {
     stage6EntryEvidence,
     blockerSummary,
     auditSources: subreports,
-    nextActions: nextActions(overall, lineage, runtimeProof)
+    nextActions: nextActions(overall, lineage, runtimeProof, stage6EntryEvidence)
   };
 
   writeJsonAtomic(OUT_JSON, report);

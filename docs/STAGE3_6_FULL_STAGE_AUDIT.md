@@ -1,6 +1,6 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-26T04:28:57.207Z
+- GeneratedAt: 2026-06-26T04:32:39.327Z
 - Overall: **warn_stage6_runtime_proof_pending**
 - Lineage: **pass_same_run_lineage**; final quality judgement: **enabled**
 - Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
@@ -37,6 +37,8 @@ Reasons: stage3_stage4_stage5_stage6_chain_consistent
 Data health findings: none
 
 ## Stage6 Entry / Fillability Evidence
+
+Status: **pending_entry_fillability_evidence**. Missing core fields: rrAtEntry, fillabilityPolicyVerdict
 
 | Field | Present / Total | Pct | Numeric Range |
 | --- | --- | --- | --- |
@@ -107,6 +109,7 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 ## Next Actions
 
 - Wait for the next Auto-Scheduler run on e3708e2f or later, then run Track S6 runtime proof.
+- Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: rrAtEntry, fillabilityPolicyVerdict.
 - Continue report-only Stage3-6 audit expansion; do not submit, replace, reprice, or mutate sidecar state.
 
 ## Interpretation
