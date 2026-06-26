@@ -251,6 +251,19 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function dateMs(value) {
+  if (!isPresent(value)) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 100000000000 ? value : value * 1000;
+  }
+  if (typeof value === 'string' && /^\d{10,13}$/.test(value.trim())) {
+    const n = Number(value.trim());
+    return n > 100000000000 ? n : n * 1000;
+  }
+  const ms = Date.parse(String(value));
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function round(value, digits = 2) {
   const n = Number(value);
   return Number.isFinite(n) ? Number(n.toFixed(digits)) : null;
@@ -348,20 +361,55 @@ function sourceHealth(rows, fields) {
   return Object.fromEntries(fields.map((field) => [field, countBy(rows, (row) => nestedGet(row, field))]));
 }
 
-function priceHistoryHealth(rows) {
+function priceHistoryHealth(rows, nowMs) {
   const lengths = rows.map((row) => Array.isArray(row?.priceHistory) ? row.priceHistory.length : 0);
   const withHistory = lengths.filter((length) => length > 0);
+  const lastBarDates = rows
+    .map((row) => {
+      const history = Array.isArray(row?.priceHistory) ? row.priceHistory : [];
+      const last = history.length ? history[history.length - 1] : null;
+      return last?.date || last?.timestamp || last?.datetime || null;
+    })
+    .filter(isPresent);
+  const parsedLastBarMs = lastBarDates.map(dateMs).filter((ms) => ms != null).sort((a, b) => a - b);
   return {
     present: withHistory.length,
     total: rows.length,
     minBars: withHistory.length ? Math.min(...withHistory) : null,
     maxBars: withHistory.length ? Math.max(...withHistory) : null,
     shortHistoryRowsLt80: lengths.filter((length) => length > 0 && length < 80).length,
-    missingHistoryRows: lengths.filter((length) => length === 0).length
+    missingHistoryRows: lengths.filter((length) => length === 0).length,
+    lastBarDateCoverage: {
+      present: lastBarDates.length,
+      total: rows.length,
+      pct: rows.length ? round((lastBarDates.length / rows.length) * 100, 1) : 0
+    },
+    oldestLastBarDate: parsedLastBarMs.length ? new Date(parsedLastBarMs[0]).toISOString().slice(0, 10) : null,
+    latestLastBarDate: parsedLastBarMs.length ? new Date(parsedLastBarMs[parsedLastBarMs.length - 1]).toISOString().slice(0, 10) : null,
+    maxLastBarAgeDays: parsedLastBarMs.length && Number.isFinite(nowMs) ? round((nowMs - parsedLastBarMs[0]) / 86400000, 2) : null
   };
 }
 
-function deriveStageDataHealth(stages) {
+function freshnessAgeHealth(rows, fields, nowMs) {
+  return Object.fromEntries(fields.map((field) => {
+    const values = rows
+      .map((row) => nestedGet(row, field))
+      .filter(isPresent);
+    const parsed = values.map(dateMs).filter((ms) => ms != null).sort((a, b) => a - b);
+    return [field, {
+      present: values.length,
+      total: rows.length,
+      parsed: parsed.length,
+      pct: rows.length ? round((values.length / rows.length) * 100, 1) : 0,
+      oldest: parsed.length ? new Date(parsed[0]).toISOString() : null,
+      latest: parsed.length ? new Date(parsed[parsed.length - 1]).toISOString() : null,
+      maxAgeDays: parsed.length && Number.isFinite(nowMs) ? round((nowMs - parsed[0]) / 86400000, 2) : null
+    }];
+  }));
+}
+
+function deriveStageDataHealth(stages, generatedAt) {
+  const nowMs = Date.parse(generatedAt);
   return Object.fromEntries(Object.entries(stages).map(([stageKey, stage]) => {
     const config = STAGE_DATA_HEALTH_CONFIGS[stageKey];
     return [stageKey, {
@@ -370,8 +418,9 @@ function deriveStageDataHealth(stages) {
       scoreBounds: scoreHealth(stage.rows, config.scoreFields),
       sourceCounts: sourceHealth(stage.rows, config.sourceFields),
       freshnessCoverage: coverage(stage.rows, config.freshnessFields),
+      freshnessAge: freshnessAgeHealth(stage.rows, config.freshnessFields, nowMs),
       fallbackFlagCounts: flagCounts(stage.rows, config.fallbackFlags),
-      priceHistory: ['stage4', 'stage5', 'stage6'].includes(stageKey) ? priceHistoryHealth(stage.rows) : null
+      priceHistory: ['stage4', 'stage5', 'stage6'].includes(stageKey) ? priceHistoryHealth(stage.rows, nowMs) : null
     }];
   }));
 }
@@ -434,10 +483,60 @@ function summarizeSubreports() {
       contract: report?.contract || null,
       backlog: report?.backlog || null,
       splitTuning: report?.splitTuning || null,
-      nextAction: report?.nextAction || null
+      nextAction: report?.nextAction || null,
+      staticMethodChecks: Array.isArray(report?.staticMethodChecks)
+        ? report.staticMethodChecks.map(({ stage, id, title, file, line, present, expected, weight }) => ({
+          stage,
+          id,
+          title,
+          file,
+          line,
+          present,
+          expected,
+          weight
+        }))
+        : [],
+      staticFormulaEvidence: Array.isArray(report?.staticFormulaEvidence)
+        ? report.staticFormulaEvidence.map(({ stage, id, title, file, line, present }) => ({
+          stage,
+          id,
+          title,
+          file,
+          line,
+          present
+        }))
+        : []
     };
   }
   return out;
+}
+
+function deriveFormulaEvidence(subreports) {
+  const methodologyChecks = (subreports.stage35Methodology.staticMethodChecks || [])
+    .map((check) => ({ source: 'methodology', required: check.expected !== false, ...check }));
+  const quantChecks = (subreports.stage35QuantQuality.staticFormulaEvidence || [])
+    .map((check) => ({ source: 'quant_formula', required: true, expected: true, ...check }));
+  const checks = [...methodologyChecks, ...quantChecks]
+    .filter((check) => check.stage && check.id)
+    .sort((a, b) => String(a.stage).localeCompare(String(b.stage)) || String(a.id).localeCompare(String(b.id)));
+  const missingRequired = checks.filter((check) => check.required && check.present !== true);
+  const byStage = {};
+  for (const check of checks) {
+    const stage = check.stage || 'unknown';
+    byStage[stage] ||= { checks: 0, present: 0, missingRequired: 0, sources: {} };
+    byStage[stage].checks += 1;
+    if (check.present === true) byStage[stage].present += 1;
+    if (check.required && check.present !== true) byStage[stage].missingRequired += 1;
+    byStage[stage].sources[check.source] = (byStage[stage].sources[check.source] || 0) + 1;
+  }
+  return {
+    status: missingRequired.length ? 'warn_formula_evidence_missing' : 'pass_formula_evidence_present',
+    totalChecks: checks.length,
+    presentChecks: checks.filter((check) => check.present === true).length,
+    missingRequiredChecks: missingRequired.map(({ source, stage, id, title, file, line }) => ({ source, stage, id, title, file, line })),
+    byStage,
+    checks
+  };
 }
 
 function compareNames(actual, expected) {
@@ -611,6 +710,17 @@ function dataHealthFindingRows(stageDataHealth) {
     if (priceHistory?.missingHistoryRows > 0) {
       findings.push([stage, 'price_history', 'priceHistory', `${priceHistory.missingHistoryRows} missing`, `present=${priceHistory.present}/${priceHistory.total}`]);
     }
+    if (priceHistory?.maxLastBarAgeDays != null && priceHistory.maxLastBarAgeDays > 5) {
+      findings.push([stage, 'price_history_freshness', 'priceHistory.lastBarDate', `max age ${priceHistory.maxLastBarAgeDays}d`, `${priceHistory.oldestLastBarDate}..${priceHistory.latestLastBarDate}`]);
+    }
+    for (const [field, info] of Object.entries(health.freshnessAge || {})) {
+      const isFiscalPeriodField = /asof|fiscal|period/i.test(field);
+      if (info.present > 0 && info.parsed === 0) {
+        findings.push([stage, 'freshness_parse', field, 'timestamp not parseable', `present=${info.present}/${info.total}`]);
+      } else if (!isFiscalPeriodField && info.maxAgeDays != null && info.maxAgeDays > 5) {
+        findings.push([stage, 'freshness_age', field, `max age ${info.maxAgeDays}d`, `${info.oldest || 'N/A'}..${info.latest || 'N/A'}`]);
+      }
+    }
   }
   return findings;
 }
@@ -635,6 +745,28 @@ function deriveBlockerSummary(stage6Rows, subreports) {
       riskGeometryRootCauses: blocker.riskGeometryRootCauses || {},
       qualityGateRootCauses
     }
+  };
+}
+
+function deriveBlockerClassificationHealth(blockerSummary) {
+  const buckets = [
+    ['blockerCategoryCounts', blockerSummary.blockerCategoryCounts],
+    ['zeroExecutableTuningLaneCounts', blockerSummary.zeroExecutableTuningLaneCounts],
+    ['qualityGateLaneCounts', blockerSummary.qualityGateLaneCounts],
+    ['structurePolicyBlockerLaneCounts', blockerSummary.structurePolicyBlockerLaneCounts],
+    ['riskGeometryRepairLaneCounts', blockerSummary.riskGeometryRepairLaneCounts]
+  ];
+  const ambiguous = [];
+  for (const [bucket, counts] of buckets) {
+    for (const [key, count] of Object.entries(counts || {})) {
+      if (/^(unknown|other|none|null|undefined|missing)$/i.test(String(key))) {
+        ambiguous.push({ bucket, key, count });
+      }
+    }
+  }
+  return {
+    status: ambiguous.length ? 'warn_ambiguous_blocker_classification' : 'pass_blocker_classification_specific',
+    ambiguous
   };
 }
 
@@ -716,11 +848,26 @@ function buildMarkdown(report) {
     stage,
     health.rows,
     compactJson(health.scoreBounds),
+    compactJson(health.sourceCounts),
     compactJson(health.freshnessCoverage),
+    compactJson(health.freshnessAge),
     compactJson(health.fallbackFlagCounts),
     health.priceHistory ? compactJson(health.priceHistory) : 'N/A'
   ]);
   const dataHealthFindings = dataHealthFindingRows(report.stageDataHealth);
+  const formulaRows = Object.entries(report.formulaEvidence.byStage || {}).map(([stage, info]) => [
+    stage,
+    `${info.present}/${info.checks}`,
+    info.missingRequired,
+    compactJson(info.sources)
+  ]);
+  const missingFormulaRows = report.formulaEvidence.missingRequiredChecks.map((check) => [
+    check.source,
+    check.stage,
+    check.id,
+    check.file || 'N/A',
+    check.line || 'N/A'
+  ]);
   const entryEvidenceRows = Object.entries(report.stage6EntryEvidence.fieldCoverage).map(([field, info]) => [
     field,
     `${info.present}/${info.total}`,
@@ -736,11 +883,15 @@ function buildMarkdown(report) {
     `- Overall: **${report.overall}**\n` +
     `- Lineage: **${report.lineage.status}**; final quality judgement: **${report.lineage.finalQualityJudgement}**\n` +
     `- Stage6 Runtime Proof: **${report.runtimeProof.status}**\n` +
+    `- Formula Evidence: **${report.formulaEvidence.status}** (${report.formulaEvidence.presentChecks}/${report.formulaEvidence.totalChecks})\n` +
+    `- Blocker Classification: **${report.blockerClassificationHealth.status}**\n` +
     `- Safety: report-only; brokerMutationAllowed=false; sidecarMutationAllowed=false.\n\n` +
     `## Lineage\n\n${mdTable(['Edge', 'Producer Source', 'Local Artifact', 'Match', 'Source Status'], lineageRows)}\n\n` +
     `Reasons: ${report.lineage.reason.join(', ')}\n\n` +
     `## Stage Verdicts\n\n${mdTable(['Stage', 'Verdict', 'Rows', 'Source', 'Coverage'], stageRows)}\n\n` +
-    `## Stage Data Health\n\n${mdTable(['Stage', 'Rows', 'Score Bounds', 'Freshness Coverage', 'Fallback Flags', 'Price History'], dataHealthRows)}\n\n` +
+    `## Stage Formula Evidence\n\n${mdTable(['Stage', 'Present / Checks', 'Missing Required', 'Evidence Sources'], formulaRows)}\n\n` +
+    `${missingFormulaRows.length ? `${mdTable(['Source', 'Stage', 'Check', 'File', 'Line'], missingFormulaRows)}\n\n` : 'Missing required formula evidence: none\n\n'}` +
+    `## Stage Data Health\n\n${mdTable(['Stage', 'Rows', 'Score Bounds', 'Source Counts', 'Freshness Coverage', 'Freshness Age', 'Fallback Flags', 'Price History'], dataHealthRows)}\n\n` +
     `Data health findings: ${dataHealthFindings.length ? '' : 'none'}\n\n` +
     `${dataHealthFindings.length ? `${mdTable(['Stage', 'Category', 'Field', 'Finding', 'Range / Coverage'], dataHealthFindings)}\n\n` : ''}` +
     `## Stage6 Entry / Fillability Evidence\n\n` +
@@ -752,6 +903,7 @@ function buildMarkdown(report) {
     `${mdTable(['Field', 'Present / Total', 'Pct'], runtimeRows)}\n\n` +
     `${runtimeMissingLabel}: ${report.runtimeProof.missingFields.length ? report.runtimeProof.missingFields.join(', ') : 'none'}\n\n` +
     `## Blocker Summary\n\n${mdTable(['Metric', 'Counts'], blockerRows)}\n\n` +
+    `Blocker classification health: **${report.blockerClassificationHealth.status}**. Ambiguous buckets: ${report.blockerClassificationHealth.ambiguous.length ? compactJson(report.blockerClassificationHealth.ambiguous) : 'none'}\n\n` +
     `Root cause summary: ${compactJson(report.blockerSummary.rootCauseSummary)}\n\n` +
     `## Integrated Subreports\n\n${mdTable(['Report', 'Present', 'Overall', 'GeneratedAt', 'Path'], subreportRows)}\n\n` +
     `## Next Actions\n\n${report.nextActions.map((item) => `- ${item}`).join('\n')}\n\n` +
@@ -768,13 +920,15 @@ function main() {
   const subreports = summarizeSubreports();
   const lineage = deriveLineage(stages);
   const runtimeProof = deriveRuntimeProof(stages.stage6.rows, subreports);
+  const formulaEvidence = deriveFormulaEvidence(subreports);
   const stageVerdicts = deriveStageVerdicts(stages, subreports, runtimeProof);
-  const stageDataHealth = deriveStageDataHealth(stages);
+  const stageDataHealth = deriveStageDataHealth(stages, generatedAt);
   const stage6EntryEvidence = deriveStage6EntryEvidence(stages.stage6.rows);
   const blockerSummary = deriveBlockerSummary(stages.stage6.rows, subreports);
+  const blockerClassificationHealth = deriveBlockerClassificationHealth(blockerSummary);
   const overall = deriveOverall({ lineage, runtimeProof, stages });
   const report = {
-    schemaVersion: 'stage3_6_full_stage_audit.v1',
+    schemaVersion: 'stage3_6_full_stage_audit.v2',
     generatedAt,
     overall,
     safety: {
@@ -794,10 +948,12 @@ function main() {
     }])),
     lineage,
     runtimeProof,
+    formulaEvidence,
     stageVerdicts,
     stageDataHealth,
     stage6EntryEvidence,
     blockerSummary,
+    blockerClassificationHealth,
     auditSources: subreports,
     nextActions: nextActions(overall, lineage, runtimeProof, stage6EntryEvidence)
   };

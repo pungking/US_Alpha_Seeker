@@ -1,9 +1,11 @@
 # Stage3-6 Full Stage Audit
 
-- GeneratedAt: 2026-06-26T05:00:17.602Z
+- GeneratedAt: 2026-06-26T14:18:43.522Z
 - Overall: **warn_stage6_runtime_proof_pending**
 - Lineage: **pass_same_run_lineage**; final quality judgement: **enabled**
 - Stage6 Runtime Proof: **pending_fresh_runtime_proof_after_e3708e2f**
+- Formula Evidence: **pass_formula_evidence_present** (27/27)
+- Blocker Classification: **pass_blocker_classification_specific**
 - Safety: report-only; brokerMutationAllowed=false; sidecarMutationAllowed=false.
 
 ## Lineage
@@ -25,14 +27,26 @@ Reasons: stage3_stage4_stage5_stage6_chain_consistent
 | Stage5 | audited_report_only | 50 | STAGE5_ICT_ELITE_50_2026-06-24_01-26-27.json | ictScore:50/50<br>ictMetrics:50/50<br>otePrice:50/50<br>ictStopLoss:50/50<br>executionGeometrySource:50/50<br>pdZone:50/50<br>compositeBreakdown.dataQualityMultiplier:50/50 |
 | Stage6 | warn_runtime_proof_pending | 1 | STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json | finalDecision:1/1<br>decisionReason:1/1<br>weakPillarGateVerdict:1/1<br>qualityGateLane:0/1<br>zeroExecutableTuningLane:1/1<br>targetRecalibrationViabilityVerdict:1/1<br>riskGeometryRepairLane:1/1<br>breakoutRetestProofConfirmed:1/1 |
 
+## Stage Formula Evidence
+
+| Stage | Present / Checks | Missing Required | Evidence Sources |
+| --- | --- | --- | --- |
+| Stage3 | 8/8 | 0 | {"quant_formula":3,"methodology":5} |
+| Stage4 | 8/8 | 0 | {"quant_formula":4,"methodology":4} |
+| Stage5 | 7/7 | 0 | {"quant_formula":3,"methodology":4} |
+| Stage6 | 3/3 | 0 | {"methodology":3} |
+| Stage6Bridge | 1/1 | 0 | {"quant_formula":1} |
+
+Missing required formula evidence: none
+
 ## Stage Data Health
 
-| Stage | Rows | Score Bounds | Freshness Coverage | Fallback Flags | Price History |
-| --- | --- | --- | --- | --- | --- |
-| stage3 | 300 | {"fundamentalScore":{"present":300,"total":300,"min":0,"max":100,"outOfBounds":0},"compositeAlpha":{"present":300,"total":300,"min":9.88,"max":100,"outOfBounds":0},"qualityScore":{"present":300,"total":300,"min":0,"max":100,"outOfBounds":0}} | {"updated":{"present":300,"total":300,"pct":100},"quoteTimestamp":{"present":300,"total":300,"pct":100},"netIncomeAsOf":{"present":300,"total":300,"pct":100}} | {"isImputed":{"false":300},"cashflowProxyUsed":{"false":300},"fundamentalScoreClampApplied":{"false":278,"true":22}} | N/A |
-| stage4 | 300 | {"technicalScore":{"present":300,"total":300,"min":1,"max":99,"outOfBounds":0},"scoreBreakdown.finalScore":{"present":300,"total":300,"min":1,"max":99,"outOfBounds":0},"fundamentalScore":{"present":300,"total":300,"min":0,"max":100,"outOfBounds":0},"compositeAlpha":{"present":300,"total":300,"min":9.88,"max":100,"outOfBounds":0}} | {"updated":{"present":300,"total":300,"pct":100},"quoteTimestamp":{"present":300,"total":300,"pct":100},"lastUpdate":{"present":300,"total":300,"pct":100}} | {"isImputed":{"false":300},"cashflowProxyUsed":{"false":300},"isTechnicalBreakout":{"false":202,"true":98}} | {"present":300,"total":300,"minBars":70,"maxBars":120,"shortHistoryRowsLt80":1,"missingHistoryRows":0} |
-| stage5 | 50 | {"ictScore":{"present":50,"total":50,"min":47.05,"max":100,"outOfBounds":0},"technicalScore":{"present":50,"total":50,"min":12,"max":99,"outOfBounds":0},"fundamentalScore":{"present":50,"total":50,"min":0,"max":100,"outOfBounds":0},"compositeAlpha":{"present":50,"total":50,"min":54.62,"max":100,"outOfBounds":0}} | {"updated":{"present":50,"total":50,"pct":100},"quoteTimestamp":{"present":50,"total":50,"pct":100},"lastUpdate":{"present":50,"total":50,"pct":100}} | {"isImputed":{"false":50},"cashflowProxyUsed":{"false":50},"isDataDoubtful":{"false":50}} | {"present":50,"total":50,"minBars":120,"maxBars":120,"shortHistoryRowsLt80":0,"missingHistoryRows":0} |
-| stage6 | 1 | {"convictionScore":{"present":1,"total":1,"min":100,"max":100,"outOfBounds":0},"expectedReturn":{"present":0,"total":1,"min":null,"max":null,"outOfBounds":0},"fundamentalScore":{"present":1,"total":1,"min":75.87,"max":75.87,"outOfBounds":0},"technicalScore":{"present":1,"total":1,"min":73.73,"max":73.73,"outOfBounds":0},"ictScore":{"present":1,"total":1,"min":77.98,"max":77.98,"outOfBounds":0}} | {"updated":{"present":1,"total":1,"pct":100},"quoteTimestamp":{"present":1,"total":1,"pct":100},"lastUpdate":{"present":1,"total":1,"pct":100}} | {"aiFallbackDetected":{"false":1},"breakoutRetestProofConfirmed":{"true":1}} | {"present":1,"total":1,"minBars":120,"maxBars":120,"shortHistoryRowsLt80":0,"missingHistoryRows":0} |
+| Stage | Rows | Score Bounds | Source Counts | Freshness Coverage | Freshness Age | Fallback Flags | Price History |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| stage3 | 300 | {"fundamentalScore":{"present":300,"total":300,"min":0,"max":100,"outOfBounds":0},"compositeAlpha":{"present":300,"total":300,"min":9.88,"max":100,"outOfBounds":0},"qualityScore":{"present":300,"total":300,"min":0,"max":100,"outOfBounds":0}} | {"dataQuality":{"HIGH":300},"source":{"V13_Cylinder":300},"quoteSource":{"YFINANCE_INFO":300},"netIncomeSource":{"INFO":298,"HISTORY":2},"roicDebtSource":{"ABSOLUTE":300}} | {"updated":{"present":300,"total":300,"pct":100},"quoteTimestamp":{"present":300,"total":300,"pct":100},"netIncomeAsOf":{"present":300,"total":300,"pct":100}} | {"updated":{"present":300,"total":300,"parsed":300,"pct":100,"oldest":"2026-06-23T16:04:32.883Z","latest":"2026-06-23T16:04:56.680Z","maxAgeDays":2.93},"quoteTimestamp":{"present":300,"total":300,"parsed":300,"pct":100,"oldest":"2026-06-22T20:00:00.000Z","latest":"2026-06-22T20:08:00.000Z","maxAgeDays":3.76},"netIncomeAsOf":{"present":300,"total":300,"parsed":300,"pct":100,"oldest":"2026-03-31T00:00:00.000Z","latest":"2026-06-23T06:54:07.000Z","maxAgeDays":87.6}} | {"isImputed":{"false":300},"cashflowProxyUsed":{"false":300},"fundamentalScoreClampApplied":{"false":278,"true":22}} | N/A |
+| stage4 | 300 | {"technicalScore":{"present":300,"total":300,"min":1,"max":99,"outOfBounds":0},"scoreBreakdown.finalScore":{"present":300,"total":300,"min":1,"max":99,"outOfBounds":0},"fundamentalScore":{"present":300,"total":300,"min":0,"max":100,"outOfBounds":0},"compositeAlpha":{"present":300,"total":300,"min":9.88,"max":100,"outOfBounds":0}} | {"dataQuality":{"HIGH":300},"dataSource":{"DRIVE":300},"quoteSource":{"YFINANCE_INFO":300},"techMetrics.dataQualityState":{"THIN":250,"NORMAL":50}} | {"updated":{"present":300,"total":300,"pct":100},"quoteTimestamp":{"present":300,"total":300,"pct":100},"lastUpdate":{"present":300,"total":300,"pct":100}} | {"updated":{"present":300,"total":300,"parsed":300,"pct":100,"oldest":"2026-06-23T16:04:32.883Z","latest":"2026-06-23T16:04:56.680Z","maxAgeDays":2.93},"quoteTimestamp":{"present":300,"total":300,"parsed":300,"pct":100,"oldest":"2026-06-22T20:00:00.000Z","latest":"2026-06-22T20:08:00.000Z","maxAgeDays":3.76},"lastUpdate":{"present":300,"total":300,"parsed":300,"pct":100,"oldest":"2026-06-23T16:22:46.575Z","latest":"2026-06-23T16:26:17.502Z","maxAgeDays":2.91}} | {"isImputed":{"false":300},"cashflowProxyUsed":{"false":300},"isTechnicalBreakout":{"false":202,"true":98}} | {"present":300,"total":300,"minBars":70,"maxBars":120,"shortHistoryRowsLt80":1,"missingHistoryRows":0,"lastBarDateCoverage":{"present":300,"total":300,"pct":100},"oldestLastBarDate":"2026-06-22","latestLastBarDate":"2026-06-23","maxLastBarAgeDays":4.6} |
+| stage5 | 50 | {"ictScore":{"present":50,"total":50,"min":47.05,"max":100,"outOfBounds":0},"technicalScore":{"present":50,"total":50,"min":12,"max":99,"outOfBounds":0},"fundamentalScore":{"present":50,"total":50,"min":0,"max":100,"outOfBounds":0},"compositeAlpha":{"present":50,"total":50,"min":54.62,"max":100,"outOfBounds":0}} | {"dataQuality":{"HIGH":50},"dataSource":{"DRIVE":50},"executionGeometrySource":{"RECENT_SWING_ATR":50},"factorCarryGuard":{"THIN_REDUCED":34,"NORMAL":16},"compositeBreakdown.dataQualityMultiplier":{"1":16,"0.97":34}} | {"updated":{"present":50,"total":50,"pct":100},"quoteTimestamp":{"present":50,"total":50,"pct":100},"lastUpdate":{"present":50,"total":50,"pct":100}} | {"updated":{"present":50,"total":50,"parsed":50,"pct":100,"oldest":"2026-06-23T16:04:32.883Z","latest":"2026-06-23T16:04:56.680Z","maxAgeDays":2.93},"quoteTimestamp":{"present":50,"total":50,"parsed":50,"pct":100,"oldest":"2026-06-22T20:00:00.000Z","latest":"2026-06-22T20:08:00.000Z","maxAgeDays":3.76},"lastUpdate":{"present":50,"total":50,"parsed":50,"pct":100,"oldest":"2026-06-23T16:22:46.575Z","latest":"2026-06-23T16:26:17.502Z","maxAgeDays":2.91}} | {"isImputed":{"false":50},"cashflowProxyUsed":{"false":50},"isDataDoubtful":{"false":50}} | {"present":50,"total":50,"minBars":120,"maxBars":120,"shortHistoryRowsLt80":0,"missingHistoryRows":0,"lastBarDateCoverage":{"present":50,"total":50,"pct":100},"oldestLastBarDate":"2026-06-22","latestLastBarDate":"2026-06-23","maxLastBarAgeDays":4.6} |
+| stage6 | 1 | {"convictionScore":{"present":1,"total":1,"min":100,"max":100,"outOfBounds":0},"expectedReturn":{"present":0,"total":1,"min":null,"max":null,"outOfBounds":0},"fundamentalScore":{"present":1,"total":1,"min":75.87,"max":75.87,"outOfBounds":0},"technicalScore":{"present":1,"total":1,"min":73.73,"max":73.73,"outOfBounds":0},"ictScore":{"present":1,"total":1,"min":77.98,"max":77.98,"outOfBounds":0}} | {"dataQuality":{"HIGH":1},"aiProvider":{"PERPLEXITY_FALLBACK":1},"finalDecision":{"EXECUTABLE_NOW":1},"decisionReason":{"executable_current_recalculated_stop":1},"zeroExecutableTuningLane":{"NO_ZERO_EXECUTABLE_TUNING_ACTION":1}} | {"updated":{"present":1,"total":1,"pct":100},"quoteTimestamp":{"present":1,"total":1,"pct":100},"lastUpdate":{"present":1,"total":1,"pct":100}} | {"updated":{"present":1,"total":1,"parsed":1,"pct":100,"oldest":"2026-06-23T16:04:39.143Z","latest":"2026-06-23T16:04:39.143Z","maxAgeDays":2.93},"quoteTimestamp":{"present":1,"total":1,"parsed":1,"pct":100,"oldest":"2026-06-22T20:00:01.000Z","latest":"2026-06-22T20:00:01.000Z","maxAgeDays":3.76},"lastUpdate":{"present":1,"total":1,"parsed":1,"pct":100,"oldest":"2026-06-23T16:24:08.325Z","latest":"2026-06-23T16:24:08.325Z","maxAgeDays":2.91}} | {"aiFallbackDetected":{"false":1},"breakoutRetestProofConfirmed":{"true":1}} | {"present":1,"total":1,"minBars":120,"maxBars":120,"shortHistoryRowsLt80":0,"missingHistoryRows":0,"lastBarDateCoverage":{"present":1,"total":1,"pct":100},"oldestLastBarDate":"2026-06-22","latestLastBarDate":"2026-06-22","maxLastBarAgeDays":4.6} |
 
 Data health findings: none
 
@@ -91,18 +105,20 @@ Missing/Pending fields: targetRecalibrationExecutionFloorViable, riskGeometryTar
 | breakoutRetestProofConfirmedCounts | {"true":1,"false":6} |
 | targetRecalibrationViabilityVerdictCounts | {"TARGET_VIABILITY_NOT_APPLICABLE":5,"TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT":2} |
 
+Blocker classification health: **pass_blocker_classification_specific**. Ambiguous buckets: none
+
 Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RISK_GEOMETRY_INVALID_NO_TRADE":2,"STOP_GEOMETRY_RECALIBRATION_REQUIRED":1},"qualityGateRootCauses":{"weak_pillar_execution_gate":1}}
 
 ## Integrated Subreports
 
 | Report | Present | Overall | GeneratedAt | Path |
 | --- | --- | --- | --- | --- |
-| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-26T04:24:31.268Z | state/stage3-5-methodology-audit.json |
-| stage35QuantQuality | yes | pass_report_only | 2026-06-26T04:24:33.535Z | state/stage3-5-quant-quality-audit.json |
+| stage35Methodology | yes | pass_full_artifact_methodology_review | 2026-06-26T14:18:33.755Z | state/stage3-5-methodology-audit.json |
+| stage35QuantQuality | yes | pass_report_only | 2026-06-26T14:18:36.120Z | state/stage3-5-quant-quality-audit.json |
 | stage6FreshFocus | yes | pass_executable_present_focus_fields_ok | 2026-06-26T04:24:34.856Z | state/stage6-fresh-focus-audit.json |
 | stage6FormulaTuningBacklog | yes | pass_formula_tuning_backlog_ready | 2026-06-24T23:17:57.616Z | state/stage6-formula-tuning-backlog.json |
-| stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-25T23:16:57.643Z | state/stage6-runtime-formula-contract-proof.json |
-| stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-24T23:18:00.404Z | state/stage6-formula-audit-backlog-alignment.json |
+| stage6RuntimeFormulaContractProof | yes | pending_fresh_stage6_after_expected_head | 2026-06-26T05:00:20.651Z | state/stage6-runtime-formula-contract-proof.json |
+| stage6FormulaBacklogAlignment | yes | pass_formula_audit_backlog_alignment | 2026-06-26T14:18:42.945Z | state/stage6-formula-audit-backlog-alignment.json |
 | stage6BlockerRootCause | yes | not_available | 2026-06-22T16:07:32.922Z | state/stage6-blocker-root-cause-audit.json |
 | stage6QualityTrend | yes | not_available | 2026-06-22T16:07:34.780Z | state/stage6-quality-trend-audit.json |
 
