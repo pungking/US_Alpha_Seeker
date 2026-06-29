@@ -7,6 +7,22 @@ This checklist is the bounded RTH verification path after a fresh Stage6 hash is
 - Repo: `US_Alpha_Seeker` produces the canonical `STAGE6_ALPHA_FINAL_*.json` signal artifact.
 - Consumer: `alpha-exec-engine` sidecar consumes the fresh hash in safe/report-only mode.
 - Mutation policy: no broker mutation, no state mutation, no replace/submit without a separate approval gate.
+- Verification policy: symbol-agnostic contract check only. Ticker symbols in reports are evidence rows, not manual watch targets.
+
+## Symbol-Agnostic Bounded Verification Contract
+
+Do not start a new manual review loop for every recommended ticker. The bounded check is triggered by artifact state, not by symbol name.
+
+Follow-up is allowed only when at least one of these event classes appears:
+
+- stale or mismatched Stage6/hash consumption,
+- missing or zero `decisionAuditRows` when Stage6 candidates exist,
+- missing or opaque `payloadExpectation` / `topSkipReasonCategories`,
+- broker or state mutation flag becomes true in a safe/report-only run,
+- a new lane appears that is not already classified,
+- a lane becomes approval-ready and requires a separate explicit approval gate.
+
+If none of those events appears, stop after the first fresh sidecar run and return to Stage6 producer audits. Do not keep observing because a specific ticker looks interesting.
 
 ## Track A - Fresh Stage6 Evidence
 
