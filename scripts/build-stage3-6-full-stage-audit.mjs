@@ -770,6 +770,35 @@ function deriveBlockerClassificationHealth(blockerSummary) {
   };
 }
 
+function deriveFormulaTuningFocus(subreports) {
+  const backlog = subreports.stage6FormulaTuningBacklog || {};
+  const summary = backlog.summary || {};
+  const topProducerTrack = summary.topProducerTrack || 'none';
+  const topAdjustmentKnob = summary.topAdjustmentKnob || 'none';
+  const producerTrackAggregation = summary.producerTrackAggregation || {};
+  const adjustmentKnobAggregation = summary.adjustmentKnobAggregation || {};
+  return {
+    status: backlog.overall || 'missing',
+    topProducerTrack,
+    topAdjustmentKnob,
+    producerReviewRows: Number(summary.producerReviewRows || 0),
+    tuningRecommendationCount: Number(summary.tuningRecommendationCount || 0),
+    producerFieldRecommendationCount: Number(summary.producerFieldRecommendationCount || 0),
+    producerTrackAggregation,
+    adjustmentKnobAggregation,
+    nextAction: backlog.nextAction || (
+      topProducerTrack && topProducerTrack !== 'none'
+        ? 'tune_stage6_producer_formula_or_proof_generation'
+        : 'wait_for_fresh_stage6_or_no_formula_tuning_action'
+    ),
+    safety: {
+      brokerMutationAllowed: false,
+      sidecarMutationAllowed: false,
+      tuningRepo: 'US_Alpha_Seeker'
+    }
+  };
+}
+
 function deriveOverall({ lineage, runtimeProof, stages }) {
   if (lineage.status === 'warn_artifacts_missing') return 'warn_artifacts_missing';
   if (lineage.status === 'warn_lineage_mismatch') return 'warn_lineage_mismatch';
@@ -780,7 +809,7 @@ function deriveOverall({ lineage, runtimeProof, stages }) {
   return 'pass_stage3_6_full_stage_audit';
 }
 
-function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence) {
+function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formulaTuningFocus) {
   const actions = [];
   if (lineage.status !== 'pass_same_run_lineage') {
     actions.push('Refresh or download same-run Stage3/4/5/6 artifacts before making a final full-chain quality judgement.');
@@ -795,6 +824,9 @@ function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence) {
   }
   if (stage6EntryEvidence.status === 'pending_entry_fillability_evidence') {
     actions.push(`Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: ${stage6EntryEvidence.missingCoreFields.join(', ')}.`);
+  }
+  if (formulaTuningFocus.topProducerTrack && formulaTuningFocus.topProducerTrack !== 'none') {
+    actions.push(`Prioritize Stage6 producer tuning track: ${formulaTuningFocus.topProducerTrack} via ${formulaTuningFocus.topAdjustmentKnob}; do not solve this in sidecar.`);
   }
   if (overall === 'pass_stage3_6_full_stage_audit') {
     actions.push('Proceed to bounded Stage6 producer tuning only for proven formula or blocker defects.');
@@ -844,6 +876,17 @@ function buildMarkdown(report) {
   const blockerRows = Object.entries(report.blockerSummary)
     .filter(([key]) => key !== 'rootCauseSummary')
     .map(([key, value]) => [key, compactJson(value)]);
+  const formulaTuningRows = [
+    ['status', report.formulaTuningFocus.status],
+    ['topProducerTrack', report.formulaTuningFocus.topProducerTrack],
+    ['topAdjustmentKnob', report.formulaTuningFocus.topAdjustmentKnob],
+    ['producerReviewRows', report.formulaTuningFocus.producerReviewRows],
+    ['tuningRecommendationCount', report.formulaTuningFocus.tuningRecommendationCount],
+    ['producerFieldRecommendationCount', report.formulaTuningFocus.producerFieldRecommendationCount],
+    ['producerTrackAggregation', compactJson(report.formulaTuningFocus.producerTrackAggregation)],
+    ['adjustmentKnobAggregation', compactJson(report.formulaTuningFocus.adjustmentKnobAggregation)],
+    ['nextAction', report.formulaTuningFocus.nextAction]
+  ];
   const dataHealthRows = Object.entries(report.stageDataHealth).map(([stage, health]) => [
     stage,
     health.rows,
@@ -892,12 +935,13 @@ function buildMarkdown(report) {
     `## Stage Formula Evidence\n\n${mdTable(['Stage', 'Present / Checks', 'Missing Required', 'Evidence Sources'], formulaRows)}\n\n` +
     `${missingFormulaRows.length ? `${mdTable(['Source', 'Stage', 'Check', 'File', 'Line'], missingFormulaRows)}\n\n` : 'Missing required formula evidence: none\n\n'}` +
     `## Stage Data Health\n\n${mdTable(['Stage', 'Rows', 'Score Bounds', 'Source Counts', 'Freshness Coverage', 'Freshness Age', 'Fallback Flags', 'Price History'], dataHealthRows)}\n\n` +
-    `Data health findings: ${dataHealthFindings.length ? '' : 'none'}\n\n` +
+    `${dataHealthFindings.length ? 'Data health findings:' : 'Data health findings: none'}\n\n` +
     `${dataHealthFindings.length ? `${mdTable(['Stage', 'Category', 'Field', 'Finding', 'Range / Coverage'], dataHealthFindings)}\n\n` : ''}` +
     `## Stage6 Entry / Fillability Evidence\n\n` +
     `Status: **${report.stage6EntryEvidence.status}**. Missing core fields: ${report.stage6EntryEvidence.missingCoreFields.length ? report.stage6EntryEvidence.missingCoreFields.join(', ') : 'none'}\n\n` +
     `${mdTable(['Field', 'Present / Total', 'Pct', 'Numeric Range'], entryEvidenceRows)}\n\n` +
     `${mdTable(['Policy Field', 'Counts'], entryPolicyRows)}\n\n` +
+    `## Stage6 Formula Tuning Focus\n\n${mdTable(['Metric', 'Value'], formulaTuningRows)}\n\n` +
     `## Stage6 Runtime Proof Gate\n\n` +
     `Expected producer head: ${report.runtimeProof.expectedProducerHead}\n\n` +
     `${mdTable(['Field', 'Present / Total', 'Pct'], runtimeRows)}\n\n` +
@@ -926,6 +970,7 @@ function main() {
   const stage6EntryEvidence = deriveStage6EntryEvidence(stages.stage6.rows);
   const blockerSummary = deriveBlockerSummary(stages.stage6.rows, subreports);
   const blockerClassificationHealth = deriveBlockerClassificationHealth(blockerSummary);
+  const formulaTuningFocus = deriveFormulaTuningFocus(subreports);
   const overall = deriveOverall({ lineage, runtimeProof, stages });
   const report = {
     schemaVersion: 'stage3_6_full_stage_audit.v2',
@@ -952,10 +997,11 @@ function main() {
     stageVerdicts,
     stageDataHealth,
     stage6EntryEvidence,
+    formulaTuningFocus,
     blockerSummary,
     blockerClassificationHealth,
     auditSources: subreports,
-    nextActions: nextActions(overall, lineage, runtimeProof, stage6EntryEvidence)
+    nextActions: nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formulaTuningFocus)
   };
 
   writeJsonAtomic(OUT_JSON, report);
