@@ -5,6 +5,7 @@ import path from 'node:path';
 const ROOT = process.cwd();
 const PROOF_PATH = process.env.STAGE6_RUNTIME_GOAL_STATUS_PROOF_PATH || 'state/stage6-runtime-formula-contract-proof.json';
 const BACKLOG_PATH = process.env.STAGE6_RUNTIME_GOAL_STATUS_BACKLOG_PATH || 'state/stage6-formula-tuning-backlog.json';
+const FULL_STAGE_AUDIT_PATH = process.env.STAGE6_RUNTIME_GOAL_STATUS_FULL_STAGE_AUDIT_PATH || 'state/stage3-6-full-stage-audit.json';
 const OUT_JSON = process.env.STAGE6_RUNTIME_GOAL_STATUS_OUT_JSON || 'state/stage6-runtime-formula-goal-status.json';
 const OUT_MD = process.env.STAGE6_RUNTIME_GOAL_STATUS_OUT_MD || 'state/stage6-runtime-formula-goal-status.md';
 
@@ -76,13 +77,17 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))].sort();
 }
 
-function deriveRequirements(proof, backlog) {
+function deriveRequirements(proof, backlog, fullStageAudit) {
   const requirements = [];
   const proofMissing = !proof || proof.readError;
   const backlogMissing = !backlog || backlog.readError;
+  const fullStageAuditMissing = !fullStageAudit || fullStageAudit.readError;
   const freshCovers = proof?.sourceFreshness?.covers === true;
   const zeroExecutable = proof?.stage6?.zeroExecutable === true;
   const contract = proof?.contract || {};
+  const fullStageFormulaFocus = fullStageAudit?.formulaTuningFocus || {};
+  const fullStageProducerReviewRows = numberValue(fullStageFormulaFocus.producerReviewRows);
+  const fullStageRowEvidenceSamples = arrayValue(fullStageFormulaFocus.rowEvidenceSamples);
   const producerFieldRecommendations = arrayValue(backlog?.producerFieldRecommendations);
   const tuningRecommendations = arrayValue(backlog?.tuningRecommendations);
   const producerFieldRecommendationCount = Math.max(
@@ -177,6 +182,31 @@ function deriveRequirements(proof, backlog) {
   ));
 
   requirements.push(requirement(
+    'full_stage_audit_exposes_formula_tuning_row_evidence',
+    fullStageAuditMissing
+      ? 'pending'
+      : fullStageProducerReviewRows > 0
+        ? fullStageRowEvidenceSamples.length > 0 ? 'pass' : 'fail'
+        : 'not_applicable',
+    {
+      fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
+      fullStageAuditOverall: fullStageAudit?.overall || null,
+      producerReviewRows: fullStageProducerReviewRows,
+      rowEvidenceSampleCount: fullStageRowEvidenceSamples.length,
+      topProducerTrack: fullStageFormulaFocus.topProducerTrack || null,
+      topAdjustmentKnob: fullStageFormulaFocus.topAdjustmentKnob || null,
+      tuningActionAllowed: fullStageFormulaFocus.tuningActionAllowed ?? null,
+      sampleOnly: fullStageRowEvidenceSamples.every((row) => row?.sampleOnly === true),
+      rowEvidenceSamples: fullStageRowEvidenceSamples.slice(0, 6)
+    },
+    fullStageAuditMissing
+      ? 'run_stage3_6_full_stage_audit_before_runtime_goal_status'
+      : fullStageProducerReviewRows > 0 && fullStageRowEvidenceSamples.length === 0
+        ? 'preserve_formula_tuning_row_evidence_samples_in_full_stage_audit'
+        : null
+  ));
+
+  requirements.push(requirement(
     'broker_and_sidecar_mutation_remain_forbidden',
     backlogMissing
       ? 'pending'
@@ -224,7 +254,8 @@ function markdown(report) {
 
 const proof = readJsonOptional(PROOF_PATH);
 const backlog = readJsonOptional(BACKLOG_PATH);
-const requirements = deriveRequirements(proof, backlog);
+const fullStageAudit = readJsonOptional(FULL_STAGE_AUDIT_PATH);
+const requirements = deriveRequirements(proof, backlog, fullStageAudit);
 const overall = overallFrom(requirements);
 const nextAction = requirements.find((item) => item.status === 'fail' || item.status === 'pending')?.nextAction || 'proceed_to_split_stage6_producer_formula_tuning';
 const report = {
@@ -240,8 +271,10 @@ const report = {
   inputs: {
     proofPath: PROOF_PATH,
     backlogPath: BACKLOG_PATH,
+    fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
     proofAvailable: Boolean(proof && !proof.readError),
-    backlogAvailable: Boolean(backlog && !backlog.readError)
+    backlogAvailable: Boolean(backlog && !backlog.readError),
+    fullStageAuditAvailable: Boolean(fullStageAudit && !fullStageAudit.readError)
   },
   evidence: {
     proofOverall: proof?.overall || null,
@@ -249,7 +282,8 @@ const report = {
     sourceFreshness: proof?.sourceFreshness || null,
     stage6: proof?.stage6 || null,
     contract: proof?.contract || null,
-    backlogSummary: backlog?.summary || null
+    backlogSummary: backlog?.summary || null,
+    fullStageFormulaTuningFocus: fullStageAudit?.formulaTuningFocus || null
   },
   requirements
 };
