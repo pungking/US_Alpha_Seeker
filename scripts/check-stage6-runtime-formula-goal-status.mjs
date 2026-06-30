@@ -97,6 +97,14 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   const zeroExecutable = proof?.stage6?.zeroExecutable === true;
   const contract = proof?.contract || {};
   const fullStageFormulaFocus = fullStageAudit?.formulaTuningFocus || {};
+  const fullStageDataFreshnessPolicy = fullStageAudit?.dataFreshnessPolicy || {};
+  const dataFreshnessPolicyStatus = String(fullStageDataFreshnessPolicy.status || '').trim();
+  const dataFreshnessPolicyReady = Boolean(
+    dataFreshnessPolicyStatus &&
+    fullStageDataFreshnessPolicy.thresholds &&
+    fullStageDataFreshnessPolicy.nextAction &&
+    fullStageDataFreshnessPolicy.reportOnly === true
+  );
   const fullStageProducerReviewRows = numberValue(fullStageFormulaFocus.producerReviewRows);
   const fullStageRowEvidenceSamples = arrayValue(fullStageFormulaFocus.rowEvidenceSamples);
   const targetRecalibrationSamples = fullStageRowEvidenceSamples.filter(
@@ -250,6 +258,31 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   ));
 
   requirements.push(requirement(
+    'full_stage_audit_exposes_data_freshness_policy',
+    fullStageAuditMissing
+      ? 'pending'
+      : dataFreshnessPolicyReady ? 'pass' : 'fail',
+    {
+      fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
+      fullStageAuditOverall: fullStageAudit?.overall || null,
+      dataFreshnessPolicyStatus: dataFreshnessPolicyStatus || null,
+      thresholds: fullStageDataFreshnessPolicy.thresholds || null,
+      findingCount: fullStageDataFreshnessPolicy.findingCount ?? null,
+      staleStages: fullStageDataFreshnessPolicy.staleStages || [],
+      staleFields: fullStageDataFreshnessPolicy.staleFields || [],
+      worstFreshnessAgeDays: fullStageDataFreshnessPolicy.worstFreshnessAgeDays ?? null,
+      worstPriceHistoryAgeDays: fullStageDataFreshnessPolicy.worstPriceHistoryAgeDays ?? null,
+      nextAction: fullStageDataFreshnessPolicy.nextAction || null,
+      reportOnly: fullStageDataFreshnessPolicy.reportOnly ?? null
+    },
+    fullStageAuditMissing
+      ? 'run_stage3_6_full_stage_audit_before_runtime_goal_status'
+      : dataFreshnessPolicyReady
+        ? null
+        : 'preserve_data_freshness_policy_summary_in_full_stage_audit'
+  ));
+
+  requirements.push(requirement(
     'broker_and_sidecar_mutation_remain_forbidden',
     backlogMissing
       ? 'pending'
@@ -326,7 +359,8 @@ const report = {
     stage6: proof?.stage6 || null,
     contract: proof?.contract || null,
     backlogSummary: backlog?.summary || null,
-    fullStageFormulaTuningFocus: fullStageAudit?.formulaTuningFocus || null
+    fullStageFormulaTuningFocus: fullStageAudit?.formulaTuningFocus || null,
+    fullStageDataFreshnessPolicy: fullStageAudit?.dataFreshnessPolicy || null
   },
   requirements
 };
