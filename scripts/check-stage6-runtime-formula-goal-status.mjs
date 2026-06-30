@@ -115,6 +115,38 @@ function stageDataHealthSummary(fullStageAudit) {
   };
 }
 
+function stage6PolicyLaneSummary(fullStageAudit) {
+  const summary = fullStageAudit?.blockerSummary || {};
+  const classification = fullStageAudit?.blockerClassificationHealth || {};
+  const requiredBuckets = [
+    'blockerCategoryCounts',
+    'zeroExecutableTuningLaneCounts',
+    'qualityGateLaneCounts',
+    'structurePolicyBlockerLaneCounts',
+    'riskGeometryRepairLaneCounts',
+    'breakoutRetestProofConfirmedCounts',
+    'targetRecalibrationViabilityVerdictCounts'
+  ];
+  const missing = requiredBuckets.filter((bucket) => {
+    const value = summary[bucket];
+    return !value || typeof value !== 'object' || Array.isArray(value);
+  });
+  const stage6Rows = Number(fullStageAudit?.stageDataHealth?.stage6?.rows || 0);
+  const emptyCoreBuckets = stage6Rows > 0
+    ? ['blockerCategoryCounts', 'zeroExecutableTuningLaneCounts', 'breakoutRetestProofConfirmedCounts', 'targetRecalibrationViabilityVerdictCounts']
+      .filter((bucket) => Object.keys(summary[bucket] || {}).length === 0)
+    : [];
+  const ambiguous = arrayValue(classification.ambiguous);
+  return {
+    status: classification.status || null,
+    missing,
+    emptyCoreBuckets,
+    ambiguous,
+    counts: Object.fromEntries(requiredBuckets.map((bucket) => [bucket, summary[bucket] || null])),
+    ok: Boolean(classification.status) && missing.length === 0 && emptyCoreBuckets.length === 0 && ambiguous.length === 0
+  };
+}
+
 function deriveRequirements(proof, backlog, fullStageAudit) {
   const requirements = [];
   const proofMissing = !proof || proof.readError;
@@ -136,6 +168,7 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   const fullStageProducerReviewRows = numberValue(fullStageFormulaFocus.producerReviewRows);
   const fullStageRowEvidenceSamples = arrayValue(fullStageFormulaFocus.rowEvidenceSamples);
   const stageHealth = stageDataHealthSummary(fullStageAudit);
+  const stage6PolicyLanes = stage6PolicyLaneSummary(fullStageAudit);
   const targetRecalibrationSamples = fullStageRowEvidenceSamples.filter(
     (row) => row?.producerTrack === 'target_recalibration'
   );
@@ -333,6 +366,24 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
       : stageHealth.ok
         ? null
         : 'fix_stage3_6_full_stage_audit_score_source_fallback_health'
+  ));
+
+  requirements.push(requirement(
+    'full_stage_audit_exposes_stage6_policy_lane_health',
+    fullStageAuditMissing ? 'pending' : stage6PolicyLanes.ok ? 'pass' : 'fail',
+    {
+      fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
+      status: stage6PolicyLanes.status,
+      missing: stage6PolicyLanes.missing,
+      emptyCoreBuckets: stage6PolicyLanes.emptyCoreBuckets,
+      ambiguous: stage6PolicyLanes.ambiguous,
+      counts: stage6PolicyLanes.counts
+    },
+    fullStageAuditMissing
+      ? 'run_stage3_6_full_stage_audit_before_runtime_goal_status'
+      : stage6PolicyLanes.ok
+        ? null
+        : 'fix_stage3_6_full_stage_audit_stage6_policy_lane_health'
   ));
 
   requirements.push(requirement(
