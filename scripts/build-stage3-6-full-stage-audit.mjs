@@ -130,6 +130,11 @@ const STAGE_DATA_HEALTH_CONFIGS = {
   }
 };
 
+const DATA_HEALTH_POLICY = {
+  maxFreshnessAgeDays: 5,
+  maxPriceHistoryAgeDays: 5
+};
+
 const STAGE6_ENTRY_EVIDENCE_FIELDS = [
   { label: 'entryDistancePct', fields: ['entryDistancePct', 'entryDistancePctShadow'] },
   { label: 'rrAtCurrent', fields: ['rrAtCurrent', 'rrAtCurrentPrice'] },
@@ -318,6 +323,14 @@ function countBy(rows, fn) {
     out[key] = (out[key] || 0) + 1;
   }
   return Object.fromEntries(Object.entries(out).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+function isFiscalPeriodField(field) {
+  return /asof|fiscal|period/i.test(field);
 }
 
 function coverage(rows, fields) {
@@ -716,31 +729,126 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
   };
 }
 
-function dataHealthFindingRows(stageDataHealth) {
+function dataHealthFindings(stageDataHealth) {
   const findings = [];
   for (const [stage, health] of Object.entries(stageDataHealth)) {
     for (const [field, info] of Object.entries(health.scoreBounds || {})) {
       if (info.outOfBounds > 0) {
-        findings.push([stage, 'score_bounds', field, `${info.outOfBounds} out-of-bounds`, `${info.min}..${info.max}`]);
+        findings.push({
+          stage,
+          category: 'score_bounds',
+          field,
+          finding: `${info.outOfBounds} out-of-bounds`,
+          range: `${info.min}..${info.max}`,
+          severity: 'warn',
+          nextAction: 'inspect_score_normalization_or_clamp'
+        });
       }
     }
     const priceHistory = health.priceHistory;
     if (priceHistory?.missingHistoryRows > 0) {
-      findings.push([stage, 'price_history', 'priceHistory', `${priceHistory.missingHistoryRows} missing`, `present=${priceHistory.present}/${priceHistory.total}`]);
+      findings.push({
+        stage,
+        category: 'price_history',
+        field: 'priceHistory',
+        finding: `${priceHistory.missingHistoryRows} missing`,
+        range: `present=${priceHistory.present}/${priceHistory.total}`,
+        severity: 'warn',
+        nextAction: 'refresh_harvester_or_stage4_price_history_source'
+      });
     }
-    if (priceHistory?.maxLastBarAgeDays != null && priceHistory.maxLastBarAgeDays > 5) {
-      findings.push([stage, 'price_history_freshness', 'priceHistory.lastBarDate', `max age ${priceHistory.maxLastBarAgeDays}d`, `${priceHistory.oldestLastBarDate}..${priceHistory.latestLastBarDate}`]);
+    if (priceHistory?.maxLastBarAgeDays != null && priceHistory.maxLastBarAgeDays > DATA_HEALTH_POLICY.maxPriceHistoryAgeDays) {
+      findings.push({
+        stage,
+        category: 'price_history_freshness',
+        field: 'priceHistory.lastBarDate',
+        finding: `max age ${priceHistory.maxLastBarAgeDays}d`,
+        range: `${priceHistory.oldestLastBarDate}..${priceHistory.latestLastBarDate}`,
+        severity: 'warn',
+        nextAction: 'refresh_same_run_stage_artifacts_before_policy_tuning'
+      });
     }
     for (const [field, info] of Object.entries(health.freshnessAge || {})) {
-      const isFiscalPeriodField = /asof|fiscal|period/i.test(field);
       if (info.present > 0 && info.parsed === 0) {
-        findings.push([stage, 'freshness_parse', field, 'timestamp not parseable', `present=${info.present}/${info.total}`]);
-      } else if (!isFiscalPeriodField && info.maxAgeDays != null && info.maxAgeDays > 5) {
-        findings.push([stage, 'freshness_age', field, `max age ${info.maxAgeDays}d`, `${info.oldest || 'N/A'}..${info.latest || 'N/A'}`]);
+        findings.push({
+          stage,
+          category: 'freshness_parse',
+          field,
+          finding: 'timestamp not parseable',
+          range: `present=${info.present}/${info.total}`,
+          severity: 'warn',
+          nextAction: 'fix_timestamp_lineage_or_parser'
+        });
+      } else if (!isFiscalPeriodField(field) && info.maxAgeDays != null && info.maxAgeDays > DATA_HEALTH_POLICY.maxFreshnessAgeDays) {
+        findings.push({
+          stage,
+          category: 'freshness_age',
+          field,
+          finding: `max age ${info.maxAgeDays}d`,
+          range: `${info.oldest || 'N/A'}..${info.latest || 'N/A'}`,
+          severity: 'warn',
+          nextAction: 'refresh_same_run_stage_artifacts_before_policy_tuning'
+        });
       }
     }
   }
   return findings;
+}
+
+function dataHealthFindingRows(stageDataHealth) {
+  return dataHealthFindings(stageDataHealth).map((item) => [
+    item.stage,
+    item.category,
+    item.field,
+    item.finding,
+    item.range
+  ]);
+}
+
+function deriveDataFreshnessPolicy(stageDataHealth) {
+  const findings = dataHealthFindings(stageDataHealth);
+  const staleFindings = findings.filter((item) => ['price_history_freshness', 'freshness_age'].includes(item.category));
+  const parseFindings = findings.filter((item) => item.category === 'freshness_parse');
+  const missingPriceHistoryFindings = findings.filter((item) => item.category === 'price_history');
+  const worstFreshnessAgeDays = Math.max(
+    0,
+    ...Object.values(stageDataHealth)
+      .flatMap((health) => Object.entries(health.freshnessAge || {})
+        .filter(([field]) => !isFiscalPeriodField(field))
+        .map(([, info]) => Number(info.maxAgeDays)))
+      .filter(Number.isFinite)
+  );
+  const worstPriceHistoryAgeDays = Math.max(
+    0,
+    ...Object.values(stageDataHealth)
+      .map((health) => Number(health.priceHistory?.maxLastBarAgeDays))
+      .filter(Number.isFinite)
+  );
+  const categoryCounts = countBy(findings, (item) => item.category);
+  const staleStages = unique(staleFindings.map((item) => item.stage));
+  const staleFields = unique(staleFindings.map((item) => `${item.stage}.${item.field}`));
+  const status = findings.length === 0
+    ? 'pass_data_freshness_policy'
+    : parseFindings.length || missingPriceHistoryFindings.length
+      ? 'warn_data_lineage_or_price_history_gap'
+      : staleFindings.length
+        ? 'warn_stale_stage_artifacts_for_policy_tuning'
+        : 'warn_data_health_review_required';
+  return {
+    status,
+    thresholds: DATA_HEALTH_POLICY,
+    findingCount: findings.length,
+    categoryCounts,
+    staleStageCount: staleStages.length,
+    staleStages,
+    staleFields,
+    worstFreshnessAgeDays: round(worstFreshnessAgeDays, 2),
+    worstPriceHistoryAgeDays: round(worstPriceHistoryAgeDays, 2),
+    nextAction: status === 'pass_data_freshness_policy'
+      ? 'none'
+      : 'refresh_same_run_stage_artifacts_before_stage6_policy_tuning',
+    reportOnly: true
+  };
 }
 
 function deriveBlockerSummary(stage6Rows, subreports) {
@@ -853,7 +961,7 @@ function deriveOverall({ lineage, runtimeProof, stages }) {
   return 'pass_stage3_6_full_stage_audit';
 }
 
-function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formulaTuningFocus) {
+function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formulaTuningFocus, dataFreshnessPolicy) {
   const actions = [];
   if (lineage.status !== 'pass_same_run_lineage') {
     actions.push('Refresh or download same-run Stage3/4/5/6 artifacts before making a final full-chain quality judgement.');
@@ -868,6 +976,9 @@ function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formul
   }
   if (stage6EntryEvidence.status === 'pending_entry_fillability_evidence') {
     actions.push(`Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: ${stage6EntryEvidence.missingCoreFields.join(', ')}.`);
+  }
+  if (dataFreshnessPolicy.status !== 'pass_data_freshness_policy') {
+    actions.push(`Data freshness policy is ${dataFreshnessPolicy.status}; refresh same-run Stage3/4/5/6 artifacts before tuning producer thresholds from stale evidence.`);
   }
   if (formulaTuningFocus.tuningActionAllowed && formulaTuningFocus.topProducerTrack && formulaTuningFocus.topProducerTrack !== 'none') {
     actions.push(`Prioritize Stage6 producer tuning track: ${formulaTuningFocus.topProducerTrack} via ${formulaTuningFocus.topAdjustmentKnob}; do not solve this in sidecar.`);
@@ -960,6 +1071,16 @@ function buildMarkdown(report) {
     health.priceHistory ? compactJson(health.priceHistory) : 'N/A'
   ]);
   const dataHealthFindings = dataHealthFindingRows(report.stageDataHealth);
+  const dataFreshnessPolicyRows = [
+    ['status', report.dataFreshnessPolicy.status],
+    ['findingCount', report.dataFreshnessPolicy.findingCount],
+    ['categoryCounts', compactJson(report.dataFreshnessPolicy.categoryCounts)],
+    ['staleStages', report.dataFreshnessPolicy.staleStages.join(', ') || 'none'],
+    ['staleFields', report.dataFreshnessPolicy.staleFields.join(', ') || 'none'],
+    ['worstFreshnessAgeDays', report.dataFreshnessPolicy.worstFreshnessAgeDays],
+    ['worstPriceHistoryAgeDays', report.dataFreshnessPolicy.worstPriceHistoryAgeDays],
+    ['nextAction', report.dataFreshnessPolicy.nextAction]
+  ];
   const formulaRows = Object.entries(report.formulaEvidence.byStage || {}).map(([stage, info]) => [
     stage,
     `${info.present}/${info.checks}`,
@@ -997,6 +1118,8 @@ function buildMarkdown(report) {
     `## Stage Formula Evidence\n\n${mdTable(['Stage', 'Present / Checks', 'Missing Required', 'Evidence Sources'], formulaRows)}\n\n` +
     `${missingFormulaRows.length ? `${mdTable(['Source', 'Stage', 'Check', 'File', 'Line'], missingFormulaRows)}\n\n` : 'Missing required formula evidence: none\n\n'}` +
     `## Stage Data Health\n\n${mdTable(['Stage', 'Rows', 'Score Bounds', 'Source Counts', 'Freshness Coverage', 'Freshness Age', 'Fallback Flags', 'Price History'], dataHealthRows)}\n\n` +
+    `Data freshness policy: **${report.dataFreshnessPolicy.status}**. Thresholds: ${compactJson(report.dataFreshnessPolicy.thresholds)}\n\n` +
+    `${mdTable(['Metric', 'Value'], dataFreshnessPolicyRows)}\n\n` +
     `${dataHealthFindings.length ? 'Data health findings:' : 'Data health findings: none'}\n\n` +
     `${dataHealthFindings.length ? `${mdTable(['Stage', 'Category', 'Field', 'Finding', 'Range / Coverage'], dataHealthFindings)}\n\n` : ''}` +
     `## Stage6 Entry / Fillability Evidence\n\n` +
@@ -1031,6 +1154,7 @@ function main() {
   const formulaEvidence = deriveFormulaEvidence(subreports);
   const stageVerdicts = deriveStageVerdicts(stages, subreports, runtimeProof);
   const stageDataHealth = deriveStageDataHealth(stages, generatedAt);
+  const dataFreshnessPolicy = deriveDataFreshnessPolicy(stageDataHealth);
   const stage6EntryEvidence = deriveStage6EntryEvidence(stages.stage6.rows);
   const blockerSummary = deriveBlockerSummary(stages.stage6.rows, subreports);
   const blockerClassificationHealth = deriveBlockerClassificationHealth(blockerSummary);
@@ -1060,12 +1184,13 @@ function main() {
     formulaEvidence,
     stageVerdicts,
     stageDataHealth,
+    dataFreshnessPolicy,
     stage6EntryEvidence,
     formulaTuningFocus,
     blockerSummary,
     blockerClassificationHealth,
     auditSources: subreports,
-    nextActions: nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formulaTuningFocus)
+    nextActions: nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formulaTuningFocus, dataFreshnessPolicy)
   };
 
   writeJsonAtomic(OUT_JSON, report);
