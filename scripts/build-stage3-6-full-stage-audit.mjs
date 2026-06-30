@@ -919,17 +919,28 @@ function formulaTuningRowSamples(backlogRows) {
     }));
 }
 
-function deriveFormulaTuningFocus(subreports, runtimeProof) {
+function deriveFormulaTuningFocus(subreports, runtimeProof, dataFreshnessPolicy) {
   const backlog = subreports.stage6FormulaTuningBacklog || {};
   const summary = backlog.summary || {};
   const topProducerTrack = summary.topProducerTrack || 'none';
   const topAdjustmentKnob = summary.topAdjustmentKnob || 'none';
   const producerTrackAggregation = summary.producerTrackAggregation || {};
   const adjustmentKnobAggregation = summary.adjustmentKnobAggregation || {};
-  const tuningActionAllowed = runtimeProof.status === 'pass_runtime_proof_fields_present';
+  const runtimeProofReady = runtimeProof.status === 'pass_runtime_proof_fields_present';
+  const dataFreshnessStatus = dataFreshnessPolicy?.status || 'missing';
+  const dataFreshnessReady = dataFreshnessStatus === 'pass_data_freshness_policy';
+  const tuningActionAllowed = runtimeProofReady && dataFreshnessReady;
+  const nextAction = !runtimeProofReady
+    ? 'wait_for_fresh_stage6_runtime_proof_before_tuning'
+    : !dataFreshnessReady
+      ? 'refresh_same_run_stage_artifacts_before_stage6_policy_tuning'
+      : topProducerTrack && topProducerTrack !== 'none'
+        ? (backlog.nextAction || 'tune_stage6_producer_formula_or_proof_generation')
+        : 'none';
   return {
     status: backlog.overall || 'missing',
     freshRuntimeProofStatus: runtimeProof.status,
+    dataFreshnessPolicyStatus: dataFreshnessStatus,
     tuningActionAllowed,
     topProducerTrack,
     topAdjustmentKnob,
@@ -940,9 +951,7 @@ function deriveFormulaTuningFocus(subreports, runtimeProof) {
     adjustmentKnobAggregation,
     targetRecalibrationProofGapCounts: summary.targetRecalibrationProofGapCounts || {},
     rowEvidenceSamples: formulaTuningRowSamples(backlog.backlogRows),
-    nextAction: tuningActionAllowed && topProducerTrack && topProducerTrack !== 'none'
-      ? (backlog.nextAction || 'tune_stage6_producer_formula_or_proof_generation')
-      : 'wait_for_fresh_stage6_runtime_proof_before_tuning',
+    nextAction,
     safety: {
       brokerMutationAllowed: false,
       sidecarMutationAllowed: false,
@@ -983,7 +992,10 @@ function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formul
   if (formulaTuningFocus.tuningActionAllowed && formulaTuningFocus.topProducerTrack && formulaTuningFocus.topProducerTrack !== 'none') {
     actions.push(`Prioritize Stage6 producer tuning track: ${formulaTuningFocus.topProducerTrack} via ${formulaTuningFocus.topAdjustmentKnob}; do not solve this in sidecar.`);
   } else if (formulaTuningFocus.topProducerTrack && formulaTuningFocus.topProducerTrack !== 'none') {
-    actions.push(`Defer Stage6 producer tuning track ${formulaTuningFocus.topProducerTrack} until fresh runtime proof passes; do not tune from stale Stage6 evidence.`);
+    const reason = formulaTuningFocus.nextAction === 'refresh_same_run_stage_artifacts_before_stage6_policy_tuning'
+      ? 'same-run Stage3/4/5/6 data freshness passes'
+      : 'fresh runtime proof passes';
+    actions.push(`Defer Stage6 producer tuning track ${formulaTuningFocus.topProducerTrack} until ${reason}; do not tune from stale Stage6 evidence.`);
   }
   if (overall === 'pass_stage3_6_full_stage_audit') {
     actions.push('Proceed to bounded Stage6 producer tuning only for proven formula or blocker defects.');
@@ -1158,7 +1170,7 @@ function main() {
   const stage6EntryEvidence = deriveStage6EntryEvidence(stages.stage6.rows);
   const blockerSummary = deriveBlockerSummary(stages.stage6.rows, subreports);
   const blockerClassificationHealth = deriveBlockerClassificationHealth(blockerSummary);
-  const formulaTuningFocus = deriveFormulaTuningFocus(subreports, runtimeProof);
+  const formulaTuningFocus = deriveFormulaTuningFocus(subreports, runtimeProof, dataFreshnessPolicy);
   const overall = deriveOverall({ lineage, runtimeProof, stages });
   const report = {
     schemaVersion: 'stage3_6_full_stage_audit.v2',

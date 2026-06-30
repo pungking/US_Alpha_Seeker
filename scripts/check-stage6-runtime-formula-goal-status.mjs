@@ -105,6 +105,7 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
     fullStageDataFreshnessPolicy.nextAction &&
     fullStageDataFreshnessPolicy.reportOnly === true
   );
+  const dataFreshnessPolicyPass = dataFreshnessPolicyStatus === 'pass_data_freshness_policy';
   const fullStageProducerReviewRows = numberValue(fullStageFormulaFocus.producerReviewRows);
   const fullStageRowEvidenceSamples = arrayValue(fullStageFormulaFocus.rowEvidenceSamples);
   const targetRecalibrationSamples = fullStageRowEvidenceSamples.filter(
@@ -112,6 +113,14 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   );
   const targetProofSummaryReadyCount = targetRecalibrationSamples.filter(validTargetProofSummary).length;
   const targetProofSummaryReady = targetRecalibrationSamples.length === targetProofSummaryReadyCount;
+  const producerReviewRowsPresent = fullStageProducerReviewRows > 0;
+  const producerTuningFreshDataStatus = fullStageAuditMissing
+    ? 'pending'
+    : !producerReviewRowsPresent
+      ? 'not_applicable'
+      : dataFreshnessPolicyPass && fullStageFormulaFocus.tuningActionAllowed === true
+        ? 'pass'
+        : 'warn';
   const producerFieldRecommendations = arrayValue(backlog?.producerFieldRecommendations);
   const tuningRecommendations = arrayValue(backlog?.tuningRecommendations);
   const producerFieldRecommendationCount = Math.max(
@@ -283,6 +292,27 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   ));
 
   requirements.push(requirement(
+    'stage6_producer_tuning_requires_fresh_stage_data',
+    producerTuningFreshDataStatus,
+    {
+      fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
+      producerReviewRows: fullStageProducerReviewRows,
+      tuningActionAllowed: fullStageFormulaFocus.tuningActionAllowed ?? null,
+      dataFreshnessPolicyStatus: dataFreshnessPolicyStatus || null,
+      formulaTuningNextAction: fullStageFormulaFocus.nextAction || null
+    },
+    fullStageAuditMissing
+      ? 'run_stage3_6_full_stage_audit_before_runtime_goal_status'
+      : !producerReviewRowsPresent
+        ? null
+        : dataFreshnessPolicyPass && fullStageFormulaFocus.tuningActionAllowed !== true
+          ? 'verify_formula_tuning_focus_allows_fresh_data_producer_tuning'
+          : dataFreshnessPolicyPass
+            ? null
+            : 'refresh_same_run_stage_artifacts_before_stage6_policy_tuning'
+  ));
+
+  requirements.push(requirement(
     'broker_and_sidecar_mutation_remain_forbidden',
     backlogMissing
       ? 'pending'
@@ -333,7 +363,7 @@ const backlog = readJsonOptional(BACKLOG_PATH);
 const fullStageAudit = readJsonOptional(FULL_STAGE_AUDIT_PATH);
 const requirements = deriveRequirements(proof, backlog, fullStageAudit);
 const overall = overallFrom(requirements);
-const nextAction = requirements.find((item) => item.status === 'fail' || item.status === 'pending')?.nextAction || 'proceed_to_split_stage6_producer_formula_tuning';
+const nextAction = requirements.find((item) => item.status === 'fail' || item.status === 'pending' || item.status === 'warn')?.nextAction || 'proceed_to_split_stage6_producer_formula_tuning';
 const report = {
   generatedAt: new Date().toISOString(),
   scope: 'stage6_runtime_formula_goal_status_report_only',
