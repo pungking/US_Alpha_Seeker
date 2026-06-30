@@ -281,7 +281,62 @@ jobs:
           echo "[EVIDENCE_INIT] stale tracked audit docs removed from runner workspace"
 
       - name: 7. 자동화 스크립트 실행 (Puppeteer)
+        id: automation
         run: npm run automate
+
+      - name: 7.01 Auto-Scheduler run status evidence
+        if: always()
+        env:
+          AUTOMATION_OUTCOME: ${{ steps.automation.outcome || 'not_started' }}
+          AUTOMATION_CONCLUSION: ${{ steps.automation.conclusion || 'not_started' }}
+          DAILY_GATE_SHOULD_RUN: ${{ needs.daily-run-gate.outputs.should_run }}
+          DAILY_GATE_REASON: ${{ needs.daily-run-gate.outputs.reason }}
+          DAILY_GATE_MARKET_DATE: ${{ needs.daily-run-gate.outputs.market_date }}
+        run: |
+          mkdir -p state
+          node - <<'NODE'
+          const fs = require('fs');
+          const payload = {
+            schemaVersion: 'auto_scheduler_run_status.v1',
+            generatedAt: new Date().toISOString(),
+            workflow: process.env.GITHUB_WORKFLOW || null,
+            runId: process.env.GITHUB_RUN_ID || null,
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT || null,
+            eventName: process.env.GITHUB_EVENT_NAME || null,
+            ref: process.env.GITHUB_REF || null,
+            sha: process.env.GITHUB_SHA || null,
+            dailyGate: {
+              shouldRun: process.env.DAILY_GATE_SHOULD_RUN || null,
+              reason: process.env.DAILY_GATE_REASON || null,
+              marketDate: process.env.DAILY_GATE_MARKET_DATE || null
+            },
+            automation: {
+              outcome: process.env.AUTOMATION_OUTCOME || 'unknown',
+              conclusion: process.env.AUTOMATION_CONCLUSION || 'unknown',
+              completedSuccessfully: process.env.AUTOMATION_OUTCOME === 'success' && process.env.AUTOMATION_CONCLUSION === 'success'
+            },
+            safety: {
+              brokerMutationAllowed: false,
+              sidecarMutationAllowed: false,
+              executionPolicyChanged: false
+            }
+          };
+          fs.writeFileSync('state/auto-scheduler-run-status.json', `${JSON.stringify(payload, null, 2)}\n`);
+          fs.writeFileSync('state/auto-scheduler-run-status.md', [
+            '# Auto-Scheduler Run Status',
+            '',
+            `- GeneratedAt: ${payload.generatedAt}`,
+            `- RunId: ${payload.runId}`,
+            `- Sha: ${payload.sha}`,
+            `- DailyGate: ${payload.dailyGate.shouldRun} / ${payload.dailyGate.reason}`,
+            `- AutomationOutcome: ${payload.automation.outcome}`,
+            `- AutomationConclusion: ${payload.automation.conclusion}`,
+            `- CompletedSuccessfully: ${payload.automation.completedSuccessfully}`,
+            '',
+            'Safety: report-only status evidence; brokerMutationAllowed=false; sidecarMutationAllowed=false.'
+          ].join('\n') + '\n');
+          console.log(`[AUTO_SCHEDULER_STATUS] automation=${payload.automation.outcome}/${payload.automation.conclusion} dailyGate=${payload.dailyGate.shouldRun}/${payload.dailyGate.reason}`);
+          NODE
 
       - name: Audit Evidence | Export Stage3-6 artifacts
         if: success()
@@ -624,6 +679,8 @@ jobs:
             notion-pipeline-sync-payload.json
             state/symbol-agnostic-runtime-check.json
             state/symbol-agnostic-runtime-check.md
+            state/auto-scheduler-run-status.json
+            state/auto-scheduler-run-status.md
             state/gemini-env-smoke.json
             state/stage6-flag-parity-assertion.json
             state/stage6-holiday-safety-audit.json
