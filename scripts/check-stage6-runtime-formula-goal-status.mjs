@@ -6,6 +6,7 @@ const ROOT = process.cwd();
 const PROOF_PATH = process.env.STAGE6_RUNTIME_GOAL_STATUS_PROOF_PATH || 'state/stage6-runtime-formula-contract-proof.json';
 const BACKLOG_PATH = process.env.STAGE6_RUNTIME_GOAL_STATUS_BACKLOG_PATH || 'state/stage6-formula-tuning-backlog.json';
 const FULL_STAGE_AUDIT_PATH = process.env.STAGE6_RUNTIME_GOAL_STATUS_FULL_STAGE_AUDIT_PATH || 'state/stage3-6-full-stage-audit.json';
+const WEAK_PILLAR_AUDIT_PATH = process.env.STAGE6_RUNTIME_GOAL_STATUS_WEAK_PILLAR_AUDIT_PATH || 'state/stage6-weak-pillar-runtime-audit.json';
 const OUT_JSON = process.env.STAGE6_RUNTIME_GOAL_STATUS_OUT_JSON || 'state/stage6-runtime-formula-goal-status.json';
 const OUT_MD = process.env.STAGE6_RUNTIME_GOAL_STATUS_OUT_MD || 'state/stage6-runtime-formula-goal-status.md';
 
@@ -147,11 +148,38 @@ function stage6PolicyLaneSummary(fullStageAudit) {
   };
 }
 
-function deriveRequirements(proof, backlog, fullStageAudit) {
+function weakPillarAuditSummary(weakPillarAudit) {
+  const overall = String(weakPillarAudit?.overall || '').trim();
+  const latest = weakPillarAudit?.latest || {};
+  const summary = latest.summary || {};
+  const safety = weakPillarAudit?.safety || {};
+  const ok = overall.startsWith('pass_') &&
+    Number(summary.executableViolations || 0) === 0 &&
+    Number(summary.qualityGateViolations || 0) === 0 &&
+    safety.brokerMutationAuthorized === false &&
+    safety.executionPolicyChanged === false;
+  return {
+    overall: overall || null,
+    ok,
+    summary: {
+      file: latest.file || null,
+      weakRows: summary.weakRows ?? null,
+      weakWaitRows: summary.weakWaitRows ?? null,
+      executableViolations: summary.executableViolations ?? null,
+      qualityGateViolations: summary.qualityGateViolations ?? null,
+      qualityGateLaneCounts: summary.qualityGateLaneCounts || null,
+      decisionReasonCounts: summary.decisionReasonCounts || null
+    },
+    safety
+  };
+}
+
+function deriveRequirements(proof, backlog, fullStageAudit, weakPillarAudit) {
   const requirements = [];
   const proofMissing = !proof || proof.readError;
   const backlogMissing = !backlog || backlog.readError;
   const fullStageAuditMissing = !fullStageAudit || fullStageAudit.readError;
+  const weakPillarAuditMissing = !weakPillarAudit || weakPillarAudit.readError;
   const freshCovers = proof?.sourceFreshness?.covers === true;
   const zeroExecutable = proof?.stage6?.zeroExecutable === true;
   const contract = proof?.contract || {};
@@ -169,6 +197,7 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   const fullStageRowEvidenceSamples = arrayValue(fullStageFormulaFocus.rowEvidenceSamples);
   const stageHealth = stageDataHealthSummary(fullStageAudit);
   const stage6PolicyLanes = stage6PolicyLaneSummary(fullStageAudit);
+  const weakPillar = weakPillarAuditSummary(weakPillarAudit);
   const fullStageSafety = fullStageAudit?.safety || {};
   const fullStageFormulaSafety = fullStageFormulaFocus.safety || {};
   const mutationSafetyOk = Boolean(
@@ -402,6 +431,20 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   ));
 
   requirements.push(requirement(
+    'stage6_weak_pillar_runtime_audit_ready',
+    weakPillarAuditMissing ? 'pending' : weakPillar.ok ? 'pass' : 'fail',
+    {
+      weakPillarAuditPath: WEAK_PILLAR_AUDIT_PATH,
+      ...weakPillar
+    },
+    weakPillarAuditMissing
+      ? 'run_stage6_weak_pillar_runtime_audit_before_runtime_goal_status'
+      : weakPillar.ok
+        ? null
+        : 'fix_stage6_weak_pillar_runtime_audit_or_producer_quality_gate_contract'
+  ));
+
+  requirements.push(requirement(
     'stage6_producer_tuning_requires_fresh_stage_data',
     producerTuningFreshDataStatus,
     {
@@ -477,7 +520,8 @@ function markdown(report) {
 const proof = readJsonOptional(PROOF_PATH);
 const backlog = readJsonOptional(BACKLOG_PATH);
 const fullStageAudit = readJsonOptional(FULL_STAGE_AUDIT_PATH);
-const requirements = deriveRequirements(proof, backlog, fullStageAudit);
+const weakPillarAudit = readJsonOptional(WEAK_PILLAR_AUDIT_PATH);
+const requirements = deriveRequirements(proof, backlog, fullStageAudit, weakPillarAudit);
 const overall = overallFrom(requirements);
 const nextAction = requirements.find((item) => item.status === 'fail' || item.status === 'pending' || item.status === 'warn')?.nextAction || 'proceed_to_split_stage6_producer_formula_tuning';
 const report = {
@@ -494,9 +538,11 @@ const report = {
     proofPath: PROOF_PATH,
     backlogPath: BACKLOG_PATH,
     fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
+    weakPillarAuditPath: WEAK_PILLAR_AUDIT_PATH,
     proofAvailable: Boolean(proof && !proof.readError),
     backlogAvailable: Boolean(backlog && !backlog.readError),
-    fullStageAuditAvailable: Boolean(fullStageAudit && !fullStageAudit.readError)
+    fullStageAuditAvailable: Boolean(fullStageAudit && !fullStageAudit.readError),
+    weakPillarAuditAvailable: Boolean(weakPillarAudit && !weakPillarAudit.readError)
   },
   evidence: {
     proofOverall: proof?.overall || null,
@@ -506,7 +552,8 @@ const report = {
     contract: proof?.contract || null,
     backlogSummary: backlog?.summary || null,
     fullStageFormulaTuningFocus: fullStageAudit?.formulaTuningFocus || null,
-    fullStageDataFreshnessPolicy: fullStageAudit?.dataFreshnessPolicy || null
+    fullStageDataFreshnessPolicy: fullStageAudit?.dataFreshnessPolicy || null,
+    weakPillarRuntimeAudit: weakPillarAuditSummary(weakPillarAudit)
   },
   requirements
 };

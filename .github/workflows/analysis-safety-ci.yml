@@ -41,6 +41,8 @@ jobs:
         run: npm run ops:stage5:lineage-contract:validate
       - name: Stage3-6 full-stage audit
         run: npm run ops:stage3-6:full:audit
+      - name: Stage6 weak pillar runtime audit
+        run: npm run ops:stage6:weak-pillar:audit
       - name: Stage6 runtime formula goal status
         run: npm run ops:stage6:runtime-formula-goal:status
       - name: Stage6 holiday analysis-only fixture
@@ -76,8 +78,10 @@ jobs:
             state/stage6-runtime-formula-contract-proof.*
             state/stage6-runtime-formula-goal-status.*
             state/stage6-formula-audit-backlog-alignment.*
+            state/stage6-weak-pillar-runtime-audit.*
             state/stage3-6-full-stage-audit.*
             docs/STAGE3_6_FULL_STAGE_AUDIT.md
+            docs/STAGE6_WEAK_PILLAR_RUNTIME_AUDIT.md
             state/stage6-earnings-coverage-audit.*
             state/auto-scheduler-reliability-audit.*
             state/tsc-debt-report.*
