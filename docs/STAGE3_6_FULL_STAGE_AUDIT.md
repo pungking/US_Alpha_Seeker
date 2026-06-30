@@ -104,6 +104,7 @@ Status: **pending_entry_fillability_evidence**. Missing core fields: fillability
 | producerReviewRows | 5 |
 | tuningRecommendationCount | 4 |
 | producerFieldRecommendationCount | 20 |
+| targetRecalibrationProofGapCounts | {"missing_execution_floor_price":2,"missing_execution_floor_viability":2,"missing_required_target_dominant_reason":2} |
 | producerTrackAggregation | {"target_recalibration":{"count":2,"totalMagnitude":76.64,"symbols":["AUPH","DUOL"]},"structure_proof_generation":{"count":1,"totalMagnitude":25.43,"symbols":["DAVE"]},"breakout_proof_confirmed_generation":{"count":1,"totalMagnitude":16.73,"symbols":["ZVRA"]},"risk_geometry_recalculation":{"count":1,"totalMagnitude":9.3,"symbols":["ASB"]}} |
 | adjustmentKnobAggregation | {"TARGET_RECALIBRATION_SOURCE_REFRESH":{"count":2,"totalMagnitude":76.64,"symbols":["AUPH","DUOL"]},"CURRENT_ENTRY_STRUCTURE_DISTANCE_BAND":{"count":1,"totalMagnitude":25.43,"symbols":["DAVE"]},"BREAKOUT_EXTENSION_POLICY":{"count":1,"totalMagnitude":16.73,"symbols":["ZVRA"]},"RISK_GEOMETRY_REQUIRED_TARGET_PRICE":{"count":1,"totalMagnitude":9.3,"symbols":["ASB"]}} |
 | nextAction | tune_stage6_producer_formula_or_proof_generation |

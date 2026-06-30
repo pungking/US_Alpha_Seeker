@@ -786,6 +786,7 @@ function deriveFormulaTuningFocus(subreports) {
     producerFieldRecommendationCount: Number(summary.producerFieldRecommendationCount || 0),
     producerTrackAggregation,
     adjustmentKnobAggregation,
+    targetRecalibrationProofGapCounts: summary.targetRecalibrationProofGapCounts || {},
     nextAction: backlog.nextAction || (
       topProducerTrack && topProducerTrack !== 'none'
         ? 'tune_stage6_producer_formula_or_proof_generation'
@@ -883,6 +884,7 @@ function buildMarkdown(report) {
     ['producerReviewRows', report.formulaTuningFocus.producerReviewRows],
     ['tuningRecommendationCount', report.formulaTuningFocus.tuningRecommendationCount],
     ['producerFieldRecommendationCount', report.formulaTuningFocus.producerFieldRecommendationCount],
+    ['targetRecalibrationProofGapCounts', compactJson(report.formulaTuningFocus.targetRecalibrationProofGapCounts)],
     ['producerTrackAggregation', compactJson(report.formulaTuningFocus.producerTrackAggregation)],
     ['adjustmentKnobAggregation', compactJson(report.formulaTuningFocus.adjustmentKnobAggregation)],
     ['nextAction', report.formulaTuningFocus.nextAction]

@@ -361,6 +361,16 @@ function targetRecalibrationEvidence(row) {
   };
 }
 
+function targetRecalibrationProofGaps(evidence) {
+  const gaps = [];
+  if (evidence.requiredTargetPrice == null) gaps.push('missing_required_target_price');
+  if (evidence.requiredTargetByExecutionFloorPrice == null) gaps.push('missing_execution_floor_price');
+  if (evidence.executionFloorViable == null) gaps.push('missing_execution_floor_viability');
+  if (!evidence.requiredTargetDominantReason) gaps.push('missing_required_target_dominant_reason');
+  if (!evidence.viabilityVerdict) gaps.push('missing_viability_verdict');
+  return gaps;
+}
+
 function structureProofEvidence(row) {
   return {
     currentEntryStructureVerdict: normalizeText(row?.currentEntryStructureVerdict),
@@ -394,7 +404,8 @@ function rowEvidenceSummary(row) {
   const formula = formulaEvidenceSummary(row);
   if (lane === 'TARGET_RECALIBRATION') {
     const evidence = targetRecalibrationEvidence(row);
-    return `${formula}; target=${evidence.currentTargetPrice ?? 'N/A'} required=${evidence.requiredTargetPrice ?? 'N/A'} source=${evidence.requiredTargetSource || 'missing'} viability=${evidence.viabilityVerdict || 'missing'} noTrade=${evidence.noTradeConfirmed}`;
+    const proofGaps = targetRecalibrationProofGaps(evidence);
+    return `${formula}; target=${evidence.currentTargetPrice ?? 'N/A'} required=${evidence.requiredTargetPrice ?? 'N/A'} source=${evidence.requiredTargetSource || 'missing'} viability=${evidence.viabilityVerdict || 'missing'} noTrade=${evidence.noTradeConfirmed} proofGaps=${proofGaps.join(',') || 'none'}`;
   }
   if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
     const evidence = structureProofEvidence(row);
@@ -414,6 +425,8 @@ function rowBacklog(row, contractIncomplete = false) {
   const delta = round(row?.zeroExecutableFormulaDeltaValue) ?? 0;
   const magnitude = round(row?.zeroExecutableFormulaAdjustmentMagnitude) ?? delta;
   const severity = round(row?.zeroExecutableFormulaSeverity) ?? 0;
+  const targetEvidence = targetRecalibrationEvidence(row);
+  const targetProofGaps = targetRecalibrationProofGaps(targetEvidence);
   const actionRequired = contractIncomplete
     ? 'REFRESH_STAGE6_FORMULA_CONTRACT'
     : missingFields.length > 0 || missingLaneFields.length > 0
@@ -450,7 +463,9 @@ function rowBacklog(row, contractIncomplete = false) {
     expectedFormulaBottleneck: EXPECTED_BOTTLENECK_BY_LANE[String(row?.zeroExecutableTuningLane || '').trim().toUpperCase()] || null,
     formulaEvidenceWeak: weakEvidence,
     rowEvidenceSummary: rowEvidenceSummary(row),
-    targetRecalibrationEvidence: targetRecalibrationEvidence(row),
+    targetRecalibrationEvidence: targetEvidence,
+    targetRecalibrationProofGaps: targetProofGaps,
+    targetRecalibrationProofGapCount: targetProofGaps.length,
     structureProofEvidence: structureProofEvidence(row),
     producerOnly: true,
     sidecarMutationAllowed: false
@@ -478,6 +493,10 @@ function aggregate(rows, key) {
     totalMagnitude: round(value.totalMagnitude),
     symbols: value.symbols.sort()
   }]));
+}
+
+function proofGapCounts(rows) {
+  return countBy(rows.flatMap((row) => row.targetRecalibrationProofGaps || []), (gap) => gap);
 }
 
 function producerFieldRecommendation(field, purpose, action, context = {}) {
@@ -689,8 +708,9 @@ function recommendationForGroup(groupRows) {
   if (producerTrack === 'target_recalibration') {
     return {
       ...base,
+      targetRecalibrationProofGapCounts: proofGapCounts(groupRows),
       formulaDecision: 'RECALIBRATE_TARGET_OR_CONFIRM_NO_TRADE',
-      recommendedProducerChange: 'Refresh the Stage6 target thesis using execution-floor and expected-return evidence. Keep sidecar reprice blocked. If the execution floor is not viable, emit no-trade.',
+      recommendedProducerChange: 'Refresh the Stage6 target thesis and fill target proof gaps using execution-floor and expected-return evidence. Keep sidecar reprice blocked. If the execution floor is not viable, emit no-trade.',
       candidateThresholdField: 'TARGET_RECALIBRATION_POLICY.maxRequiredTargetGapPct / TARGET_RECALIBRATION_POLICY.maxExecutionFloorGapPct',
       candidateThresholdValue: null,
       doneWhen: 'Rows either emit a fresh target above current with execution-floor RR/buffer evidence or explicit TARGET_NO_TRADE_CONFIRMED.'
@@ -801,6 +821,7 @@ function producerTrackDiagnostics(producerRows, tuningRecommendations) {
         laneMismatchRows: rows.filter((row) => row.formulaLaneMismatch).length,
         missingFormulaRows: rows.filter((row) => (row.missingFormulaFields || []).length > 0).length,
         missingLaneSpecificRows: rows.filter((row) => (row.missingLaneSpecificFields || []).length > 0).length,
+        targetRecalibrationProofGapCounts: track === 'target_recalibration' ? proofGapCounts(rows) : {},
         recommendedProducerFields: sortedUnique(fieldRecommendations.map((row) => row.field)),
         recommendedPolicyFields: sortedUnique(recommendations.flatMap((row) => row.contractTunablePolicyFields || [])),
         nextAction: 'stage6_producer_formula_or_proof_generation_only',
@@ -848,7 +869,7 @@ function buildMarkdown(report) {
   for (const row of report.backlogRows) {
     const laneMismatch = row.formulaLaneMismatch ? `${row.formulaBottleneck || 'missing'}!=${row.expectedFormulaBottleneck || 'unknown'}` : 'no';
     const target = row.targetRecalibrationEvidence || {};
-    const targetEvidence = `target=${target.currentTargetPrice ?? 'N/A'} required=${target.requiredTargetPrice ?? 'N/A'} source=${target.requiredTargetSource || 'N/A'} viability=${target.viabilityVerdict || 'N/A'} noTrade=${target.noTradeConfirmed}`;
+    const targetEvidence = `target=${target.currentTargetPrice ?? 'N/A'} required=${target.requiredTargetPrice ?? 'N/A'} source=${target.requiredTargetSource || 'N/A'} viability=${target.viabilityVerdict || 'N/A'} noTrade=${target.noTradeConfirmed} proofGaps=${(row.targetRecalibrationProofGaps || []).join(', ') || 'none'}`;
     const structure = row.structureProofEvidence || {};
     const structureEvidence = `verdict=${structure.currentEntryStructureVerdict || 'N/A'} lane=${structure.structurePolicyBlockerLane || 'N/A'} rrOk=${structure.structurePolicyCurrentRrOk} bufferOk=${structure.structurePolicyTargetBufferOk} distOk=${structure.structurePolicyDistanceWithinReviewBand}`;
     lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(row.rowEvidenceSummary)} | ${esc(targetEvidence)} | ${esc(structureEvidence)} | ${esc(laneMismatch)} | ${row.formulaEvidenceWeak ? 'yes' : 'no'} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
@@ -857,24 +878,24 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Tuning Recommendations');
   lines.push('');
-  lines.push('| Track | Knob | Symbols | Max Magnitude | Avg Magnitude | Decision | Candidate Field | Candidate Value | Producer Change | Done When |');
-  lines.push('| --- | --- | --- | ---: | ---: | --- | --- | ---: | --- | --- |');
+  lines.push('| Track | Knob | Symbols | Max Magnitude | Avg Magnitude | Decision | Candidate Field | Candidate Value | Proof Gaps | Producer Change | Done When |');
+  lines.push('| --- | --- | --- | ---: | ---: | --- | --- | ---: | --- | --- | --- |');
   for (const row of report.tuningRecommendations) {
     const producerChange = `${row.recommendedProducerChange} Contract fields: ${(row.contractTunablePolicyFields || []).join(', ') || 'none'}.`;
-    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(row.maxMagnitude)} | ${esc(row.avgMagnitude)} | ${esc(row.formulaDecision)} | ${esc(row.candidateThresholdField)} | ${esc(row.candidateThresholdValue)} | ${esc(producerChange)} | ${esc(row.doneWhen)} |`);
+    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(row.maxMagnitude)} | ${esc(row.avgMagnitude)} | ${esc(row.formulaDecision)} | ${esc(row.candidateThresholdField)} | ${esc(row.candidateThresholdValue)} | ${esc(JSON.stringify(row.targetRecalibrationProofGapCounts || {}))} | ${esc(producerChange)} | ${esc(row.doneWhen)} |`);
   }
-  if (!report.tuningRecommendations.length) lines.push('| none | none | none | N/A | N/A | none | none | N/A | none | none |');
+  if (!report.tuningRecommendations.length) lines.push('| none | none | none | N/A | N/A | none | none | N/A | {} | none | none |');
   lines.push('');
   lines.push('## Producer Track Diagnostics');
   lines.push('');
-  lines.push('| Track | Count | Symbols | Knobs | Evidence Bases | Observed Range | Threshold Range | Required Producer Fields | Next Action |');
-  lines.push('| --- | ---: | --- | --- | --- | --- | --- | --- | --- |');
+  lines.push('| Track | Count | Symbols | Knobs | Evidence Bases | Observed Range | Threshold Range | Target Proof Gaps | Required Producer Fields | Next Action |');
+  lines.push('| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |');
   for (const row of report.producerTrackDiagnostics) {
     const observed = `${row.observedRange?.min ?? 'N/A'}..${row.observedRange?.max ?? 'N/A'}`;
     const threshold = `${row.thresholdRange?.min ?? 'N/A'}..${row.thresholdRange?.max ?? 'N/A'}`;
-    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.count)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(JSON.stringify(row.adjustmentKnobs))} | ${esc(row.evidenceBases.join(', ') || 'none')} | ${esc(observed)} | ${esc(threshold)} | ${esc(row.recommendedProducerFields.join(', ') || 'none')} | ${esc(row.nextAction)} |`);
+    lines.push(`| ${esc(row.producerTrack)} | ${esc(row.count)} | ${esc(row.symbols.join(', ') || 'none')} | ${esc(JSON.stringify(row.adjustmentKnobs))} | ${esc(row.evidenceBases.join(', ') || 'none')} | ${esc(observed)} | ${esc(threshold)} | ${esc(JSON.stringify(row.targetRecalibrationProofGapCounts || {}))} | ${esc(row.recommendedProducerFields.join(', ') || 'none')} | ${esc(row.nextAction)} |`);
   }
-  if (!report.producerTrackDiagnostics.length) lines.push('| none | 0 | none | {} | none | N/A | N/A | none | none |');
+  if (!report.producerTrackDiagnostics.length) lines.push('| none | 0 | none | {} | none | N/A | N/A | {} | none | none |');
   lines.push('');
   lines.push('## Producer Field Recommendations');
   lines.push('');
@@ -990,6 +1011,7 @@ function main() {
       producerTrackDiagnosticCount: trackDiagnostics.length,
       producerTrackCounts: countBy(rows, (row) => row.producerTrack),
       adjustmentKnobCounts: countBy(rows, (row) => row.adjustmentKnob || 'missing'),
+      targetRecalibrationProofGapCounts: proofGapCounts(producerRows.filter((row) => row.producerTrack === 'target_recalibration')),
       producerTrackAggregation,
       adjustmentKnobAggregation,
       topProducerTrack,

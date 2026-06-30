@@ -181,17 +181,21 @@ function runCase(testCase) {
     if (Number(report.summary?.producerTrackDiagnosticCount || 0) <= 0) {
       throw new Error(`${testCase.name}: expected producerTrackDiagnosticCount > 0`);
     }
+    if (!report.summary?.targetRecalibrationProofGapCounts || typeof report.summary.targetRecalibrationProofGapCounts !== 'object') {
+      throw new Error(`${testCase.name}: summary missing targetRecalibrationProofGapCounts`);
+    }
     const malformedEvidenceRows = (report.backlogRows || []).filter(
       (row) =>
         typeof row.rowEvidenceSummary !== 'string' ||
         !row.rowEvidenceSummary ||
         !row.targetRecalibrationEvidence ||
         typeof row.targetRecalibrationEvidence !== 'object' ||
+        !Array.isArray(row.targetRecalibrationProofGaps) ||
         !row.structureProofEvidence ||
         typeof row.structureProofEvidence !== 'object'
     );
     if (malformedEvidenceRows.length > 0) {
-      throw new Error(`${testCase.name}: backlog rows missing row-level target/structure evidence`);
+      throw new Error(`${testCase.name}: backlog rows missing row-level target/structure/proof-gap evidence`);
     }
     const diagnosticTracks = new Set((report.producerTrackDiagnostics || []).map((row) => row.producerTrack));
     const tracks = new Set((report.tuningRecommendations || []).map((row) => row.producerTrack));
@@ -209,6 +213,15 @@ function runCase(testCase) {
       const diagnosticsForTrack = (report.producerTrackDiagnostics || []).filter((row) => row.producerTrack === track);
       if (!diagnosticsForTrack.some((row) => Array.isArray(row.recommendedProducerFields) && row.recommendedProducerFields.length > 0)) {
         throw new Error(`${testCase.name}: producer track ${track} lacks recommendedProducerFields diagnostics`);
+      }
+      if (track === 'target_recalibration') {
+        if (!diagnosticsForTrack.some((row) => row.targetRecalibrationProofGapCounts && typeof row.targetRecalibrationProofGapCounts === 'object')) {
+          throw new Error(`${testCase.name}: target_recalibration diagnostics missing targetRecalibrationProofGapCounts`);
+        }
+        const targetRecommendations = rowsForTrack.filter((row) => row.targetRecalibrationProofGapCounts && typeof row.targetRecalibrationProofGapCounts === 'object');
+        if (!targetRecommendations.length) {
+          throw new Error(`${testCase.name}: target_recalibration recommendation missing targetRecalibrationProofGapCounts`);
+        }
       }
     }
   }
@@ -233,6 +246,9 @@ function runCase(testCase) {
   }
   for (const token of ['Row Evidence', 'Target Evidence', 'Structure Evidence']) {
     if (!md.includes(token)) throw new Error(`${testCase.name}: markdown missing row-level evidence token ${token}`);
+  }
+  if (testCase.expectedRecommendations > 0 && !md.includes('Proof Gaps')) {
+    throw new Error(`${testCase.name}: markdown missing target proof gap evidence`);
   }
   if (testCase.expectedRecommendations > 0 && !md.includes('Contract fields')) {
     throw new Error(`${testCase.name}: markdown missing tuning contract fields`);
