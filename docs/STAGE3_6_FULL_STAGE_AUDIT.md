@@ -111,6 +111,16 @@ Status: **pending_entry_fillability_evidence**. Missing core fields: fillability
 | adjustmentKnobAggregation | {"TARGET_RECALIBRATION_SOURCE_REFRESH":{"count":2,"totalMagnitude":76.64,"symbols":["AUPH","DUOL"]},"CURRENT_ENTRY_STRUCTURE_DISTANCE_BAND":{"count":1,"totalMagnitude":25.43,"symbols":["DAVE"]},"BREAKOUT_EXTENSION_POLICY":{"count":1,"totalMagnitude":16.73,"symbols":["ZVRA"]},"RISK_GEOMETRY_REQUIRED_TARGET_PRICE":{"count":1,"totalMagnitude":9.3,"symbols":["ASB"]}} |
 | nextAction | wait_for_fresh_stage6_runtime_proof_before_tuning |
 
+Row evidence samples are current-artifact examples only; they must not become symbol-specific rules.
+
+| Symbol | Track | Lane | Knob | Magnitude | Decision | Evidence Basis | Evidence Summary | Target Proof Gaps | Action |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DUOL | target_recalibration | TARGET_RECALIBRATION | TARGET_RECALIBRATION_SOURCE_REFRESH | 47.07 | BLOCKED_RISK/blocked_rr_below_min | target_already_reached_required_target_shortfall_pct | target_already_reached_required_target_shortfall_pct: observed=47.07 threshold=0 delta=47.07 pct_shortfall; target=106.31 required=200.86 source=actual_stop_risk viability=TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT noTrade=true proofGaps=missing_execution_floor_price,missing_execution_floor_viability,missing_required_target_dominant_reason | missing_execution_floor_price, missing_execution_floor_viability, missing_required_target_dominant_reason | PRODUCER_TUNING_REVIEW |
+| AUPH | target_recalibration | TARGET_RECALIBRATION | TARGET_RECALIBRATION_SOURCE_REFRESH | 29.57 | WAIT_PRICE/wait_target_near_current | target_already_reached_required_target_shortfall_pct | target_already_reached_required_target_shortfall_pct: observed=29.57 threshold=0 delta=29.57 pct_shortfall; target=17 required=24.14 source=actual_stop_risk viability=TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT noTrade=true proofGaps=missing_execution_floor_price,missing_execution_floor_viability,missing_required_target_dominant_reason | missing_execution_floor_price, missing_execution_floor_viability, missing_required_target_dominant_reason | PRODUCER_TUNING_REVIEW |
+| DAVE | structure_proof_generation | STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION | CURRENT_ENTRY_STRUCTURE_DISTANCE_BAND | 25.43 | WAIT_PRICE/wait_structure_confirmation_required | structure_distance_excess | structure_distance_excess: observed=33.43 threshold=8 delta=25.43 pct; structure=STRUCTURE_REJECT_STOP_ATR_OUT_OF_BAND blocker=STRUCTURE_CURRENT_RR_WEAK rrOk=false bufferOk=true distOk=false | none | PRODUCER_TUNING_REVIEW |
+| ZVRA | breakout_proof_confirmed_generation | BREAKOUT_PROOF_CONFIRMED_GENERATION | BREAKOUT_EXTENSION_POLICY | 16.73 | WAIT_PRICE/wait_breakout_retest_required | breakout_current_extension_excess_pct | breakout_current_extension_excess_pct: observed=24.73 threshold=8 delta=16.73 pct | none | PRODUCER_TUNING_REVIEW |
+| ASB | risk_geometry_recalculation | RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION | RISK_GEOMETRY_REQUIRED_TARGET_PRICE | 9.3 | BLOCKED_RISK/blocked_stop_too_tight | risk_geometry_expected_return_target_shortfall_pct | risk_geometry_expected_return_target_shortfall_pct: observed=9.3 threshold=0 delta=9.3 pct_shortfall | none | PRODUCER_TUNING_REVIEW |
+
 ## Stage6 Runtime Proof Gate
 
 Expected producer head: e3708e2f_or_later

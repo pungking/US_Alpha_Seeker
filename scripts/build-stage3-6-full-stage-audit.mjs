@@ -468,6 +468,22 @@ function pickOverall(report) {
   return report?.overall || report?.status || report?.summary?.overall || report?.verdict || 'not_available';
 }
 
+function summarizeFormulaBacklogRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    symbol: row.symbol,
+    finalDecision: row.finalDecision,
+    decisionReason: row.decisionReason,
+    producerTrack: row.producerTrack,
+    zeroExecutableTuningLane: row.zeroExecutableTuningLane,
+    adjustmentKnob: row.adjustmentKnob,
+    adjustmentMagnitude: row.adjustmentMagnitude,
+    evidenceBasis: row.evidenceBasis,
+    rowEvidenceSummary: row.rowEvidenceSummary,
+    targetRecalibrationProofGaps: row.targetRecalibrationProofGaps,
+    actionRequired: row.actionRequired
+  }));
+}
+
 function summarizeSubreports() {
   const out = {};
   for (const [name, file] of Object.entries(SUBREPORTS)) {
@@ -478,6 +494,7 @@ function summarizeSubreports() {
       generatedAt: report?.generatedAt || null,
       overall: report && !report.readError ? pickOverall(report) : report?.readError ? 'read_error' : 'missing',
       summary: report?.summary || {},
+      backlogRows: summarizeFormulaBacklogRows(report?.backlogRows),
       runtimeProof: report?.runtimeProof || null,
       sourceFreshness: report?.sourceFreshness || null,
       contract: report?.contract || null,
@@ -770,6 +787,28 @@ function deriveBlockerClassificationHealth(blockerSummary) {
   };
 }
 
+function formulaTuningRowSamples(backlogRows) {
+  return (Array.isArray(backlogRows) ? backlogRows : [])
+    .filter((row) => row && row.producerTrack && row.producerTrack !== 'no_action')
+    .sort((a, b) => Number(b.adjustmentMagnitude || 0) - Number(a.adjustmentMagnitude || 0))
+    .slice(0, 6)
+    .map((row) => ({
+      symbol: row.symbol || 'UNKNOWN',
+      sampleOnly: true,
+      producerTrack: row.producerTrack || 'unknown',
+      zeroExecutableTuningLane: row.zeroExecutableTuningLane || 'unknown',
+      adjustmentKnob: row.adjustmentKnob || 'none',
+      adjustmentMagnitude: Number(row.adjustmentMagnitude || 0),
+      decision: `${row.finalDecision || 'UNKNOWN'}/${row.decisionReason || 'unknown'}`,
+      evidenceBasis: row.evidenceBasis || 'unknown',
+      rowEvidenceSummary: row.rowEvidenceSummary || 'none',
+      targetRecalibrationProofGaps: row.producerTrack === 'target_recalibration'
+        ? (row.targetRecalibrationProofGaps || [])
+        : [],
+      actionRequired: row.actionRequired || 'none'
+    }));
+}
+
 function deriveFormulaTuningFocus(subreports, runtimeProof) {
   const backlog = subreports.stage6FormulaTuningBacklog || {};
   const summary = backlog.summary || {};
@@ -790,6 +829,7 @@ function deriveFormulaTuningFocus(subreports, runtimeProof) {
     producerTrackAggregation,
     adjustmentKnobAggregation,
     targetRecalibrationProofGapCounts: summary.targetRecalibrationProofGapCounts || {},
+    rowEvidenceSamples: formulaTuningRowSamples(backlog.backlogRows),
     nextAction: tuningActionAllowed && topProducerTrack && topProducerTrack !== 'none'
       ? (backlog.nextAction || 'tune_stage6_producer_formula_or_proof_generation')
       : 'wait_for_fresh_stage6_runtime_proof_before_tuning',
@@ -894,6 +934,18 @@ function buildMarkdown(report) {
     ['adjustmentKnobAggregation', compactJson(report.formulaTuningFocus.adjustmentKnobAggregation)],
     ['nextAction', report.formulaTuningFocus.nextAction]
   ];
+  const formulaTuningSampleRows = (report.formulaTuningFocus.rowEvidenceSamples || []).map((row) => [
+    row.symbol,
+    row.producerTrack,
+    row.zeroExecutableTuningLane,
+    row.adjustmentKnob,
+    row.adjustmentMagnitude,
+    row.decision,
+    row.evidenceBasis,
+    row.rowEvidenceSummary,
+    (row.targetRecalibrationProofGaps || []).join(', ') || 'none',
+    row.actionRequired
+  ]);
   const dataHealthRows = Object.entries(report.stageDataHealth).map(([stage, health]) => [
     stage,
     health.rows,
@@ -949,6 +1001,8 @@ function buildMarkdown(report) {
     `${mdTable(['Field', 'Present / Total', 'Pct', 'Numeric Range'], entryEvidenceRows)}\n\n` +
     `${mdTable(['Policy Field', 'Counts'], entryPolicyRows)}\n\n` +
     `## Stage6 Formula Tuning Focus\n\n${mdTable(['Metric', 'Value'], formulaTuningRows)}\n\n` +
+    `Row evidence samples are current-artifact examples only; they must not become symbol-specific rules.\n\n` +
+    `${mdTable(['Symbol', 'Track', 'Lane', 'Knob', 'Magnitude', 'Decision', 'Evidence Basis', 'Evidence Summary', 'Target Proof Gaps', 'Action'], formulaTuningSampleRows)}\n\n` +
     `## Stage6 Runtime Proof Gate\n\n` +
     `Expected producer head: ${report.runtimeProof.expectedProducerHead}\n\n` +
     `${mdTable(['Field', 'Present / Total', 'Pct'], runtimeRows)}\n\n` +
