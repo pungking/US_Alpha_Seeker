@@ -2187,17 +2187,26 @@ const deriveTargetRecalibrationPolicy = (input: {
     requiredTargetPrice != null &&
     currentTargetGapPct != null &&
     Number.isFinite(currentTargetGapPct);
+  const targetProofInputsValid =
+    input.price != null &&
+    input.target != null &&
+    Number.isFinite(input.price) &&
+    Number.isFinite(input.target) &&
+    input.price > 0 &&
+    requiredTargetPrice != null &&
+    currentTargetGapPct != null &&
+    Number.isFinite(currentTargetGapPct);
   const targetGeometryRequiresAction = targetAlreadyReached || targetBufferWeak;
   const targetRecalibrationCandidate =
-	    input.decisionReason === 'wait_target_near_current' &&
-	    !targetAlreadyReached &&
-	    targetGeometryRequiresAction &&
-	    targetInputsValid &&
-	    currentTargetGapPct < 0 &&
-	    currentTargetShortfallPct <= targetRecalibrationGapPolicyPct;
-  const executionFloorViable =
+    input.decisionReason === 'wait_target_near_current' &&
+    !targetAlreadyReached &&
     targetGeometryRequiresAction &&
     targetInputsValid &&
+    currentTargetGapPct < 0 &&
+    currentTargetShortfallPct <= targetRecalibrationGapPolicyPct;
+  const executionFloorViable =
+    targetGeometryRequiresAction &&
+    targetProofInputsValid &&
     executionFloorGapPct != null &&
     Number.isFinite(executionFloorGapPct) &&
     executionFloorShortfallPct > 0 &&
