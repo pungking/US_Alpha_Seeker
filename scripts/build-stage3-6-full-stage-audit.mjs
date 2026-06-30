@@ -479,6 +479,7 @@ function summarizeFormulaBacklogRows(rows) {
     adjustmentMagnitude: row.adjustmentMagnitude,
     evidenceBasis: row.evidenceBasis,
     rowEvidenceSummary: row.rowEvidenceSummary,
+    targetRecalibrationProofSummary: row.targetRecalibrationProofSummary,
     targetRecalibrationProofGaps: row.targetRecalibrationProofGaps,
     actionRequired: row.actionRequired
   }));
@@ -802,6 +803,7 @@ function formulaTuningRowSamples(backlogRows) {
       decision: `${row.finalDecision || 'UNKNOWN'}/${row.decisionReason || 'unknown'}`,
       evidenceBasis: row.evidenceBasis || 'unknown',
       rowEvidenceSummary: row.rowEvidenceSummary || 'none',
+      targetRecalibrationProofSummary: row.targetRecalibrationProofSummary || 'not_target_recalibration',
       targetRecalibrationProofGaps: row.producerTrack === 'target_recalibration'
         ? (row.targetRecalibrationProofGaps || [])
         : [],
@@ -943,6 +945,7 @@ function buildMarkdown(report) {
     row.decision,
     row.evidenceBasis,
     row.rowEvidenceSummary,
+    row.targetRecalibrationProofSummary,
     (row.targetRecalibrationProofGaps || []).join(', ') || 'none',
     row.actionRequired
   ]);
@@ -1002,7 +1005,7 @@ function buildMarkdown(report) {
     `${mdTable(['Policy Field', 'Counts'], entryPolicyRows)}\n\n` +
     `## Stage6 Formula Tuning Focus\n\n${mdTable(['Metric', 'Value'], formulaTuningRows)}\n\n` +
     `Row evidence samples are current-artifact examples only; they must not become symbol-specific rules.\n\n` +
-    `${mdTable(['Symbol', 'Track', 'Lane', 'Knob', 'Magnitude', 'Decision', 'Evidence Basis', 'Evidence Summary', 'Target Proof Gaps', 'Action'], formulaTuningSampleRows)}\n\n` +
+    `${mdTable(['Symbol', 'Track', 'Lane', 'Knob', 'Magnitude', 'Decision', 'Evidence Basis', 'Evidence Summary', 'Target Proof Summary', 'Target Proof Gaps', 'Action'], formulaTuningSampleRows)}\n\n` +
     `## Stage6 Runtime Proof Gate\n\n` +
     `Expected producer head: ${report.runtimeProof.expectedProducerHead}\n\n` +
     `${mdTable(['Field', 'Present / Total', 'Pct'], runtimeRows)}\n\n` +

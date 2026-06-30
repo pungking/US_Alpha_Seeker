@@ -371,6 +371,24 @@ function targetRecalibrationProofGaps(evidence) {
   return gaps;
 }
 
+function targetRecalibrationProofSummary(evidence, gaps = []) {
+  if (!evidence || typeof evidence !== 'object') return 'not_target_recalibration';
+  return [
+    `target=${evidence.currentTargetPrice ?? 'N/A'}`,
+    `required=${evidence.requiredTargetPrice ?? 'N/A'}`,
+    `executionFloor=${evidence.requiredTargetByExecutionFloorPrice ?? 'N/A'}`,
+    `expectedReturn=${evidence.requiredTargetByExpectedReturnPrice ?? 'N/A'}`,
+    `source=${evidence.requiredTargetSource || 'N/A'}`,
+    `dominant=${evidence.requiredTargetDominantReason || 'N/A'}`,
+    `execFloorGap=${evidence.executionFloorGapPct ?? 'N/A'}%`,
+    `execFloorShortfall=${evidence.executionFloorShortfallPct ?? 'N/A'}%`,
+    `execFloorViable=${evidence.executionFloorViable ?? 'N/A'}`,
+    `viability=${evidence.viabilityVerdict || 'N/A'}`,
+    `noTrade=${evidence.noTradeConfirmed ?? 'N/A'}`,
+    `proofGaps=${gaps.length ? gaps.join(',') : 'none'}`
+  ].join(' ');
+}
+
 function structureProofEvidence(row) {
   return {
     currentEntryStructureVerdict: normalizeText(row?.currentEntryStructureVerdict),
@@ -405,7 +423,7 @@ function rowEvidenceSummary(row) {
   if (lane === 'TARGET_RECALIBRATION') {
     const evidence = targetRecalibrationEvidence(row);
     const proofGaps = targetRecalibrationProofGaps(evidence);
-    return `${formula}; target=${evidence.currentTargetPrice ?? 'N/A'} required=${evidence.requiredTargetPrice ?? 'N/A'} source=${evidence.requiredTargetSource || 'missing'} viability=${evidence.viabilityVerdict || 'missing'} noTrade=${evidence.noTradeConfirmed} proofGaps=${proofGaps.join(',') || 'none'}`;
+    return `${formula}; ${targetRecalibrationProofSummary(evidence, proofGaps)}`;
   }
   if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
     const evidence = structureProofEvidence(row);
@@ -465,6 +483,7 @@ function rowBacklog(row, contractIncomplete = false) {
     rowEvidenceSummary: rowEvidenceSummary(row),
     targetRecalibrationEvidence: targetEvidence,
     targetRecalibrationProofGaps: targetProofGaps,
+    targetRecalibrationProofSummary: targetRecalibrationProofSummary(targetEvidence, targetProofGaps),
     targetRecalibrationProofGapCount: targetProofGaps.length,
     structureProofEvidence: structureProofEvidence(row),
     producerOnly: true,
@@ -868,11 +887,9 @@ function buildMarkdown(report) {
   lines.push('| --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- |');
   for (const row of report.backlogRows) {
     const laneMismatch = row.formulaLaneMismatch ? `${row.formulaBottleneck || 'missing'}!=${row.expectedFormulaBottleneck || 'unknown'}` : 'no';
-    const target = row.targetRecalibrationEvidence || {};
-    const targetEvidence = `target=${target.currentTargetPrice ?? 'N/A'} required=${target.requiredTargetPrice ?? 'N/A'} source=${target.requiredTargetSource || 'N/A'} viability=${target.viabilityVerdict || 'N/A'} noTrade=${target.noTradeConfirmed} proofGaps=${(row.targetRecalibrationProofGaps || []).join(', ') || 'none'}`;
     const structure = row.structureProofEvidence || {};
     const structureEvidence = `verdict=${structure.currentEntryStructureVerdict || 'N/A'} lane=${structure.structurePolicyBlockerLane || 'N/A'} rrOk=${structure.structurePolicyCurrentRrOk} bufferOk=${structure.structurePolicyTargetBufferOk} distOk=${structure.structurePolicyDistanceWithinReviewBand}`;
-    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(row.rowEvidenceSummary)} | ${esc(targetEvidence)} | ${esc(structureEvidence)} | ${esc(laneMismatch)} | ${row.formulaEvidenceWeak ? 'yes' : 'no'} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(`${row.finalDecision}/${row.decisionReason}`)} | ${esc(row.producerTrack)} | ${esc(row.adjustmentKnob)} | ${esc(row.adjustmentDirection)} | ${esc(row.adjustmentMagnitude)} | ${esc(row.rowEvidenceSummary)} | ${esc(row.targetRecalibrationProofSummary)} | ${esc(structureEvidence)} | ${esc(laneMismatch)} | ${row.formulaEvidenceWeak ? 'yes' : 'no'} | ${esc((row.missingLaneSpecificFields || []).join(', ') || 'none')} | ${esc(row.actionRequired)} |`);
   }
   if (!report.backlogRows.length) lines.push('| none | none | none | none | none | N/A | none | none | none | no | no | none | none |');
   lines.push('');
