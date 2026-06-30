@@ -88,6 +88,33 @@ function validTargetProofSummary(row) {
   );
 }
 
+function stageDataHealthSummary(fullStageAudit) {
+  const health = fullStageAudit?.stageDataHealth || {};
+  const requiredStages = ['stage3', 'stage4', 'stage5', 'stage6'];
+  const priceHistoryStages = new Set(['stage4', 'stage5', 'stage6']);
+  const missing = [];
+  const scoreOutOfBounds = [];
+  const rows = {};
+  for (const stage of requiredStages) {
+    const item = health[stage] || {};
+    rows[stage] = item.rows ?? null;
+    if (!Number.isFinite(Number(item.rows)) || Number(item.rows) <= 0) missing.push(`${stage}.rows`);
+    if (!Object.keys(item.scoreBounds || {}).length) missing.push(`${stage}.scoreBounds`);
+    if (!Object.keys(item.sourceCounts || {}).length) missing.push(`${stage}.sourceCounts`);
+    if (!Object.keys(item.fallbackFlagCounts || {}).length) missing.push(`${stage}.fallbackFlagCounts`);
+    if (priceHistoryStages.has(stage) && !item.priceHistory) missing.push(`${stage}.priceHistory`);
+    for (const [field, info] of Object.entries(item.scoreBounds || {})) {
+      if (Number(info?.outOfBounds || 0) > 0) scoreOutOfBounds.push(`${stage}.${field}`);
+    }
+  }
+  return {
+    rows,
+    missing,
+    scoreOutOfBounds,
+    ok: missing.length === 0 && scoreOutOfBounds.length === 0
+  };
+}
+
 function deriveRequirements(proof, backlog, fullStageAudit) {
   const requirements = [];
   const proofMissing = !proof || proof.readError;
@@ -108,6 +135,7 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   const dataFreshnessPolicyPass = dataFreshnessPolicyStatus === 'pass_data_freshness_policy';
   const fullStageProducerReviewRows = numberValue(fullStageFormulaFocus.producerReviewRows);
   const fullStageRowEvidenceSamples = arrayValue(fullStageFormulaFocus.rowEvidenceSamples);
+  const stageHealth = stageDataHealthSummary(fullStageAudit);
   const targetRecalibrationSamples = fullStageRowEvidenceSamples.filter(
     (row) => row?.producerTrack === 'target_recalibration'
   );
@@ -289,6 +317,22 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
       : dataFreshnessPolicyReady
         ? null
         : 'preserve_data_freshness_policy_summary_in_full_stage_audit'
+  ));
+
+  requirements.push(requirement(
+    'full_stage_audit_exposes_score_source_fallback_health',
+    fullStageAuditMissing ? 'pending' : stageHealth.ok ? 'pass' : 'fail',
+    {
+      fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
+      rows: stageHealth.rows,
+      missing: stageHealth.missing,
+      scoreOutOfBounds: stageHealth.scoreOutOfBounds
+    },
+    fullStageAuditMissing
+      ? 'run_stage3_6_full_stage_audit_before_runtime_goal_status'
+      : stageHealth.ok
+        ? null
+        : 'fix_stage3_6_full_stage_audit_score_source_fallback_health'
   ));
 
   requirements.push(requirement(
