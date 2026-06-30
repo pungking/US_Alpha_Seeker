@@ -26,7 +26,8 @@ If none of those events appears, stop after the first fresh sidecar run and retu
 
 ## Track A - Fresh Stage6 Evidence
 
-Confirm the latest Auto-Scheduler run is at or after the expected head, then inspect the Stage6 dispatch artifact and final row payload.
+Confirm the latest Auto-Scheduler run is at or after `14ddb145` (or a later
+head), then inspect the Stage6 dispatch artifact and final row payload.
 
 Before any sidecar handoff, check the dispatch artifact holiday guard:
 
@@ -43,6 +44,8 @@ Run the focused audit after downloading the fresh Stage6 artifact:
 npm run ops:stage3-6:full:audit
 npm run ops:stage6:exec:audit
 npm run ops:stage6:fresh-focus:audit
+npm run ops:stage6:runtime-formula-contract:proof
+npm run ops:stage6:formula-tuning-backlog:validate
 ```
 
 The full-stage command verifies Stage3 -> Stage4 -> Stage5 -> Stage6 same-run lineage and keeps Stage6 runtime proof separate from methodology quality. The focused Stage6 command writes:
@@ -52,6 +55,9 @@ The full-stage command verifies Stage3 -> Stage4 -> Stage5 -> Stage6 same-run li
 
 The primary question is not simply whether `Executable Picks` is zero. The required focus metrics are:
 
+- `formulaTuningFocus.freshRuntimeProofStatus`
+- `formulaTuningFocus.tuningActionAllowed`
+- `formulaTuningFocus.rowEvidenceSamples`
 - `latestQualityGateLaneCounts`
 - `zeroExecutableTuningLaneCounts`
 - `breakoutRetestProofConfirmedCounts`
@@ -97,6 +103,12 @@ Done when the Stage6 row evidence includes:
 
 Interpretation:
 
+- `formulaTuningFocus.rowEvidenceSamples` are current-artifact examples only.
+  Use them to diagnose the lane; never turn those symbols into manual watch
+  targets or symbol-specific policy.
+- If `formulaTuningFocus.tuningActionAllowed=false`, do not tune Stage6
+  thresholds from stale runtime proof. Wait for a fresh Auto-Scheduler artifact
+  at or after the expected head, then rerun Track A.
 - `targetRecalibrationCandidate=true` means producer-side target recalibration is review-ready, not executable.
 - `targetNoTradeConfirmed=true` means keep no-trade until fresh target/thesis evidence exists.
 - `breakoutRetestProofReviewReady=true` is diagnostic only.
