@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 
 const ROOT = process.cwd();
 const DEFAULT_STAGE6_DIR = 'state/stage6-audit-source';
+const DEFAULT_STAGE6_FIXTURE = 'docs/fixtures/stage6_sidecar_entry_fillability_contract.fixture.json';
 const OUT_JSON = 'state/stage6-weak-pillar-runtime-audit.json';
 const OUT_MD = 'docs/STAGE6_WEAK_PILLAR_RUNTIME_AUDIT.md';
 
@@ -46,6 +47,7 @@ function latestStage6File() {
       .map((name) => ({ name, full: path.join(dir, name), mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
       .sort((a, b) => stage6Timestamp(b.name).localeCompare(stage6Timestamp(a.name)) || b.mtime - a.mtime || b.name.localeCompare(a.name))
     : [];
+  if (!files.length && fs.existsSync(resolveRepo(DEFAULT_STAGE6_FIXTURE))) return resolveRepo(DEFAULT_STAGE6_FIXTURE);
   if (!files.length) throw new Error(`no Stage6 files found in ${dir}`);
   return files[0].full;
 }
@@ -80,6 +82,7 @@ function rowsFromStage6(stage6) {
     rows.push({ ...row, _sourceGroup: sourceGroup });
   };
   for (const row of Array.isArray(stage6?.alpha_candidates) ? stage6.alpha_candidates : []) push(row, 'alpha_candidates');
+  for (const row of Array.isArray(stage6?.candidates) ? stage6.candidates : []) push(row, 'candidates');
   const contract = stage6?.execution_contract || {};
   for (const group of ['executablePicks', 'watchlistTop', 'modelTop6']) {
     for (const row of Array.isArray(contract[group]) ? contract[group] : []) push(row, `execution_contract.${group}`);
@@ -88,7 +91,7 @@ function rowsFromStage6(stage6) {
 }
 
 function thresholdsFromStage6(stage6) {
-  const gate = stage6?.manifest?.decisionGate || {};
+  const gate = stage6?.manifest?.decisionGate || stage6?.decisionGate || {};
   return {
     enabled: gate.weakPillarGateEnabled !== false,
     waiverEnabled: gate.weakPillarExecutableWaiver === true,
@@ -226,6 +229,7 @@ const dir = resolveRepo(process.env.STAGE6_WEAK_PILLAR_AUDIT_STAGE6_DIR || DEFAU
 const allFiles = fs.existsSync(dir)
   ? fs.readdirSync(dir).filter((name) => /^STAGE6_ALPHA_FINAL_.*\.json$/.test(name)).map((name) => path.join(dir, name))
   : [];
+if (!allFiles.length && fs.existsSync(resolveRepo(DEFAULT_STAGE6_FIXTURE))) allFiles.push(resolveRepo(DEFAULT_STAGE6_FIXTURE));
 let historyWeakRows = 0;
 let historyViolationRows = 0;
 for (const file of allFiles) {
