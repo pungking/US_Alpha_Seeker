@@ -955,6 +955,7 @@ function deriveFormulaTuningFocus(subreports, runtimeProof, dataFreshnessPolicy)
     safety: {
       brokerMutationAllowed: false,
       sidecarMutationAllowed: false,
+      stateMutationAllowed: false,
       tuningRepo: 'US_Alpha_Seeker'
     }
   };
@@ -1180,6 +1181,7 @@ function main() {
       reportOnly: true,
       brokerMutationAllowed: false,
       sidecarMutationAllowed: false,
+      stateMutationAllowed: false,
       executionPolicyChanged: false
     },
     inputs: Object.fromEntries(Object.entries(stages).map(([key, stage]) => [key, {

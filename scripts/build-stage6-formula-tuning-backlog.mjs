@@ -721,7 +721,8 @@ function recommendationForGroup(groupRows) {
     promotionSafetyRules: EXPECTED_PROMOTION_SAFETY_RULES,
     producerOnly: true,
     brokerMutationAllowed: false,
-    sidecarMutationAllowed: false
+    sidecarMutationAllowed: false,
+    stateMutationAllowed: false
   };
   base.producerFieldRecommendations = producerFieldRecommendationsForGroup(groupRows, base);
   if (producerTrack === 'target_recalibration') {
@@ -1034,7 +1035,8 @@ function main() {
       topProducerTrack,
       topAdjustmentKnob,
       brokerMutationAllowed: false,
-      sidecarMutationAllowed: false
+      sidecarMutationAllowed: false,
+      stateMutationAllowed: false
     },
     backlogRows: rankedRows,
     tuningRecommendations,

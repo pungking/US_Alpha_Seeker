@@ -169,6 +169,21 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   const fullStageRowEvidenceSamples = arrayValue(fullStageFormulaFocus.rowEvidenceSamples);
   const stageHealth = stageDataHealthSummary(fullStageAudit);
   const stage6PolicyLanes = stage6PolicyLaneSummary(fullStageAudit);
+  const fullStageSafety = fullStageAudit?.safety || {};
+  const fullStageFormulaSafety = fullStageFormulaFocus.safety || {};
+  const mutationSafetyOk = Boolean(
+    backlog?.summary?.brokerMutationAllowed === false &&
+    backlog?.summary?.sidecarMutationAllowed === false &&
+    backlog?.summary?.stateMutationAllowed === false &&
+    fullStageSafety.reportOnly === true &&
+    fullStageSafety.brokerMutationAllowed === false &&
+    fullStageSafety.sidecarMutationAllowed === false &&
+    fullStageSafety.stateMutationAllowed === false &&
+    fullStageSafety.executionPolicyChanged === false &&
+    fullStageFormulaSafety.brokerMutationAllowed === false &&
+    fullStageFormulaSafety.sidecarMutationAllowed === false &&
+    fullStageFormulaSafety.stateMutationAllowed === false
+  );
   const targetRecalibrationSamples = fullStageRowEvidenceSamples.filter(
     (row) => row?.producerTrack === 'target_recalibration'
   );
@@ -408,22 +423,28 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   ));
 
   requirements.push(requirement(
-    'broker_and_sidecar_mutation_remain_forbidden',
-    backlogMissing
+    'broker_sidecar_state_mutation_remain_forbidden',
+    backlogMissing || fullStageAuditMissing
       ? 'pending'
-      : backlog?.summary?.brokerMutationAllowed === false && backlog?.summary?.sidecarMutationAllowed === false
+      : mutationSafetyOk
         ? 'pass'
         : 'fail',
     {
       backlogPath: BACKLOG_PATH,
-      brokerMutationAllowed: backlog?.summary?.brokerMutationAllowed ?? null,
-      sidecarMutationAllowed: backlog?.summary?.sidecarMutationAllowed ?? null
+      fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
+      backlogSafety: {
+        brokerMutationAllowed: backlog?.summary?.brokerMutationAllowed ?? null,
+        sidecarMutationAllowed: backlog?.summary?.sidecarMutationAllowed ?? null,
+        stateMutationAllowed: backlog?.summary?.stateMutationAllowed ?? null
+      },
+      fullStageSafety,
+      fullStageFormulaSafety
     },
-    backlog?.summary?.brokerMutationAllowed === false && backlog?.summary?.sidecarMutationAllowed === false
+    mutationSafetyOk
       ? null
-      : backlogMissing
-        ? 'wait_for_formula_tuning_backlog_artifact'
-        : 'restore_report_only_formula_tuning_backlog_safety_flags'
+      : backlogMissing || fullStageAuditMissing
+        ? 'wait_for_formula_tuning_backlog_and_full_stage_audit_artifacts'
+        : 'restore_report_only_broker_sidecar_state_mutation_safety_flags'
   ));
 
   return requirements.sort((a, b) => statusRank(b.status) - statusRank(a.status));
