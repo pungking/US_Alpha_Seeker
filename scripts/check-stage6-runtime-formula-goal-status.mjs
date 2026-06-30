@@ -11,6 +11,7 @@ const OUT_MD = process.env.STAGE6_RUNTIME_GOAL_STATUS_OUT_MD || 'state/stage6-ru
 
 const REQUIRED_SPLIT_TRACKS = new Set([
   'target_recalibration',
+  'structure_proof_generation',
   'risk_geometry_recalculation',
   'breakout_proof_confirmed_generation'
 ]);
