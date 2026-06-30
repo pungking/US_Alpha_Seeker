@@ -770,15 +770,18 @@ function deriveBlockerClassificationHealth(blockerSummary) {
   };
 }
 
-function deriveFormulaTuningFocus(subreports) {
+function deriveFormulaTuningFocus(subreports, runtimeProof) {
   const backlog = subreports.stage6FormulaTuningBacklog || {};
   const summary = backlog.summary || {};
   const topProducerTrack = summary.topProducerTrack || 'none';
   const topAdjustmentKnob = summary.topAdjustmentKnob || 'none';
   const producerTrackAggregation = summary.producerTrackAggregation || {};
   const adjustmentKnobAggregation = summary.adjustmentKnobAggregation || {};
+  const tuningActionAllowed = runtimeProof.status === 'pass_runtime_proof_fields_present';
   return {
     status: backlog.overall || 'missing',
+    freshRuntimeProofStatus: runtimeProof.status,
+    tuningActionAllowed,
     topProducerTrack,
     topAdjustmentKnob,
     producerReviewRows: Number(summary.producerReviewRows || 0),
@@ -787,11 +790,9 @@ function deriveFormulaTuningFocus(subreports) {
     producerTrackAggregation,
     adjustmentKnobAggregation,
     targetRecalibrationProofGapCounts: summary.targetRecalibrationProofGapCounts || {},
-    nextAction: backlog.nextAction || (
-      topProducerTrack && topProducerTrack !== 'none'
-        ? 'tune_stage6_producer_formula_or_proof_generation'
-        : 'wait_for_fresh_stage6_or_no_formula_tuning_action'
-    ),
+    nextAction: tuningActionAllowed && topProducerTrack && topProducerTrack !== 'none'
+      ? (backlog.nextAction || 'tune_stage6_producer_formula_or_proof_generation')
+      : 'wait_for_fresh_stage6_runtime_proof_before_tuning',
     safety: {
       brokerMutationAllowed: false,
       sidecarMutationAllowed: false,
@@ -826,8 +827,10 @@ function nextActions(overall, lineage, runtimeProof, stage6EntryEvidence, formul
   if (stage6EntryEvidence.status === 'pending_entry_fillability_evidence') {
     actions.push(`Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: ${stage6EntryEvidence.missingCoreFields.join(', ')}.`);
   }
-  if (formulaTuningFocus.topProducerTrack && formulaTuningFocus.topProducerTrack !== 'none') {
+  if (formulaTuningFocus.tuningActionAllowed && formulaTuningFocus.topProducerTrack && formulaTuningFocus.topProducerTrack !== 'none') {
     actions.push(`Prioritize Stage6 producer tuning track: ${formulaTuningFocus.topProducerTrack} via ${formulaTuningFocus.topAdjustmentKnob}; do not solve this in sidecar.`);
+  } else if (formulaTuningFocus.topProducerTrack && formulaTuningFocus.topProducerTrack !== 'none') {
+    actions.push(`Defer Stage6 producer tuning track ${formulaTuningFocus.topProducerTrack} until fresh runtime proof passes; do not tune from stale Stage6 evidence.`);
   }
   if (overall === 'pass_stage3_6_full_stage_audit') {
     actions.push('Proceed to bounded Stage6 producer tuning only for proven formula or blocker defects.');
@@ -879,6 +882,8 @@ function buildMarkdown(report) {
     .map(([key, value]) => [key, compactJson(value)]);
   const formulaTuningRows = [
     ['status', report.formulaTuningFocus.status],
+    ['freshRuntimeProofStatus', report.formulaTuningFocus.freshRuntimeProofStatus],
+    ['tuningActionAllowed', report.formulaTuningFocus.tuningActionAllowed],
     ['topProducerTrack', report.formulaTuningFocus.topProducerTrack],
     ['topAdjustmentKnob', report.formulaTuningFocus.topAdjustmentKnob],
     ['producerReviewRows', report.formulaTuningFocus.producerReviewRows],
@@ -972,7 +977,7 @@ function main() {
   const stage6EntryEvidence = deriveStage6EntryEvidence(stages.stage6.rows);
   const blockerSummary = deriveBlockerSummary(stages.stage6.rows, subreports);
   const blockerClassificationHealth = deriveBlockerClassificationHealth(blockerSummary);
-  const formulaTuningFocus = deriveFormulaTuningFocus(subreports);
+  const formulaTuningFocus = deriveFormulaTuningFocus(subreports, runtimeProof);
   const overall = deriveOverall({ lineage, runtimeProof, stages });
   const report = {
     schemaVersion: 'stage3_6_full_stage_audit.v2',

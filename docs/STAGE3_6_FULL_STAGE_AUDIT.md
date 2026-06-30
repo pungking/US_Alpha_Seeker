@@ -99,6 +99,8 @@ Status: **pending_entry_fillability_evidence**. Missing core fields: fillability
 | Metric | Value |
 | --- | --- |
 | status | pass_formula_tuning_backlog_ready |
+| freshRuntimeProofStatus | pending_fresh_runtime_proof_after_e3708e2f |
+| tuningActionAllowed | false |
 | topProducerTrack | target_recalibration |
 | topAdjustmentKnob | TARGET_RECALIBRATION_SOURCE_REFRESH |
 | producerReviewRows | 5 |
@@ -107,7 +109,7 @@ Status: **pending_entry_fillability_evidence**. Missing core fields: fillability
 | targetRecalibrationProofGapCounts | {"missing_execution_floor_price":2,"missing_execution_floor_viability":2,"missing_required_target_dominant_reason":2} |
 | producerTrackAggregation | {"target_recalibration":{"count":2,"totalMagnitude":76.64,"symbols":["AUPH","DUOL"]},"structure_proof_generation":{"count":1,"totalMagnitude":25.43,"symbols":["DAVE"]},"breakout_proof_confirmed_generation":{"count":1,"totalMagnitude":16.73,"symbols":["ZVRA"]},"risk_geometry_recalculation":{"count":1,"totalMagnitude":9.3,"symbols":["ASB"]}} |
 | adjustmentKnobAggregation | {"TARGET_RECALIBRATION_SOURCE_REFRESH":{"count":2,"totalMagnitude":76.64,"symbols":["AUPH","DUOL"]},"CURRENT_ENTRY_STRUCTURE_DISTANCE_BAND":{"count":1,"totalMagnitude":25.43,"symbols":["DAVE"]},"BREAKOUT_EXTENSION_POLICY":{"count":1,"totalMagnitude":16.73,"symbols":["ZVRA"]},"RISK_GEOMETRY_REQUIRED_TARGET_PRICE":{"count":1,"totalMagnitude":9.3,"symbols":["ASB"]}} |
-| nextAction | tune_stage6_producer_formula_or_proof_generation |
+| nextAction | wait_for_fresh_stage6_runtime_proof_before_tuning |
 
 ## Stage6 Runtime Proof Gate
 
@@ -158,7 +160,7 @@ Root cause summary: {"structureWaitRootCauses":{},"riskGeometryRootCauses":{"RIS
 
 - Wait for the next Auto-Scheduler run on e3708e2f or later, then run Track S6 runtime proof.
 - Wait for the next Auto-Scheduler run on 2c9b66ee or later, then verify Stage6 entry/fillability evidence fields: fillabilityPolicyVerdict.
-- Prioritize Stage6 producer tuning track: target_recalibration via TARGET_RECALIBRATION_SOURCE_REFRESH; do not solve this in sidecar.
+- Defer Stage6 producer tuning track target_recalibration until fresh runtime proof passes; do not tune from stale Stage6 evidence.
 - Continue report-only Stage3-6 audit expansion; do not submit, replace, reprice, or mutate sidecar state.
 
 ## Interpretation
