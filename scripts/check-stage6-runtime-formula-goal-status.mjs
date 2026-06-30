@@ -77,6 +77,16 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))].sort();
 }
 
+function validTargetProofSummary(row) {
+  const summary = String(row?.targetRecalibrationProofSummary || '').trim();
+  return Boolean(
+    summary &&
+    summary !== 'not_target_recalibration' &&
+    summary.includes('executionFloor=') &&
+    summary.includes('proofGaps=')
+  );
+}
+
 function deriveRequirements(proof, backlog, fullStageAudit) {
   const requirements = [];
   const proofMissing = !proof || proof.readError;
@@ -88,6 +98,11 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
   const fullStageFormulaFocus = fullStageAudit?.formulaTuningFocus || {};
   const fullStageProducerReviewRows = numberValue(fullStageFormulaFocus.producerReviewRows);
   const fullStageRowEvidenceSamples = arrayValue(fullStageFormulaFocus.rowEvidenceSamples);
+  const targetRecalibrationSamples = fullStageRowEvidenceSamples.filter(
+    (row) => row?.producerTrack === 'target_recalibration'
+  );
+  const targetProofSummaryReadyCount = targetRecalibrationSamples.filter(validTargetProofSummary).length;
+  const targetProofSummaryReady = targetRecalibrationSamples.length === targetProofSummaryReadyCount;
   const producerFieldRecommendations = arrayValue(backlog?.producerFieldRecommendations);
   const tuningRecommendations = arrayValue(backlog?.tuningRecommendations);
   const producerFieldRecommendationCount = Math.max(
@@ -203,6 +218,33 @@ function deriveRequirements(proof, backlog, fullStageAudit) {
       ? 'run_stage3_6_full_stage_audit_before_runtime_goal_status'
       : fullStageProducerReviewRows > 0 && fullStageRowEvidenceSamples.length === 0
         ? 'preserve_formula_tuning_row_evidence_samples_in_full_stage_audit'
+        : null
+  ));
+
+  requirements.push(requirement(
+    'target_recalibration_rows_expose_proof_summary',
+    fullStageAuditMissing
+      ? 'pending'
+      : targetRecalibrationSamples.length === 0
+        ? 'not_applicable'
+        : targetProofSummaryReady ? 'pass' : 'fail',
+    {
+      fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
+      fullStageAuditOverall: fullStageAudit?.overall || null,
+      targetRecalibrationSampleCount: targetRecalibrationSamples.length,
+      targetProofSummaryReadyCount,
+      sampleOnly: targetRecalibrationSamples.every((row) => row?.sampleOnly === true),
+      samples: targetRecalibrationSamples.slice(0, 6).map((row) => ({
+        symbol: row?.symbol || null,
+        producerTrack: row?.producerTrack || null,
+        targetRecalibrationProofSummary: row?.targetRecalibrationProofSummary || null,
+        targetRecalibrationProofGaps: row?.targetRecalibrationProofGaps || []
+      }))
+    },
+    fullStageAuditMissing
+      ? 'run_stage3_6_full_stage_audit_before_runtime_goal_status'
+      : targetRecalibrationSamples.length > 0 && !targetProofSummaryReady
+        ? 'preserve_target_recalibration_proof_summary_in_full_stage_audit'
         : null
   ));
 
