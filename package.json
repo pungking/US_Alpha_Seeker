@@ -69,7 +69,8 @@
     "ops:stage-artifacts:export": "node scripts/export-stage-artifacts-from-drive.mjs",
     "ops:stage6:policy-lane:formula-consistency": "node scripts/validate-stage6-policy-lane-formula-consistency.mjs",
     "ops:stage6:formula-audit-backlog:align": "node scripts/validate-stage6-formula-audit-backlog-alignment.mjs",
-    "ops:stage6:runtime-formula-goal:status": "node scripts/check-stage6-runtime-formula-goal-status.mjs"
+    "ops:stage6:runtime-formula-goal:status": "node scripts/check-stage6-runtime-formula-goal-status.mjs",
+    "ops:stage3-6:audit-group-summary": "node scripts/build-stage3-6-audit-group-summary.mjs"
   },
   "dependencies": {
     "@sentry/node": "^10.17.0",

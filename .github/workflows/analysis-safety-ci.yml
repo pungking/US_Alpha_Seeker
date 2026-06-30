@@ -45,6 +45,8 @@ jobs:
         run: npm run ops:stage6:weak-pillar:audit
       - name: Stage6 runtime formula goal status
         run: npm run ops:stage6:runtime-formula-goal:status
+      - name: Stage3-6 audit group summary
+        run: npm run ops:stage3-6:audit-group-summary
       - name: Stage6 holiday analysis-only fixture
         env:
           STAGE6_HOLIDAY_SAFETY_PAYLOAD: docs/fixtures/stage6_holiday_safety/stage6-dispatch-payload-holiday.fixture.json
@@ -80,6 +82,7 @@ jobs:
             state/stage6-formula-audit-backlog-alignment.*
             state/stage6-weak-pillar-runtime-audit.*
             state/stage3-6-full-stage-audit.*
+            state/stage3-6-audit-group-summary.*
             docs/STAGE3_6_FULL_STAGE_AUDIT.md
             docs/STAGE6_WEAK_PILLAR_RUNTIME_AUDIT.md
             state/stage6-earnings-coverage-audit.*
