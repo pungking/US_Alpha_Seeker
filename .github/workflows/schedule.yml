@@ -364,6 +364,10 @@ jobs:
           STAGE6_RUNTIME_FORMULA_PROOF_EXPECTED_SOURCE_SHA: ${{ github.sha }}
         run: npm run ops:stage6:runtime-formula-contract:proof
 
+      - name: Audit Stage6 Formula | Producer tuning 2
+        if: success()
+        run: npm run ops:stage6:producer-tuning-2:audit
+
       - name: Audit Stage6 Formula | Backlog alignment
         if: success()
         run: npm run ops:stage6:formula-audit-backlog:align
@@ -691,6 +695,8 @@ jobs:
             state/stage6-formula-tuning-backlog.md
             state/stage6-runtime-formula-contract-proof.json
             state/stage6-runtime-formula-contract-proof.md
+            state/stage6-producer-tuning-2-audit.json
+            state/stage6-producer-tuning-2-audit.md
             state/stage6-runtime-formula-goal-status.json
             state/stage6-runtime-formula-goal-status.md
             state/stage6-formula-audit-backlog-alignment.json
