@@ -93,28 +93,76 @@ function stageDataHealthSummary(fullStageAudit) {
   const health = fullStageAudit?.stageDataHealth || {};
   const requiredStages = ['stage3', 'stage4', 'stage5', 'stage6'];
   const priceHistoryStages = new Set(['stage4', 'stage5', 'stage6']);
+  const stage6AuditRows = numberValue(fullStageAudit?.formulaTuningFocus?.producerReviewRows);
   const missing = [];
   const scoreOutOfBounds = [];
   const rows = {};
   for (const stage of requiredStages) {
     const item = health[stage] || {};
+    const rowCount = Number(item.rows);
+    const stage6ZeroExecutableWithAuditRows = stage === 'stage6' && stage6AuditRows > 0 && (!Number.isFinite(rowCount) || rowCount <= 0);
     rows[stage] = item.rows ?? null;
-    if (!Number.isFinite(Number(item.rows)) || Number(item.rows) <= 0) missing.push(`${stage}.rows`);
-    if (!Object.keys(item.scoreBounds || {}).length) missing.push(`${stage}.scoreBounds`);
-    if (!Object.keys(item.sourceCounts || {}).length) missing.push(`${stage}.sourceCounts`);
-    if (!Object.keys(item.fallbackFlagCounts || {}).length) missing.push(`${stage}.fallbackFlagCounts`);
-    if (priceHistoryStages.has(stage) && !item.priceHistory) missing.push(`${stage}.priceHistory`);
+    if ((!Number.isFinite(rowCount) || rowCount <= 0) && !stage6ZeroExecutableWithAuditRows) missing.push(`${stage}.rows`);
+    if (!Object.keys(item.scoreBounds || {}).length && !stage6ZeroExecutableWithAuditRows) missing.push(`${stage}.scoreBounds`);
+    if (!Object.keys(item.sourceCounts || {}).length && !stage6ZeroExecutableWithAuditRows) missing.push(`${stage}.sourceCounts`);
+    if (!Object.keys(item.fallbackFlagCounts || {}).length && !stage6ZeroExecutableWithAuditRows) missing.push(`${stage}.fallbackFlagCounts`);
+    if (priceHistoryStages.has(stage) && !item.priceHistory && !stage6ZeroExecutableWithAuditRows) missing.push(`${stage}.priceHistory`);
     for (const [field, info] of Object.entries(item.scoreBounds || {})) {
       if (Number(info?.outOfBounds || 0) > 0) scoreOutOfBounds.push(`${stage}.${field}`);
     }
   }
   return {
     rows,
+    stage6AuditRows,
     missing,
     scoreOutOfBounds,
     ok: missing.length === 0 && scoreOutOfBounds.length === 0
   };
 }
+
+function assertSelfCheck(condition, message) {
+  if (!condition) throw new Error(`[STAGE6_RUNTIME_GOAL_SELF_CHECK] ${message}`);
+}
+
+function selfCheckStageDataHealthSummary() {
+  const healthyStage = {
+    rows: 1,
+    scoreBounds: { score: { outOfBounds: 0 } },
+    sourceCounts: { source: { fixture: 1 } },
+    fallbackFlagCounts: { fallback: { false: 1 } },
+    priceHistory: { present: 1 }
+  };
+  const zeroExecutableStage6 = {
+    rows: 0,
+    scoreBounds: {},
+    sourceCounts: {},
+    fallbackFlagCounts: {},
+    priceHistory: null
+  };
+  const withAuditRows = stageDataHealthSummary({
+    stageDataHealth: {
+      stage3: healthyStage,
+      stage4: healthyStage,
+      stage5: healthyStage,
+      stage6: zeroExecutableStage6
+    },
+    formulaTuningFocus: { producerReviewRows: 6 }
+  });
+  assertSelfCheck(withAuditRows.ok, 'zero-executable Stage6 with audit rows must not fail score/source health');
+  assertSelfCheck(withAuditRows.stage6AuditRows === 6, 'stage6AuditRows evidence must be preserved');
+  const withoutAuditRows = stageDataHealthSummary({
+    stageDataHealth: {
+      stage3: healthyStage,
+      stage4: healthyStage,
+      stage5: healthyStage,
+      stage6: zeroExecutableStage6
+    },
+    formulaTuningFocus: { producerReviewRows: 0 }
+  });
+  assertSelfCheck(withoutAuditRows.missing.includes('stage6.rows'), 'missing Stage6 rows still fails when no audit rows exist');
+}
+
+selfCheckStageDataHealthSummary();
 
 function stage6PolicyLaneSummary(fullStageAudit) {
   const summary = fullStageAudit?.blockerSummary || {};
@@ -402,6 +450,7 @@ function deriveRequirements(proof, backlog, fullStageAudit, weakPillarAudit) {
     {
       fullStageAuditPath: FULL_STAGE_AUDIT_PATH,
       rows: stageHealth.rows,
+      stage6AuditRows: stageHealth.stage6AuditRows,
       missing: stageHealth.missing,
       scoreOutOfBounds: stageHealth.scoreOutOfBounds
     },
