@@ -121,6 +121,24 @@ function validateProducerSourceContract() {
     }
   }
   for (const token of [
+    'targetRecalibrationRequiredTargetByExecutionFloorPrice: executionContract.targetRecalibrationRequiredTargetByExecutionFloorPrice',
+    'targetRecalibrationExecutionFloorGapPct: executionContract.targetRecalibrationExecutionFloorGapPct',
+    'targetRecalibrationExpectedReturnGapPct: executionContract.targetRecalibrationExpectedReturnGapPct',
+    'targetRecalibrationExecutionFloorShortfallPct: executionContract.targetRecalibrationExecutionFloorShortfallPct',
+    'targetRecalibrationExpectedReturnShortfallPct: executionContract.targetRecalibrationExpectedReturnShortfallPct',
+    'targetRecalibrationExecutionFloorViable: executionContract.targetRecalibrationExecutionFloorViable',
+    'targetRecalibrationRequiredTargetDominantReason: executionContract.targetRecalibrationRequiredTargetDominantReason',
+    'riskGeometryRequiredTargetDominantReason: executionContract.riskGeometryRequiredTargetDominantReason',
+    'riskGeometryStopDistancePolicyVerdict: executionContract.riskGeometryStopDistancePolicyVerdict',
+    'riskGeometryTargetShortfallPolicyVerdict: executionContract.riskGeometryTargetShortfallPolicyVerdict',
+    'riskGeometryTargetBufferAtRequiredTargetPct: executionContract.riskGeometryTargetBufferAtRequiredTargetPct',
+    'riskGeometryTargetRecalibrationProofReady: executionContract.riskGeometryTargetRecalibrationProofReady'
+  ]) {
+    if (!source.includes(token)) {
+      throw new Error(`producer execution-contract row propagation missing token: ${token}`);
+    }
+  }
+  for (const token of [
     'VITE_BUILD_SOURCE_REPOSITORY',
     'VITE_BUILD_SOURCE_WORKFLOW',
     'VITE_BUILD_SOURCE_RUN_ID',
