@@ -19,6 +19,15 @@ for (const file of files) {
     status:/37 13 \* \* 1-5/.test(text)&&/57 13 \* \* 1-5/.test(text)&&/17 14 \* \* 1-5/.test(text)?'PASS':'FAIL',
     detail:'canonical Auto-Scheduler has RTH catch-up slots guarded by freshness-aware gate'
   });
+  if (file.endsWith('schedule.yml') && exists) checks.push({
+    id:'schedule:pipeline_success_freshness_gate',
+    status:/gh run view "\$run_id"[\s\S]{0,400}--json jobs/.test(text)
+      && /Alpha Seeking Pipeline/.test(text)
+      && /pipeline_success_blocking/.test(text)
+      && /alphaPipelineConclusion/.test(text)
+      ? 'PASS' : 'FAIL',
+    detail:'completed success runs only suppress duplicates when Alpha Seeking Pipeline itself succeeded'
+  });
   if (file.endsWith('auto-scheduler-deadline-guard.yml') && exists) checks.push({
     id:'deadline_guard:rth_catchup_slots',
     status:/35 13 \* \* 1-5/.test(text)&&/45 13 \* \* 1-5/.test(text)&&/55 13 \* \* 1-5/.test(text)&&/20 14 \* \* 1-5/.test(text)?'PASS':'FAIL',

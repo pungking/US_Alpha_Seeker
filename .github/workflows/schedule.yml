@@ -89,15 +89,34 @@ jobs:
             --created ">=$since_iso" \
             --limit 30 \
             --json databaseId,status,conclusion,event,createdAt,url)"
-          blocking="$(jq \
+          active_blocking="$(jq \
+            --arg current "$GITHUB_RUN_ID" \
+            '[.[] | select((.databaseId | tostring) != $current) | select(.status == "queued" or .status == "in_progress")] | length' <<< "$runs")"
+          completed_success_ids="$(jq -r \
             --arg current "$GITHUB_RUN_ID" \
             --arg fresh_since "$fresh_since_iso" \
-            '[.[] | select((.databaseId | tostring) != $current) | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since))] | length' <<< "$runs")"
-          echo "[DAILY_GATE] freshness_blocking_runs=$blocking"
+            '.[] | select((.databaseId | tostring) != $current) | select(.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since) | .databaseId' <<< "$runs")"
+          pipeline_success_blocking=0
+          if [ -n "$completed_success_ids" ]; then
+            while IFS= read -r run_id; do
+              [ -z "$run_id" ] && continue
+              jobs_json="$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json jobs 2>/dev/null || true)"
+              if [ -z "$jobs_json" ]; then
+                jobs_json='{"jobs":[]}'
+              fi
+              job_conclusion="$(jq -r '.jobs[]? | select(.name == "Alpha Seeking Pipeline") | .conclusion // empty' <<< "$jobs_json" | head -n 1 || true)"
+              echo "[DAILY_GATE] candidate_run=$run_id alphaPipelineConclusion=${job_conclusion:-missing}"
+              if [ "$job_conclusion" = "success" ]; then
+                pipeline_success_blocking=$((pipeline_success_blocking + 1))
+              fi
+            done <<< "$completed_success_ids"
+          fi
+          blocking=$((active_blocking + pipeline_success_blocking))
+          echo "[DAILY_GATE] freshness_blocking_runs=$blocking active_blocking=$active_blocking pipeline_success_blocking=$pipeline_success_blocking"
           if [ "$blocking" -gt 0 ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             echo "reason=fresh_same_market_day_run_exists" >> "$GITHUB_OUTPUT"
-            echo "$runs" | jq -c --arg fresh_since "$fresh_since_iso" '.[] | {databaseId,status,conclusion,event,createdAt,freshBlocking:(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since)),url}'
+            echo "$runs" | jq -c --arg fresh_since "$fresh_since_iso" '.[] | {databaseId,status,conclusion,event,createdAt,activeBlocking:(.status == "queued" or .status == "in_progress"),recentSuccessCandidate:(.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since),url}'
             exit 0
           fi
 
