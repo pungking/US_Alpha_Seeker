@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 const ROOT = process.cwd();
 const OUT_JSON = process.env.STAGE36_FULL_AUDIT_OUT_JSON || 'state/stage3-6-full-stage-audit.json';
 const OUT_MD = process.env.STAGE36_FULL_AUDIT_OUT_MD || 'docs/STAGE3_6_FULL_STAGE_AUDIT.md';
+const SUBREPORT_DIR = process.env.STAGE36_FULL_AUDIT_SUBREPORT_DIR || 'state';
 
 const STAGE_CONFIGS = {
   stage3: {
@@ -42,15 +43,17 @@ const STAGE_CONFIGS = {
   }
 };
 
+const subreportPath = (name) => path.join(SUBREPORT_DIR, name);
+
 const SUBREPORTS = {
-  stage35Methodology: 'state/stage3-5-methodology-audit.json',
-  stage35QuantQuality: 'state/stage3-5-quant-quality-audit.json',
-  stage6FreshFocus: 'state/stage6-fresh-focus-audit.json',
-  stage6FormulaTuningBacklog: 'state/stage6-formula-tuning-backlog.json',
-  stage6RuntimeFormulaContractProof: 'state/stage6-runtime-formula-contract-proof.json',
-  stage6FormulaBacklogAlignment: 'state/stage6-formula-audit-backlog-alignment.json',
-  stage6BlockerRootCause: 'state/stage6-blocker-root-cause-audit.json',
-  stage6QualityTrend: 'state/stage6-quality-trend-audit.json'
+  stage35Methodology: subreportPath('stage3-5-methodology-audit.json'),
+  stage35QuantQuality: subreportPath('stage3-5-quant-quality-audit.json'),
+  stage6FreshFocus: subreportPath('stage6-fresh-focus-audit.json'),
+  stage6FormulaTuningBacklog: subreportPath('stage6-formula-tuning-backlog.json'),
+  stage6RuntimeFormulaContractProof: subreportPath('stage6-runtime-formula-contract-proof.json'),
+  stage6FormulaBacklogAlignment: subreportPath('stage6-formula-audit-backlog-alignment.json'),
+  stage6BlockerRootCause: subreportPath('stage6-blocker-root-cause-audit.json'),
+  stage6QualityTrend: subreportPath('stage6-quality-trend-audit.json')
 };
 
 const RUNTIME_PROOF_FIELDS = [
