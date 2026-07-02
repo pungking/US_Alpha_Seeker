@@ -102,10 +102,23 @@ function classifyTarget(input) {
 
 function classifyRisk(input) {
   const row = flatRow(input);
-  const relevant = /RISK|STOP_TARGET/.test(String(row.zeroExecutableTuningLane || '')) ||
+  const zeroLane = String(row.zeroExecutableTuningLane || '').trim().toUpperCase();
+  const policyVerdict = String(row.riskGeometryPolicyVerdict || '').trim().toUpperCase();
+  const repairLane = String(row.riskGeometryRepairLane || '').trim().toLowerCase();
+  const policyNotApplicable = !policyVerdict || policyVerdict === 'RISK_GEOMETRY_POLICY_NOT_APPLICABLE';
+  const repairNotApplicable = !repairLane || repairLane === 'not_applicable';
+
+  // Executable/no-action rows can still carry raw risk fields from the formula contract.
+  // Do not count those default booleans as a producer-tuning risk blocker.
+  if (zeroLane === 'NO_ZERO_EXECUTABLE_TUNING_ACTION' && policyNotApplicable && repairNotApplicable) {
+    return RISK_LANES.NOT_RISK_GEOMETRY_BLOCKED;
+  }
+
+  const relevant = /RISK|STOP_TARGET/.test(zeroLane) ||
     String(row.blockerCategory || '') === 'risk_geometry' ||
     /blocked_stop|blocked_rr|invalid_geometry/.test(String(row.decisionReason || '')) ||
-    (row.riskGeometryRepairLane && row.riskGeometryRepairLane !== 'not_applicable');
+    !repairNotApplicable ||
+    !policyNotApplicable;
   if (!relevant) return RISK_LANES.NOT_RISK_GEOMETRY_BLOCKED;
   if (row.riskGeometryTargetRecalibrationProofReady === true) return RISK_LANES.TARGET_RECALIBRATION_PROOF_READY;
   if (row.riskGeometryRecalculatedStopRrOk === true && row.riskGeometryRequiredStopValid === true) {
@@ -170,6 +183,19 @@ function selfCheck() {
       breakoutRetestProofCurrentExtensionOk: false
     }),
     BREAKOUT_LANES.REVIEW_READY_STALE_OR_EXTENDED
+  );
+  assert.equal(
+    classifyRisk({
+      symbol: 'DEMO_EXECUTABLE_NO_ACTION',
+      finalDecision: 'EXECUTABLE_NOW',
+      blockerCategory: 'risk_geometry',
+      zeroExecutableTuningLane: 'NO_ZERO_EXECUTABLE_TUNING_ACTION',
+      riskGeometryPolicyVerdict: 'RISK_GEOMETRY_POLICY_NOT_APPLICABLE',
+      riskGeometryRepairLane: 'not_applicable',
+      riskGeometryTargetAboveCurrent: false,
+      riskGeometryRequiredStopValid: false
+    }),
+    RISK_LANES.NOT_RISK_GEOMETRY_BLOCKED
   );
 }
 
