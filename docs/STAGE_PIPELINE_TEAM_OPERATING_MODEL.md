@@ -10,6 +10,11 @@ This is not a broker execution plan. It is an analysis-side governance model for
 how Codex/subagents should audit, diagnose, and propose changes across the
 pipeline.
 
+Related TradingCodex overlays:
+
+- `docs/TRADING_CODEX_OPERATING_MODEL.md` maps the image-level operating model to the current three-repo system.
+- `docs/TRADING_CODEX_DECISION_PACKAGE.md` defines the artifact bundle used before research, sidecar, or approval decisions.
+
 ## Core Decision
 
 Use the stage-team model for quality work, but keep one lead integrator.
