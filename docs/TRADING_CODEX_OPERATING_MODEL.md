@@ -80,6 +80,8 @@ specialist. It must not be patched downstream by guessing.
 
 ## Self-Improvement Loop
 
+Alpha mRNA lifecycle guidance lives in `docs/ALPHA_MRNA_STRATEGY_BLUEPRINT_PROTOCOL.md`. It defines how temporary strategy blueprints should expire, feed back, and avoid becoming hard-coded trade outcomes.
+
 1. Record the decision package and assumptions.
 2. Compare outcome, blocker, or failed gate against the expected lane.
 3. Assign the issue to one owner: data, formula, policy, contract, risk, or
