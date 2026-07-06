@@ -611,7 +611,69 @@ function requiredFieldCoverage(rows, field) {
   };
 }
 
+function inferZeroExecutableRelationship(row) {
+  const lane = String(row?.zeroExecutableTuningLane || '').trim().toUpperCase();
+  const riskRepairLane = String(row?.riskGeometryRepairLane || '').trim().toUpperCase();
+  const category = blockerCategory(row);
+  const riskTargetNoTrade =
+    riskRepairLane.includes('TARGET') ||
+    row?.riskGeometryTargetNoTradeConfirmed === true ||
+    row?.riskGeometryTargetAboveCurrent === false;
+  if (lane === 'TARGET_RECALIBRATION') {
+    return {
+      secondaryLane: riskTargetNoTrade ? 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION' : null,
+      blockerCategory: riskTargetNoTrade ? 'risk_geometry' : category || 'target_recalibration',
+      primaryPolicy: 'target_recalibration',
+      secondaryPolicy: riskTargetNoTrade ? 'risk_geometry' : null,
+      relationship: riskTargetNoTrade
+        ? 'target_recalibration_required_but_risk_geometry_no_trade_confirms_target_refresh'
+        : 'target_recalibration_primary'
+    };
+  }
+  if (lane === 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION' || lane === 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION') {
+    return {
+      secondaryLane: riskTargetNoTrade ? 'TARGET_RECALIBRATION' : null,
+      blockerCategory: 'risk_geometry',
+      primaryPolicy: 'risk_geometry',
+      secondaryPolicy: riskTargetNoTrade ? 'target_recalibration' : null,
+      relationship: riskTargetNoTrade
+        ? 'risk_geometry_requires_target_refresh_or_no_trade'
+        : 'risk_geometry_primary'
+    };
+  }
+  if (lane === 'BREAKOUT_PROOF_CONFIRMED_GENERATION') {
+    return {
+      secondaryLane: null,
+      blockerCategory: 'breakout',
+      primaryPolicy: 'breakout_proof_confirmed_generation',
+      secondaryPolicy: null,
+      relationship: row?.breakoutRetestPromotionPolicyDecision === 'WAIT_REVIEW_READY_ONLY'
+        ? 'review_ready_waits_for_proof_confirmed'
+        : 'breakout_proof_primary'
+    };
+  }
+  if (lane === 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION') {
+    return {
+      secondaryLane: null,
+      blockerCategory: 'structure',
+      primaryPolicy: 'structure_proof_generation',
+      secondaryPolicy: null,
+      relationship: 'structure_wait_requires_proof_not_gate_relaxation'
+    };
+  }
+  return {
+    secondaryLane: null,
+    blockerCategory: category || 'none',
+    primaryPolicy: 'none',
+    secondaryPolicy: null,
+    relationship: lane === 'NO_ZERO_EXECUTABLE_TUNING_ACTION'
+      ? 'not_zero_executable_policy_lane'
+      : 'unknown_zero_executable_relationship'
+  };
+}
+
 function compactRow(row) {
+  const inferredZero = inferZeroExecutableRelationship(row);
   return {
     symbol: normalizeSymbol(row),
     verdict: verdictOf(row),
@@ -622,6 +684,11 @@ function compactRow(row) {
     qualityGatePolicyVerdict: row?.qualityGatePolicyVerdict || null,
     zeroExecutableTuningLane: row?.zeroExecutableTuningLane || null,
     zeroExecutableTuningVerdict: row?.zeroExecutableTuningVerdict || null,
+    zeroExecutableSecondaryTuningLane: row?.zeroExecutableSecondaryTuningLane || inferredZero.secondaryLane,
+    zeroExecutableBlockerCategory: row?.zeroExecutableBlockerCategory || inferredZero.blockerCategory,
+    zeroExecutablePrimaryPolicy: row?.zeroExecutablePrimaryPolicy || inferredZero.primaryPolicy,
+    zeroExecutableSecondaryPolicy: row?.zeroExecutableSecondaryPolicy || inferredZero.secondaryPolicy,
+    zeroExecutableTuningRelationship: row?.zeroExecutableTuningRelationship || inferredZero.relationship,
     zeroExecutableFormulaBottleneck: row?.zeroExecutableFormulaBottleneck || null,
     zeroExecutableFormulaSeverity: numberOrNull(row?.zeroExecutableFormulaSeverity),
     zeroExecutableTargetShortfallPct: numberOrNull(row?.zeroExecutableTargetShortfallPct),
@@ -732,6 +799,9 @@ function buildMarkdown(report) {
   lines.push('| --- | --- |');
   lines.push(`| latestQualityGateLaneCounts | ${esc(JSON.stringify(report.summary.latestQualityGateLaneCounts))} |`);
   lines.push(`| zeroExecutableTuningLaneCounts | ${esc(JSON.stringify(report.summary.zeroExecutableTuningLaneCounts))} |`);
+  lines.push(`| zeroExecutableSecondaryTuningLaneCounts | ${esc(JSON.stringify(report.summary.zeroExecutableSecondaryTuningLaneCounts))} |`);
+  lines.push(`| zeroExecutableBlockerCategoryCounts | ${esc(JSON.stringify(report.summary.zeroExecutableBlockerCategoryCounts))} |`);
+  lines.push(`| zeroExecutableTuningRelationshipCounts | ${esc(JSON.stringify(report.summary.zeroExecutableTuningRelationshipCounts))} |`);
   lines.push(`| breakoutRetestProofConfirmedCounts | ${esc(JSON.stringify(report.summary.breakoutRetestProofConfirmedCounts))} |`);
   lines.push(`| breakoutContinuationConfirmedCounts | ${esc(JSON.stringify(report.summary.breakoutContinuationConfirmedCounts))} |`);
   lines.push(`| targetRecalibrationViabilityVerdictCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationViabilityVerdictCounts))} |`);
@@ -779,8 +849,8 @@ function buildMarkdown(report) {
   lines.push('');
   lines.push('## Row Focus');
   lines.push('');
-  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Formula Bottleneck | Severity | Formula Evidence | Lane Formula Basis | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |');
-  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| Symbol | Verdict | Decision | Category | Quality Lane | Quality Verdict | Zero-Exec Lane | Secondary Lane | Zero-Exec Category | Relationship | Formula Bottleneck | Severity | Formula Evidence | Lane Formula Basis | Structure Lane | Structure OK | Breakout Confirmed | Promotion Decision | Promotion BlockedBy | Target Source | Target Viability | Target By Buffer | Target By RR | Target By ER | Risk Source | Risk Repair | Risk Confirmed | Risk Checks | Risk Target Gap% | Risk Shortfall% | RR@Cur | Dist% | TargetBuf% |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |');
   for (const row of report.rows) {
     const riskChecks = [
       `target=${row.riskGeometryTargetAboveCurrent}`,
@@ -801,7 +871,7 @@ function buildMarkdown(report) {
       `target=${row.targetRecalibrationFormulaEvidenceBasis || 'N/A'}`,
       `risk=${row.riskGeometryFormulaEvidenceBasis || 'N/A'}`
     ].join('; ');
-    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(formulaEvidence)} | ${esc(laneFormulaBasis)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
+    lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableSecondaryTuningLane)} | ${esc(row.zeroExecutableBlockerCategory)} | ${esc(row.zeroExecutableTuningRelationship)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(formulaEvidence)} | ${esc(laneFormulaBasis)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
   lines.push('## Track Separation');
@@ -1024,6 +1094,9 @@ function main() {
       rawExecutableDowngradedRows: rawExecutableDowngradeRows.length,
       latestQualityGateLaneCounts: countBy(qualityGateRows, qualityGateLane),
       zeroExecutableTuningLaneCounts: countBy(rows, (row) => row?.zeroExecutableTuningLane || 'missing'),
+      zeroExecutableSecondaryTuningLaneCounts: countBy(rows, (row) => row?.zeroExecutableSecondaryTuningLane || inferZeroExecutableRelationship(row).secondaryLane || 'none'),
+      zeroExecutableBlockerCategoryCounts: countBy(rows, (row) => row?.zeroExecutableBlockerCategory || inferZeroExecutableRelationship(row).blockerCategory),
+      zeroExecutableTuningRelationshipCounts: countBy(rows, (row) => row?.zeroExecutableTuningRelationship || inferZeroExecutableRelationship(row).relationship),
       structurePolicyBlockerLaneCounts: countBy(rows, (row) => row?.structurePolicyBlockerLane || 'missing'),
       riskGeometryRepairLaneCounts: countBy(rows, (row) => row?.riskGeometryRepairLane || 'missing'),
       breakoutRetestProofConfirmedCounts: countBy(rows, (row) => String(row?.breakoutRetestProofConfirmed ?? 'missing')),

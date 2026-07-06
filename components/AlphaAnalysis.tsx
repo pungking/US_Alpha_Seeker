@@ -289,6 +289,11 @@ interface AlphaCandidate {
   weakPillarGateMinIctScore?: number | null;
   zeroExecutableTuningLane?: string | null;
   zeroExecutableTuningVerdict?: string | null;
+  zeroExecutableSecondaryTuningLane?: string | null;
+  zeroExecutableBlockerCategory?: string | null;
+  zeroExecutablePrimaryPolicy?: string | null;
+  zeroExecutableSecondaryPolicy?: string | null;
+  zeroExecutableTuningRelationship?: string | null;
   zeroExecutablePrimaryTuningTarget?: boolean | null;
   zeroExecutableTuningReasons?: string[] | null;
   zeroExecutableTuningRecommendedAction?: string | null;
@@ -917,6 +922,11 @@ type Stage6RiskGeometryPolicyPayload = {
 type Stage6ZeroExecutableTuningPayload = {
   lane: string;
   verdict: string;
+  secondaryLane: string | null;
+  blockerCategory: string;
+  primaryPolicy: string;
+  secondaryPolicy: string | null;
+  relationship: string;
   primaryTuningTarget: boolean;
   reasons: string[];
   recommendedAction: string;
@@ -2890,19 +2900,52 @@ const deriveZeroExecutableTuningPolicy = (input: {
   structurePolicy: Stage6PolicyReviewPayload;
 }): Stage6ZeroExecutableTuningPayload => {
   const reason = String(input.decisionReason || '');
+  const riskRepairLane = String(input.riskGeometryPolicy.repairLane || '');
+  const riskTargetNoTrade =
+    input.riskGeometryPolicy.recalibrationRequired &&
+    input.riskGeometryPolicy.noTradeRequired &&
+    (
+      input.riskGeometryPolicy.targetNoTradeConfirmed ||
+      !input.riskGeometryPolicy.targetAboveCurrent ||
+      riskRepairLane.includes('TARGET')
+    );
+  const riskTargetRelationship = riskTargetNoTrade
+    ? 'target_recalibration_required_but_risk_geometry_no_trade_confirms_target_refresh'
+    : 'target_recalibration_primary';
   if (input.targetPolicy.recalibrationRequired) {
     return {
       lane: 'TARGET_RECALIBRATION',
       verdict: input.targetPolicy.verdict,
+      secondaryLane: riskTargetNoTrade ? 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION' : null,
+      blockerCategory: riskTargetNoTrade ? 'risk_geometry' : 'target_recalibration',
+      primaryPolicy: 'target_recalibration',
+      secondaryPolicy: riskTargetNoTrade ? 'risk_geometry' : null,
+      relationship: riskTargetRelationship,
       primaryTuningTarget: true,
-      reasons: input.targetPolicy.reasons,
-      recommendedAction: input.targetPolicy.recommendedAction
+      reasons: [
+        ...input.targetPolicy.reasons,
+        ...(riskTargetNoTrade ? [
+          `secondary_risk_geometry_verdict:${input.riskGeometryPolicy.verdict}`,
+          `secondary_risk_geometry_repair_lane:${input.riskGeometryPolicy.repairLane}`
+        ] : [])
+      ],
+      recommendedAction: riskTargetNoTrade
+        ? `${input.targetPolicy.recommendedAction} Risk geometry also confirms no-trade; refresh Stage6 target/stop source before any execution review.`
+        : input.targetPolicy.recommendedAction
     };
   }
   if (input.riskGeometryPolicy.recalibrationRequired && input.riskGeometryPolicy.noTradeRequired) {
+    const secondaryTargetPolicy = input.targetPolicy.recalibrationRequired || input.riskGeometryPolicy.targetNoTradeConfirmed;
     return {
       lane: 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION',
       verdict: input.riskGeometryPolicy.verdict,
+      secondaryLane: secondaryTargetPolicy ? 'TARGET_RECALIBRATION' : null,
+      blockerCategory: 'risk_geometry',
+      primaryPolicy: 'risk_geometry',
+      secondaryPolicy: secondaryTargetPolicy ? 'target_recalibration' : null,
+      relationship: secondaryTargetPolicy
+        ? 'risk_geometry_requires_target_refresh_or_no_trade'
+        : 'risk_geometry_primary',
       primaryTuningTarget: true,
       reasons: input.riskGeometryPolicy.reasons,
       recommendedAction: input.riskGeometryPolicy.recommendedAction
@@ -2912,17 +2955,32 @@ const deriveZeroExecutableTuningPolicy = (input: {
     return {
       lane: 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION',
       verdict: input.riskGeometryPolicy.verdict,
+      secondaryLane: input.riskGeometryPolicy.targetRecalibrationCandidate ? 'TARGET_RECALIBRATION' : null,
+      blockerCategory: 'risk_geometry',
+      primaryPolicy: 'risk_geometry',
+      secondaryPolicy: input.riskGeometryPolicy.targetRecalibrationCandidate ? 'target_recalibration' : null,
+      relationship: input.riskGeometryPolicy.targetRecalibrationCandidate
+        ? 'recalculated_stop_requires_target_recalibration_proof'
+        : 'recalculated_stop_geometry_primary',
       primaryTuningTarget: true,
       reasons: input.riskGeometryPolicy.reasons,
       recommendedAction: input.riskGeometryPolicy.recommendedAction
     };
   }
   if (input.riskGeometryPolicy.recalibrationRequired) {
+    const riskLane = input.riskGeometryPolicy.noTradeRequired
+      ? 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'
+      : 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION';
     return {
-      lane: input.riskGeometryPolicy.noTradeRequired
-        ? 'RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION'
-        : 'STOP_TARGET_RISK_GEOMETRY_RECALCULATION',
+      lane: riskLane,
       verdict: input.riskGeometryPolicy.verdict,
+      secondaryLane: input.riskGeometryPolicy.targetRecalibrationCandidate ? 'TARGET_RECALIBRATION' : null,
+      blockerCategory: 'risk_geometry',
+      primaryPolicy: 'risk_geometry',
+      secondaryPolicy: input.riskGeometryPolicy.targetRecalibrationCandidate ? 'target_recalibration' : null,
+      relationship: input.riskGeometryPolicy.targetRecalibrationCandidate
+        ? 'risk_geometry_target_recalibration_candidate'
+        : 'risk_geometry_primary',
       primaryTuningTarget: true,
       reasons: input.riskGeometryPolicy.reasons,
       recommendedAction: input.riskGeometryPolicy.recommendedAction
@@ -2932,6 +2990,13 @@ const deriveZeroExecutableTuningPolicy = (input: {
     return {
       lane: 'BREAKOUT_PROOF_CONFIRMED_GENERATION',
       verdict: input.breakoutPromotion.verdict,
+      secondaryLane: null,
+      blockerCategory: 'breakout',
+      primaryPolicy: 'breakout_proof_confirmed_generation',
+      secondaryPolicy: null,
+      relationship: input.breakoutPromotion.policyDecision === 'WAIT_REVIEW_READY_ONLY'
+        ? 'review_ready_waits_for_proof_confirmed'
+        : 'breakout_proof_primary',
       primaryTuningTarget: true,
       reasons: input.breakoutPromotion.reasons,
       recommendedAction: input.breakoutPromotion.recommendedAction
@@ -2941,6 +3006,11 @@ const deriveZeroExecutableTuningPolicy = (input: {
     return {
       lane: 'STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION',
       verdict: input.structurePolicy.verdict,
+      secondaryLane: null,
+      blockerCategory: 'structure',
+      primaryPolicy: 'structure_proof_generation',
+      secondaryPolicy: null,
+      relationship: 'structure_wait_requires_proof_not_gate_relaxation',
       primaryTuningTarget: false,
       reasons: input.structurePolicy.reasons,
       recommendedAction: 'Do not relax structure gates. Keep WAIT unless Stage6 emits stronger structure proof.'
@@ -2949,6 +3019,11 @@ const deriveZeroExecutableTuningPolicy = (input: {
   return {
     lane: 'NO_ZERO_EXECUTABLE_TUNING_ACTION',
     verdict: 'NO_ZERO_EXECUTABLE_TUNING_ACTION',
+    secondaryLane: null,
+    blockerCategory: 'none',
+    primaryPolicy: 'none',
+    secondaryPolicy: null,
+    relationship: 'not_zero_executable_policy_lane',
     primaryTuningTarget: false,
     reasons: ['not_zero_executable_policy_lane'],
     recommendedAction: 'No zero-executable tuning action required.'
@@ -3162,6 +3237,10 @@ const deriveZeroExecutableFormulaProfile = (input: {
   const contractStructureProofGapCount = noFormulaBottleneck ? 0 : structureProofGaps.size;
   const reasons = [
     `tuning_lane:${input.tuningPolicy.lane}`,
+    `tuning_blocker_category:${input.tuningPolicy.blockerCategory}`,
+    `tuning_relationship:${input.tuningPolicy.relationship}`,
+    ...(input.tuningPolicy.secondaryLane ? [`secondary_tuning_lane:${input.tuningPolicy.secondaryLane}`] : []),
+    ...(input.tuningPolicy.secondaryPolicy ? [`secondary_policy:${input.tuningPolicy.secondaryPolicy}`] : []),
     ...(preferredFormulaBottleneck ? [`primary_formula_bottleneck:${preferredFormulaBottleneck}`] : []),
     `formula_evidence_basis:${formulaEvidence.evidenceBasis}`,
     `formula_observed:${formulaEvidence.observedValue}`,
@@ -8402,6 +8481,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               weakPillarGateMinIctScore: STAGE6_MIN_EXEC_ICT_SCORE,
               zeroExecutableTuningLane: zeroExecutableTuningPolicy.lane,
               zeroExecutableTuningVerdict: zeroExecutableTuningPolicy.verdict,
+              zeroExecutableSecondaryTuningLane: zeroExecutableTuningPolicy.secondaryLane,
+              zeroExecutableBlockerCategory: zeroExecutableTuningPolicy.blockerCategory,
+              zeroExecutablePrimaryPolicy: zeroExecutableTuningPolicy.primaryPolicy,
+              zeroExecutableSecondaryPolicy: zeroExecutableTuningPolicy.secondaryPolicy,
+              zeroExecutableTuningRelationship: zeroExecutableTuningPolicy.relationship,
               zeroExecutablePrimaryTuningTarget: zeroExecutableTuningPolicy.primaryTuningTarget,
               zeroExecutableTuningReasons: zeroExecutableTuningPolicy.reasons,
               zeroExecutableTuningRecommendedAction: zeroExecutableTuningPolicy.recommendedAction,
@@ -8695,6 +8779,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               weakPillarGateMinIctScore: executionContract.weakPillarGateMinIctScore,
               zeroExecutableTuningLane: executionContract.zeroExecutableTuningLane,
               zeroExecutableTuningVerdict: executionContract.zeroExecutableTuningVerdict,
+              zeroExecutableSecondaryTuningLane: executionContract.zeroExecutableSecondaryTuningLane,
+              zeroExecutableBlockerCategory: executionContract.zeroExecutableBlockerCategory,
+              zeroExecutablePrimaryPolicy: executionContract.zeroExecutablePrimaryPolicy,
+              zeroExecutableSecondaryPolicy: executionContract.zeroExecutableSecondaryPolicy,
+              zeroExecutableTuningRelationship: executionContract.zeroExecutableTuningRelationship,
               zeroExecutablePrimaryTuningTarget: executionContract.zeroExecutablePrimaryTuningTarget,
               zeroExecutableTuningReasons: executionContract.zeroExecutableTuningReasons,
               zeroExecutableTuningRecommendedAction: executionContract.zeroExecutableTuningRecommendedAction,
@@ -9686,6 +9775,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               weakPillarGateMinIctScore: toOptionalFiniteNumber(item.weakPillarGateMinIctScore),
               zeroExecutableTuningLane: normalizeOptionalText(item.zeroExecutableTuningLane),
               zeroExecutableTuningVerdict: normalizeOptionalText(item.zeroExecutableTuningVerdict),
+              zeroExecutableSecondaryTuningLane: normalizeOptionalText(item.zeroExecutableSecondaryTuningLane),
+              zeroExecutableBlockerCategory: normalizeOptionalText(item.zeroExecutableBlockerCategory),
+              zeroExecutablePrimaryPolicy: normalizeOptionalText(item.zeroExecutablePrimaryPolicy),
+              zeroExecutableSecondaryPolicy: normalizeOptionalText(item.zeroExecutableSecondaryPolicy),
+              zeroExecutableTuningRelationship: normalizeOptionalText(item.zeroExecutableTuningRelationship),
               zeroExecutablePrimaryTuningTarget: Boolean(item.zeroExecutablePrimaryTuningTarget),
               zeroExecutableTuningReasons: Array.isArray(item.zeroExecutableTuningReasons) ? item.zeroExecutableTuningReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               zeroExecutableTuningRecommendedAction: normalizeOptionalText(item.zeroExecutableTuningRecommendedAction),
@@ -9950,6 +10044,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               weakPillarGateMinIctScore: toOptionalFiniteNumber(item?.weakPillarGateMinIctScore),
               zeroExecutableTuningLane: normalizeOptionalText(item?.zeroExecutableTuningLane),
               zeroExecutableTuningVerdict: normalizeOptionalText(item?.zeroExecutableTuningVerdict),
+              zeroExecutableSecondaryTuningLane: normalizeOptionalText(item?.zeroExecutableSecondaryTuningLane),
+              zeroExecutableBlockerCategory: normalizeOptionalText(item?.zeroExecutableBlockerCategory),
+              zeroExecutablePrimaryPolicy: normalizeOptionalText(item?.zeroExecutablePrimaryPolicy),
+              zeroExecutableSecondaryPolicy: normalizeOptionalText(item?.zeroExecutableSecondaryPolicy),
+              zeroExecutableTuningRelationship: normalizeOptionalText(item?.zeroExecutableTuningRelationship),
               zeroExecutablePrimaryTuningTarget: Boolean(item?.zeroExecutablePrimaryTuningTarget),
               zeroExecutableTuningReasons: Array.isArray(item?.zeroExecutableTuningReasons) ? item.zeroExecutableTuningReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               zeroExecutableTuningRecommendedAction: normalizeOptionalText(item?.zeroExecutableTuningRecommendedAction),
