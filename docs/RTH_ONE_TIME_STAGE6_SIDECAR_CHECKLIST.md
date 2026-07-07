@@ -155,6 +155,29 @@ Expected zero-executable routing:
 - explicit structure rejects -> `STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION`
 - weak-pillar, earnings coverage, unusable verdict, conviction, or non-actionable verdict issues -> `quality_gate`
 
+## Track B - TradingCodex Decision Package Cross-Check
+
+After the first fresh RTH sidecar run, build a Sidecar Package summary before deciding whether to stop or escalate. Treat each blocker as an mRNA transcript lane that expires with the Stage6 hash.
+
+Required cross-checks:
+
+- Research Package source: exact Stage6 file/hash/head from Track A.
+- Sidecar Package source: `last-dry-exec-preview.json`, `last-order-decision-audit.json`, `fillability-report.json`, and market guard artifact.
+- Evidence alignment: `payloadExpectation.status` and `topSkipReasonCategories` must point back to Stage6 Research Package fields.
+- Mutation flags: `brokerMutationAttempted=false` and `brokerMutationSubmitted=false`.
+- Next owner: one of `Stage3`, `Stage4`, `Stage5`, `Stage6`, `Stage6.5`, `Harvester`, `Sidecar`, or `User approval`.
+
+| Sidecar observation | Expected Decision Package mapping | Next owner |
+| --- | --- | --- |
+| `topSkipReasonCategories.quality_gate` | `qualityGateLane` | Stage6 or Data Lineage |
+| `topSkipReasonCategories.structure` | `structurePolicyBlockerLane` | Stage5/Stage6 |
+| `topSkipReasonCategories.risk_geometry` | `riskGeometryRepairLane` | Stage6 |
+| `topSkipReasonCategories.target_recalibration` | `targetRecalibrationViabilityVerdict` | Stage6 |
+| `topSkipReasonCategories.breakout` | `breakoutRetestProofConfirmed` | Stage5/Stage6 |
+| payload ready in safe mode | Approval Package required before mutation | User approval / alpha-exec-engine |
+
+If the sidecar package maps cleanly and no mutation occurred, stop after one run. If the mapping is opaque, fix the Stage6-to-sidecar contract before any execution discussion.
+
 ## Exit Rules
 
 - If an actionable payload appears in safe mode, verify it remains non-mutating and wait for an explicit execution approval gate before any broker path.

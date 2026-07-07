@@ -1119,6 +1119,14 @@ function buildMarkdown(report) {
       : 'N/A'
   ]);
   const entryPolicyRows = Object.entries(report.stage6EntryEvidence.policyCounts).map(([field, counts]) => [field, compactJson(counts)]);
+  const tradingCodexEvidenceRows = [
+    ['zeroExecutableTuningLane', 'Formula Evidence Analyst', 'Research Package.evidence.zeroExecutableTuningLane', 'Primary producer tuning lane; use for backlog routing, not ticker-specific manual watch.'],
+    ['qualityGateLane', 'Alpha Policy Analyst', 'Research Package.evidence.qualityGateLane', 'Verdict, weak-pillar, earnings, or non-actionable quality gate classification.'],
+    ['structurePolicyBlockerLane', 'Structure Analyst', 'Research Package.evidence.structurePolicyBlockerLane', 'Structure proof ownership; tune proof generation before relaxing gates.'],
+    ['riskGeometryRepairLane', 'Alpha Policy Analyst', 'Research Package.evidence.riskGeometryRepairLane', 'Stop/target recalculation or no-trade ownership; sidecar reprice must not solve it.'],
+    ['targetRecalibrationViabilityVerdict', 'Alpha Policy Analyst', 'Research Package.evidence.targetRecalibrationViabilityVerdict', 'Target refresh/no-trade decision evidence.'],
+    ['breakoutRetestProofConfirmed', 'Structure Analyst / Alpha Policy Analyst', 'Research Package.evidence.breakoutRetestProofConfirmed', 'Promotion proof gate; review-ready without proof remains WAIT.']
+  ];
 
   return `# Stage3-6 Full Stage Audit\n\n` +
     `- GeneratedAt: ${report.generatedAt}\n` +
@@ -1152,6 +1160,10 @@ function buildMarkdown(report) {
     `## Blocker Summary\n\n${mdTable(['Metric', 'Counts'], blockerRows)}\n\n` +
     `Blocker classification health: **${report.blockerClassificationHealth.status}**. Ambiguous buckets: ${report.blockerClassificationHealth.ambiguous.length ? compactJson(report.blockerClassificationHealth.ambiguous) : 'none'}\n\n` +
     `Root cause summary: ${compactJson(report.blockerSummary.rootCauseSummary)}\n\n` +
+    `## TradingCodex Decision Package Mapping\n\n` +
+    `This report supplies Research Package evidence for TradingCodex. It does not authorize Sidecar or Approval Package mutation.\n\n` +
+    `${mdTable(['Field', 'Specialist Owner', 'Decision Package Slot', 'Interpretation'], tradingCodexEvidenceRows)}\n\n` +
+    `mRNA transcript interpretation: blocker lanes are temporary strategy-transcript signals. They expire with the Stage6 hash and must be regenerated from a fresh artifact before tuning or RTH sidecar verification.\n\n` +
     `## Integrated Subreports\n\n${mdTable(['Report', 'Present', 'Overall', 'GeneratedAt', 'Path'], subreportRows)}\n\n` +
     `## Next Actions\n\n${report.nextActions.map((item) => `- ${item}`).join('\n')}\n\n` +
     `## Interpretation\n\n` +

@@ -14,7 +14,8 @@ boundaries, and safety gates.
 ## Core Rule
 
 Specialists provide bounded judgments. They do not approve execution and do not
-mutate broker or sidecar state.
+mutate broker or sidecar state. Their findings also label mRNA transcript lanes
+for temporary strategy classification and later producer tuning.
 
 ## Roster
 
@@ -123,6 +124,19 @@ Blocks:
 - `execution_contract_gap`,
 - `reason_taxonomy_unknown`,
 - `sidecar_requires_guessing`.
+
+## Decision Evidence Ownership Matrix
+
+| Field | Primary specialist | Secondary reviewer | Required handoff if blocked |
+| --- | --- | --- | --- |
+| `zeroExecutableTuningLane` | Formula Evidence Analyst | Head Manager | Assign to target, risk geometry, breakout, structure, or quality tuning backlog. |
+| `qualityGateLane` | Alpha Policy Analyst | Fundamental/Data Lineage Analyst when data related | Keep out of structure/risk tuning until quality reason is resolved. |
+| `structurePolicyBlockerLane` | Structure Analyst | Alpha Policy Analyst | Improve structure proof or keep WAIT; do not relax gate blindly. |
+| `riskGeometryRepairLane` | Alpha Policy Analyst | Contract Reviewer | Recalculate stop/target or keep NO_TRADE; do not move to sidecar reprice. |
+| `targetRecalibrationViabilityVerdict` | Alpha Policy Analyst | Formula Evidence Analyst | Refresh target thesis/source or keep no-trade. |
+| `breakoutRetestProofConfirmed` | Structure Analyst | Alpha Policy Analyst | Promotion remains blocked until proof is true and promotion policy allows it. |
+
+Specialist outputs become Decision Package evidence. They do not become execution approval.
 
 ## Handoff Rules
 

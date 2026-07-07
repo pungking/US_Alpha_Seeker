@@ -88,6 +88,25 @@ specialist. It must not be patched downstream by guessing.
 | Sidecar readiness | Sidecar classifies payload/no-payload without recomputing alpha | Fix Stage6 contract or sidecar taxonomy |
 | Execution approval | Exact scoped approval exists in `alpha-exec-engine` | No broker mutation |
 
+## Stage3-6 Audit Integration
+
+Stage3-6 audit reports are the Research Package evidence layer for TradingCodex. They must answer three questions before any sidecar or approval package is discussed:
+
+1. Which stage or specialist owns the blocker?
+2. Which Decision Package evidence slot proves that blocker?
+3. Which mRNA strategy transcript lane should expire, wait, or feed producer tuning?
+
+| Audit field | Specialist owner | Decision Package slot | Operating meaning |
+| --- | --- | --- | --- |
+| `zeroExecutableTuningLane` | Formula Evidence Analyst | `Research Package.evidence.zeroExecutableTuningLane` | Dominant producer tuning lane; not a symbol watch target. |
+| `qualityGateLane` | Alpha Policy Analyst | `Research Package.evidence.qualityGateLane` | Non-actionable verdict, weak pillar, earnings, coverage, or event gate. |
+| `structurePolicyBlockerLane` | Structure Analyst | `Research Package.evidence.structurePolicyBlockerLane` | Structure proof ownership; improve proof generation before relaxing gates. |
+| `riskGeometryRepairLane` | Alpha Policy Analyst | `Research Package.evidence.riskGeometryRepairLane` | Stop/target recalculation or no-trade ownership; not sidecar chase. |
+| `targetRecalibrationViabilityVerdict` | Alpha Policy Analyst | `Research Package.evidence.targetRecalibrationViabilityVerdict` | Target refresh/no-trade viability. |
+| `breakoutRetestProofConfirmed` | Structure Analyst / Alpha Policy Analyst | `Research Package.evidence.breakoutRetestProofConfirmed` | Proof gate for breakout promotion; review-ready alone remains WAIT. |
+
+The lead manager should route repeated no-event or zero-executable outcomes by this table. Do not lower sidecar fillability floors or create broker paths to compensate for weak Stage6 evidence.
+
 ## Self-Improvement Loop
 
 Alpha mRNA architecture lives in `docs/MRNA_ADAPTIVE_STRATEGY_ARCHITECTURE.md`, with lifecycle details in `docs/ALPHA_MRNA_STRATEGY_BLUEPRINT_PROTOCOL.md`. Together they define how temporary strategy blueprints should expire, feed back, and avoid becoming hard-coded trade outcomes.

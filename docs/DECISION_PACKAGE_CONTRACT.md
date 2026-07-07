@@ -72,6 +72,21 @@ Research outcomes:
 | `BLOCKED_POLICY` | Verdict/proof/weak-pillar gate blocks | Stage6 policy owner |
 | `BLOCKED_CONTRACT` | Downstream cannot classify without guessing | Stage6.5 contract owner |
 
+## Stage3-6 Evidence Ownership
+
+The Research Package must carry enough evidence for a reviewer to map every Stage6 blocker to one owner.
+
+| Evidence field | Required when | Specialist owner | Valid package outcome |
+| --- | --- | --- | --- |
+| `zeroExecutableTuningLane` | Any zero-executable or no-payload analysis | Formula Evidence Analyst | `BLOCKED_POLICY`, `NO_TRADE`, or `WAIT_PRICE` |
+| `qualityGateLane` | Verdict, weak pillar, coverage, event, or quality issue | Alpha Policy Analyst | `BLOCKED_POLICY` or `BLOCKED_DATA` |
+| `structurePolicyBlockerLane` | `wait_structure_confirmation_required` or structure reject | Structure Analyst | `WAIT_PRICE` or `BLOCKED_POLICY` |
+| `riskGeometryRepairLane` | Stop/target/RR geometry issue | Alpha Policy Analyst | `NO_TRADE` or `BLOCKED_POLICY` |
+| `targetRecalibrationViabilityVerdict` | Target near/current/reached or target refresh issue | Alpha Policy Analyst | `NO_TRADE` or `WAIT_PRICE` |
+| `breakoutRetestProofConfirmed` | Breakout/retest wait or promotion review | Structure Analyst / Alpha Policy Analyst | `WAIT_PRICE` until proof confirmed and promotion policy allows it |
+
+If a Sidecar Package has no payload, it should cite these Research Package fields through `topSkipReasonCategories` and `payloadExpectation` rather than inventing a new alpha reason.
+
 ## Sidecar Package Contract
 
 Sidecar Package proves the execution sidecar consumed the same hash and did not

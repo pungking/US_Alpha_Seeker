@@ -1,6 +1,6 @@
 # Stage6 Fresh Focus Audit
 
-- GeneratedAt: 2026-07-06T15:08:21.816Z
+- GeneratedAt: 2026-07-07T01:06:33.882Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json
 - Hash: ea95063da8d317a9815b98329be26842853ee1678e4db93f385192ac61d12a49
 - Source SHA: d070335291d1045b733319b41ae80766a2c04cb4
@@ -145,6 +145,21 @@
 | ZVRA | BUY | WAIT_PRICE/wait_breakout_retest_required | breakout | N/A | N/A | BREAKOUT_PROOF_CONFIRMED_GENERATION | N/A | breakout | review_ready_waits_for_proof_confirmed | BREAKOUT_PROOF_FORMULA | 4 | breakout_current_extension_excess_pct:24.73>8 delta=16.73 pct; knob=BREAKOUT_EXTENSION_POLICY direction=IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION | structure=not_structure_wait; breakout=breakout_current_extension_excess_pct; target=target_required_expected_return_and_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | false | WAIT_REVIEW_READY_ONLY | proof_not_confirmed, current_stop_distance_outside_policy, proof_confirmed_promotion_flag_disabled | expected_return_and_actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 13.2973 | 20.185 | 28.2729 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 4.12 | 19.83 | 116.03 |
 | TRIN | BUY | WAIT_PRICE/wait_weak_pillar_execution_gate | quality_gate | weak_pillar_execution_gate | QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT | NO_ZERO_EXECUTABLE_TUNING_ACTION | N/A | quality_gate | not_zero_executable_policy_lane | NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK | 0 | no_zero_executable_formula_bottleneck:0>0 delta=0 none; knob=NONE direction=NO_ADJUSTMENT_REQUIRED | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_required_actual_stop_risk_shortfall_pct; risk=risk_geometry_not_applicable | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 17.4791 | 21.0463 | 19.6852 | N/A | not_applicable | false | target=false,stop=false,dist=false,rr=false,buf=false | N/A | N/A | 0.46 | 10.67 | 5.58 |
 | ASB | BUY | BLOCKED_RISK/blocked_stop_too_tight | risk_geometry | N/A | N/A | RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION | N/A | risk_geometry | risk_geometry_primary | RISK_GEOMETRY_RECALCULATION_FORMULA | 9.3 | risk_geometry_expected_return_target_shortfall_pct:9.3>0 delta=9.3 pct_shortfall; knob=RISK_GEOMETRY_REQUIRED_TARGET_PRICE direction=RECALIBRATE_TARGET_OR_KEEP_NO_TRADE | structure=not_structure_wait; breakout=breakout_retest_input_gap; target=target_required_actual_stop_risk_shortfall_pct; risk=risk_geometry_expected_return_target_shortfall_pct | not_applicable | rr=false,buf=false,dist=false | false | NOT_APPLICABLE | not_breakout_wait | actual_stop_risk | TARGET_VIABILITY_NOT_APPLICABLE | 30.6116 | 36.603 | 34.178 | expected_return | RISK_GEOMETRY_PROOF_INCOMPLETE | false | target=true,stop=true,dist=true,rr=true,buf=true | -9.3 | 9.3 | 0.37 | 11.46 | 4.31 |
+
+## TradingCodex Field Ownership
+
+Fresh-focus rows are Research Package evidence. They are not Approval Package evidence and do not authorize broker mutation.
+
+| Field | Specialist Owner | Decision Package Slot | mRNA Transcript Meaning |
+| --- | --- | --- | --- |
+| zeroExecutableTuningLane | Formula Evidence Analyst | Research Package.evidence.zeroExecutableTuningLane | Dominant temporary strategy-transcript lane for producer tuning. |
+| qualityGateLane | Alpha Policy Analyst | Research Package.evidence.qualityGateLane | Non-actionable verdict, weak pillar, event, earnings, or coverage gate. |
+| structurePolicyBlockerLane | Structure Analyst | Research Package.evidence.structurePolicyBlockerLane | Structure proof gap; improve proof generation rather than relaxing filters. |
+| riskGeometryRepairLane | Alpha Policy Analyst | Research Package.evidence.riskGeometryRepairLane | Target/stop recalculation or no-trade lane; not a sidecar reprice instruction. |
+| targetRecalibrationViabilityVerdict | Alpha Policy Analyst | Research Package.evidence.targetRecalibrationViabilityVerdict | Target refresh viability or no-trade confirmation. |
+| breakoutRetestProofConfirmed | Structure Analyst / Alpha Policy Analyst | Research Package.evidence.breakoutRetestProofConfirmed | Breakout proof gate; review-ready without proof remains WAIT. |
+
+Decision Package rule: if these fields explain a WAIT or NO_TRADE state, sidecar must classify and report it without recomputing alpha or chasing price.
 
 ## Track Separation
 

@@ -132,6 +132,21 @@ be patched downstream by sidecar chase or broker mutation.
 | Sidecar contract gate | sidecar cannot classify blocker without recomputing alpha |
 | Approval gate | any broker or state mutation without exact scoped confirmation |
 
+## Stage3-6 Audit Field Mapping
+
+Audit fields are the observable form of the temporary mRNA strategy transcript. They describe which strategy family was expressed, blocked, or invalidated for the current Stage6 hash.
+
+| Audit field | Transcript role | Decay rule | Mutation backlog target |
+| --- | --- | --- | --- |
+| `zeroExecutableTuningLane` | Primary expressed blocker lane | Expires with Stage6 hash | Producer formula tuning for the named lane |
+| `qualityGateLane` | Immune-system quality rejection | Expires when data/verdict/pillar evidence refreshes | Verdict normalization, weak-pillar, earnings/data coverage |
+| `structurePolicyBlockerLane` | Structure gene not sufficiently expressed | Expires when fresh structure proof changes | Structure proof generation |
+| `riskGeometryRepairLane` | Geometry protein is malformed | Expires when stop/target recalculation evidence refreshes | Risk geometry formula |
+| `targetRecalibrationViabilityVerdict` | Target transcript viability state | Expires when target source/thesis refreshes | Target recalibration formula |
+| `breakoutRetestProofConfirmed` | Breakout transcript proof gate | Expires when retest/continuation evidence refreshes | Breakout proofConfirmed criteria |
+
+A transcript that reaches WAIT or NO_TRADE is still useful. It tells the system where to mutate the research genome next. It does not permit execution.
+
 ## Feedback and Mutation Control
 
 Every repeated blocker should become one of these backlog classes:

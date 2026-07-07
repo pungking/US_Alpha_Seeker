@@ -895,6 +895,21 @@ function buildMarkdown(report) {
     lines.push(`| ${esc(row.symbol)} | ${esc(row.verdict)} | ${esc(row.finalDecision)}/${esc(row.decisionReason)} | ${esc(row.blockerCategory)} | ${esc(row.qualityGateLane)} | ${esc(row.qualityGatePolicyVerdict)} | ${esc(row.zeroExecutableTuningLane)} | ${esc(row.zeroExecutableSecondaryTuningLane)} | ${esc(row.zeroExecutableBlockerCategory)} | ${esc(row.zeroExecutableTuningRelationship)} | ${esc(row.zeroExecutableFormulaBottleneck)} | ${esc(row.zeroExecutableFormulaSeverity)} | ${esc(formulaEvidence)} | ${esc(laneFormulaBasis)} | ${esc(row.structurePolicyBlockerLane)} | ${esc(structureOk)} | ${esc(row.breakoutRetestProofConfirmed)} | ${esc(row.breakoutRetestPromotionPolicyDecision)} | ${esc((row.breakoutRetestPromotionBlockedBy || []).join(', ') || 'none')} | ${esc(row.targetRecalibrationRequiredTargetSource)} | ${esc(row.targetRecalibrationViabilityVerdict)} | ${esc(row.targetRecalibrationRequiredTargetByBufferPrice)} | ${esc(row.targetRecalibrationRequiredTargetByRrPrice)} | ${esc(row.targetRecalibrationRequiredTargetByExpectedReturnPrice)} | ${esc(row.riskGeometryRequiredTargetSource)} | ${esc(row.riskGeometryRepairLane)} | ${esc(row.riskGeometryProofConfirmed)} | ${esc(riskChecks)} | ${esc(row.riskGeometryTargetGapPct)} | ${esc(row.riskGeometryTargetShortfallPct)} | ${esc(row.rrAtCurrentPrice)} | ${esc(row.entryDistancePct)} | ${esc(row.targetBufferFromCurrentPct)} |`);
   }
   lines.push('');
+  lines.push('## TradingCodex Field Ownership');
+  lines.push('');
+  lines.push('Fresh-focus rows are Research Package evidence. They are not Approval Package evidence and do not authorize broker mutation.');
+  lines.push('');
+  lines.push('| Field | Specialist Owner | Decision Package Slot | mRNA Transcript Meaning |');
+  lines.push('| --- | --- | --- | --- |');
+  lines.push('| zeroExecutableTuningLane | Formula Evidence Analyst | Research Package.evidence.zeroExecutableTuningLane | Dominant temporary strategy-transcript lane for producer tuning. |');
+  lines.push('| qualityGateLane | Alpha Policy Analyst | Research Package.evidence.qualityGateLane | Non-actionable verdict, weak pillar, event, earnings, or coverage gate. |');
+  lines.push('| structurePolicyBlockerLane | Structure Analyst | Research Package.evidence.structurePolicyBlockerLane | Structure proof gap; improve proof generation rather than relaxing filters. |');
+  lines.push('| riskGeometryRepairLane | Alpha Policy Analyst | Research Package.evidence.riskGeometryRepairLane | Target/stop recalculation or no-trade lane; not a sidecar reprice instruction. |');
+  lines.push('| targetRecalibrationViabilityVerdict | Alpha Policy Analyst | Research Package.evidence.targetRecalibrationViabilityVerdict | Target refresh viability or no-trade confirmation. |');
+  lines.push('| breakoutRetestProofConfirmed | Structure Analyst / Alpha Policy Analyst | Research Package.evidence.breakoutRetestProofConfirmed | Breakout proof gate; review-ready without proof remains WAIT. |');
+  lines.push('');
+  lines.push('Decision Package rule: if these fields explain a WAIT or NO_TRADE state, sidecar must classify and report it without recomputing alpha or chasing price.');
+  lines.push('');
   lines.push('## Track Separation');
   lines.push('');
   lines.push('- `warn_formula_bottleneck_fields_missing` means the Stage6 artifact predates the formula-bottleneck contract or the producer failed to emit it. Treat that as a fresh-hash verification gap, not a sidecar problem.');
