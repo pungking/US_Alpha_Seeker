@@ -1,5 +1,7 @@
 # TradingCodex Decision Package
 
+Canonical contract: `docs/DECISION_PACKAGE_CONTRACT.md`. This document remains the concise operating companion.
+
 ## Purpose
 
 A Decision Package is the minimum evidence bundle required before saying a

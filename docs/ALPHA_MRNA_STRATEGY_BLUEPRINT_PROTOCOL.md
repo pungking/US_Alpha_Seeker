@@ -1,5 +1,7 @@
 # Alpha mRNA Strategy Blueprint Protocol
 
+Architecture companion: `docs/MRNA_ADAPTIVE_STRATEGY_ARCHITECTURE.md`. This protocol focuses on lifecycle, decay, and mutation control.
+
 ## Purpose
 
 Alpha mRNA is a lifecycle model for dynamic strategy blueprints in US Alpha

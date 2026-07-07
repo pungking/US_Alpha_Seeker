@@ -24,6 +24,16 @@ Execution remains behind explicit service gates. Broker submit, replace, cancel,
 repair, or state mutation requires the owning execution repository and the exact
 approval phrase required by that lane.
 
+## Canonical Documents
+
+| Document | Role |
+| --- | --- |
+| `docs/TRADING_CODEX_OPERATING_MODEL.md` | Top-level operating harness and safety boundaries |
+| `docs/MRNA_ADAPTIVE_STRATEGY_ARCHITECTURE.md` | Dynamic strategy transcript architecture and mRNA mapping |
+| `docs/DECISION_PACKAGE_CONTRACT.md` | Evidence bundle contract for research, sidecar, and approval packages |
+| `docs/STAGE3_6_SPECIALIST_AGENT_ROSTER.md` | Stage3-8 specialist roles, ownership, and handoff rules |
+| `docs/ALPHA_MRNA_STRATEGY_BLUEPRINT_PROTOCOL.md` | Earlier lifecycle protocol for strategy blueprint decay and mutation control |
+
 ## Architecture Mapping
 
 | TradingCodex concept | Current implementation |
@@ -80,7 +90,7 @@ specialist. It must not be patched downstream by guessing.
 
 ## Self-Improvement Loop
 
-Alpha mRNA lifecycle guidance lives in `docs/ALPHA_MRNA_STRATEGY_BLUEPRINT_PROTOCOL.md`. It defines how temporary strategy blueprints should expire, feed back, and avoid becoming hard-coded trade outcomes.
+Alpha mRNA architecture lives in `docs/MRNA_ADAPTIVE_STRATEGY_ARCHITECTURE.md`, with lifecycle details in `docs/ALPHA_MRNA_STRATEGY_BLUEPRINT_PROTOCOL.md`. Together they define how temporary strategy blueprints should expire, feed back, and avoid becoming hard-coded trade outcomes.
 
 1. Record the decision package and assumptions.
 2. Compare outcome, blocker, or failed gate against the expected lane.

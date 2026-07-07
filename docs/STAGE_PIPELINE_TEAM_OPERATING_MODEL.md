@@ -12,6 +12,8 @@ pipeline.
 
 Related TradingCodex overlays:
 
+- `docs/STAGE3_6_SPECIALIST_AGENT_ROSTER.md` defines the specialist roster and handoff rules used by this model.
+
 - `docs/TRADING_CODEX_OPERATING_MODEL.md` maps the image-level operating model to the current three-repo system.
 - `docs/TRADING_CODEX_DECISION_PACKAGE.md` defines the artifact bundle used before research, sidecar, or approval decisions.
 
