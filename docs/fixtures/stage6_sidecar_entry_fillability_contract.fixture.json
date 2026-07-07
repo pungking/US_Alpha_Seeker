@@ -173,7 +173,9 @@
         "structure_reject_never_promotes_without_confirmed_structure",
         "sidecar_reprice_never_solves_stage6_target_geometry"
       ]
-    }
+    },
+    "sidecarMinConviction": 69,
+    "sidecarConvictionFloorRule": "Stage6 EXECUTABLE_NOW must also pass this conservative sidecar conviction floor contract; otherwise WAIT_PRICE/wait_sidecar_conviction_floor."
   },
   "candidates": [
     {
@@ -259,7 +261,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
         "zeroExecutableFormulaSeverity=0"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 3,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:3.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 72,
+      "rawConvictionScore": 72
     },
     {
       "symbol": "CURRENT_RECALC_EXEC",
@@ -371,7 +384,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
         "zeroExecutableFormulaSeverity=0"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 3,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:3.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 72,
+      "rawConvictionScore": 72
     },
     {
       "symbol": "WAIT1",
@@ -458,7 +482,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
         "zeroExecutableFormulaSeverity=0"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "SPEC_WAIT",
@@ -552,7 +587,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
         "zeroExecutableFormulaSeverity=0"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "STRUCT_REJECT_WAIT",
@@ -671,7 +717,18 @@
         "structurePolicyCurrentRrOk=true",
         "structurePolicyTargetBufferOk=true",
         "currentEntryStructureVerdict confirms support/stop relation"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "STRUCT_OVERBLOCK_REVIEW_WAIT",
@@ -789,7 +846,18 @@
         "structurePolicyCurrentRrOk=true",
         "structurePolicyTargetBufferOk=true",
         "currentEntryStructureVerdict confirms support/stop relation"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "BREAKOUT_REVIEW_WAIT",
@@ -915,7 +983,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "breakoutRetestProofConfirmed=true",
         "breakoutRetestProofCurrentExtensionOk=true"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
@@ -1035,7 +1114,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "breakoutRetestProofConfirmed=true",
         "breakoutRetestProofCurrentExtensionOk=true"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "TARGET_NEAR_WAIT",
@@ -1200,7 +1290,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "targetRecalibrationRequiredTargetPrice > currentPrice",
         "targetRecalibrationViabilityVerdict is not evidence_incomplete"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -1368,7 +1469,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "targetRecalibrationRequiredTargetPrice > currentPrice",
         "targetRecalibrationViabilityVerdict is not evidence_incomplete"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "TARGET_REACHED_NO_TRADE",
@@ -1533,7 +1645,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "targetRecalibrationRequiredTargetPrice > currentPrice",
         "targetRecalibrationViabilityVerdict is not evidence_incomplete"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -1659,7 +1782,18 @@
         "riskGeometryRequiredStopValid=true",
         "riskGeometryRecalculatedStopRrOk=true",
         "riskGeometryTargetBufferOk=true"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_RECALC_WAIT",
@@ -1805,7 +1939,18 @@
         "riskGeometryRequiredStopValid=true",
         "riskGeometryRecalculatedStopRrOk=true",
         "riskGeometryTargetBufferOk=true"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "WEAK_PILLAR_WAIT",
@@ -1911,7 +2056,18 @@
       "zeroExecutableFormulaDoneWhenEvidence": [
         "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
         "zeroExecutableFormulaSeverity=0"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_GAP_NO_TRADE",
@@ -2060,7 +2216,97 @@
         "riskGeometryRequiredStopValid=true",
         "riskGeometryRecalculatedStopRrOk=true",
         "riskGeometryTargetBufferOk=true"
-      ]
+      ],
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": true,
+      "sidecarConvictionMargin": 1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_PASS",
+      "sidecarConvictionReasons": [
+        "conviction_margin:1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "convictionScore": 70,
+      "rawConvictionScore": 70
+    },
+    {
+      "symbol": "FLOOR_WAIT_FIXTURE",
+      "verdict": "BUY",
+      "convictionScore": 68,
+      "rawConvictionScore": 68,
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_sidecar_conviction_floor",
+      "executionBucket": "WATCHLIST",
+      "executionReason": "WAIT_PULLBACK_TOO_DEEP",
+      "executionActionableVerdict": true,
+      "executionFeasibilityAtCurrent": "PASS",
+      "executionFeasibilityAtCurrentVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "executionFeasibilityAtCurrentReason": "rr_distance_target_buffer_pass",
+      "executionFeasibilityAtCurrentReasons": [
+        "rr_current_pass",
+        "distance_pass",
+        "target_buffer_pass"
+      ],
+      "executionFeasibilityAtCurrentRr": 2.2,
+      "executionFeasibilityAtCurrentDistancePct": 0,
+      "executionFeasibilityAtCurrentMinRr": 2,
+      "executionFeasibilityAtCurrentMaxDistancePct": 6,
+      "executionFeasibilityAtCurrentMinTargetBufferPct": 3,
+      "executionFeasibilityAtCurrentBasis": "current_price",
+      "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "entryExecPrice": 10,
+      "entryExecPriceShadow": 10,
+      "price": 10,
+      "targetPrice": 12.5,
+      "targetMeanPrice": 12.5,
+      "stopPrice": 9,
+      "stopLoss": 9,
+      "rrAtCurrentPrice": 2.5,
+      "entryDistancePct": 0,
+      "entryDistancePctShadow": 0,
+      "targetBufferFromCurrentPct": 25,
+      "qualityGateLane": "sidecar_conviction_floor",
+      "qualityGatePolicyVerdict": "QUALITY_GATE_SIDECAR_CONVICTION_FLOOR_WAIT",
+      "qualityGateReasons": [
+        "quality_gate_lane:sidecar_conviction_floor",
+        "decision_reason:wait_sidecar_conviction_floor"
+      ],
+      "qualityGateRecommendedAction": "Keep WAIT_PRICE until Stage6 conviction meets the sidecar contract floor; do not lower sidecar gates to force a payload.",
+      "sidecarConvictionFloor": 69,
+      "sidecarConvictionPass": false,
+      "sidecarConvictionMargin": -1,
+      "sidecarConvictionPolicyVerdict": "SIDECAR_CONVICTION_FLOOR_WAIT",
+      "sidecarConvictionReasons": [
+        "conviction_margin:-1.0",
+        "stage6_min_conviction:30.0",
+        "sidecar_contract_floor:69.0"
+      ],
+      "zeroExecutableTuningLane": "NO_ZERO_EXECUTABLE_TUNING_ACTION",
+      "zeroExecutableFormulaBottleneck": "NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+      "zeroExecutableFormulaSeverity": 0,
+      "zeroExecutableFormulaObservedValue": 0,
+      "zeroExecutableFormulaThresholdValue": 0,
+      "zeroExecutableFormulaDeltaValue": 0,
+      "zeroExecutableFormulaUnit": "none",
+      "zeroExecutableFormulaEvidenceBasis": "sidecar_conviction_floor_fixture",
+      "zeroExecutableFormulaBlockedBy": [],
+      "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "sidecar_conviction_floor_wait_is_classified_as_quality_gate"
+      ],
+      "zeroExecutableTargetShortfallPct": 0,
+      "zeroExecutableRiskTargetShortfallPct": 0,
+      "zeroExecutableBreakoutProofGapCount": 0,
+      "zeroExecutableStructureProofGapCount": 0,
+      "zeroExecutableFormulaAdjustmentKnob": "NONE",
+      "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
+      "zeroExecutableFormulaAdjustmentMagnitude": 0,
+      "zeroExecutableFormulaAdjustmentRationale": "Sidecar conviction floor wait is a quality gate, not a zero-executable formula tuning lane.",
+      "zeroExecutableFormulaReasons": [
+        "no_zero_executable_formula_bottleneck: sidecar conviction floor wait classified as quality_gate"
+      ],
+      "zeroExecutableFormulaRecommendedAction": "Keep WAIT_PRICE until conviction meets sidecar contract floor; do not relax sidecar execution gates."
     }
   ]
 }

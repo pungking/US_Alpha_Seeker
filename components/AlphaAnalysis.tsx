@@ -61,6 +61,7 @@ interface AlphaCandidate {
     | 'wait_current_rr_below_min'
     | 'wait_current_distance_above_adaptive'
     | 'wait_verdict_not_sidecar_actionable'
+    | 'wait_sidecar_conviction_floor'
     | 'wait_weak_pillar_execution_gate'
     | 'wait_earnings_data_missing'
     | 'wait_earnings_data_missing_quality_floor'
@@ -280,6 +281,11 @@ interface AlphaCandidate {
   qualityGatePolicyVerdict?: string | null;
   qualityGateReasons?: string[] | null;
   qualityGateRecommendedAction?: string | null;
+  sidecarConvictionFloor?: number | null;
+  sidecarConvictionPass?: boolean | null;
+  sidecarConvictionMargin?: number | null;
+  sidecarConvictionPolicyVerdict?: string | null;
+  sidecarConvictionReasons?: string[] | null;
   weakPillarGateEnabled?: boolean | null;
   weakPillarGateVerdict?: string | null;
   weakPillarGateReasons?: string[] | null;
@@ -1980,6 +1986,7 @@ const deriveQualityGatePolicy = (input: {
   const reason = String(input.decisionReason || '');
   const qualityReasons = new Set([
     'wait_verdict_not_sidecar_actionable',
+    'wait_sidecar_conviction_floor',
     'wait_weak_pillar_execution_gate',
     'wait_earnings_data_missing_quality_floor',
     'blocked_quality_missing_expected_return',
@@ -1997,26 +2004,30 @@ const deriveQualityGatePolicy = (input: {
 
   const lane = reason === 'wait_verdict_not_sidecar_actionable'
     ? 'non_actionable_verdict'
-    : reason === 'wait_weak_pillar_execution_gate'
-      ? 'weak_pillar_execution_gate'
-      : reason === 'wait_earnings_data_missing_quality_floor'
-        ? 'earnings_data_missing_quality_floor'
-        : reason === 'blocked_quality_missing_expected_return'
-          ? 'missing_expected_return'
-          : reason === 'blocked_quality_conviction_floor'
-            ? 'conviction_floor'
-            : 'verdict_unusable';
+    : reason === 'wait_sidecar_conviction_floor'
+      ? 'sidecar_conviction_floor'
+      : reason === 'wait_weak_pillar_execution_gate'
+        ? 'weak_pillar_execution_gate'
+        : reason === 'wait_earnings_data_missing_quality_floor'
+          ? 'earnings_data_missing_quality_floor'
+          : reason === 'blocked_quality_missing_expected_return'
+            ? 'missing_expected_return'
+            : reason === 'blocked_quality_conviction_floor'
+              ? 'conviction_floor'
+              : 'verdict_unusable';
   const verdict = lane === 'non_actionable_verdict'
     ? 'QUALITY_GATE_NON_ACTIONABLE_VERDICT_WAIT'
-    : lane === 'weak_pillar_execution_gate'
-      ? 'QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT'
-      : lane === 'earnings_data_missing_quality_floor'
-        ? 'QUALITY_GATE_EARNINGS_DATA_COVERAGE_REQUIRED'
-        : lane === 'missing_expected_return'
-          ? 'QUALITY_GATE_EXPECTED_RETURN_MISSING'
-          : lane === 'conviction_floor'
-            ? 'QUALITY_GATE_CONVICTION_FLOOR_BLOCKED'
-            : 'QUALITY_GATE_VERDICT_UNUSABLE_BLOCKED';
+    : lane === 'sidecar_conviction_floor'
+      ? 'QUALITY_GATE_SIDECAR_CONVICTION_FLOOR_WAIT'
+      : lane === 'weak_pillar_execution_gate'
+        ? 'QUALITY_GATE_WEAK_PILLAR_EXECUTION_WAIT'
+        : lane === 'earnings_data_missing_quality_floor'
+          ? 'QUALITY_GATE_EARNINGS_DATA_COVERAGE_REQUIRED'
+          : lane === 'missing_expected_return'
+            ? 'QUALITY_GATE_EXPECTED_RETURN_MISSING'
+            : lane === 'conviction_floor'
+              ? 'QUALITY_GATE_CONVICTION_FLOOR_BLOCKED'
+              : 'QUALITY_GATE_VERDICT_UNUSABLE_BLOCKED';
   const reasons = [
     `quality_gate_lane:${lane}`,
     `decision_reason:${reason}`,
@@ -2032,6 +2043,8 @@ const deriveQualityGatePolicy = (input: {
     recommendedAction:
       lane === 'non_actionable_verdict'
         ? 'Keep WAIT_PRICE unless Stage6 emits BUY/STRONG_BUY or an explicit producer-side waiver.'
+        : lane === 'sidecar_conviction_floor'
+          ? 'Keep WAIT_PRICE until Stage6 conviction meets the sidecar contract floor; do not lower sidecar gates to force a payload.'
         : lane === 'weak_pillar_execution_gate'
           ? 'Keep WAIT_PRICE unless a producer-side weak-pillar waiver is explicitly enabled and audited.'
           : 'Keep blocked/waiting and repair the analysis-side data or verdict source before execution review.'
@@ -3918,6 +3931,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_target_near_current') return 'REASON_WAIT_TARGET_NEAR_CURRENT';
       if (key === 'wait_current_rr_below_min') return 'REASON_WAIT_CURRENT_RR_BELOW_MIN';
       if (key === 'wait_current_distance_above_adaptive') return 'REASON_WAIT_CURRENT_DISTANCE_ABOVE_ADAPTIVE';
+      if (key === 'wait_sidecar_conviction_floor') return 'REASON_BLOCKED_QUALITY_CONVICTION';
       if (key === 'wait_earnings_data_missing') return 'REASON_WAIT_EARNINGS_DATA_MISSING';
       if (key === 'wait_insufficient_history') return 'REASON_WAIT_INSUFFICIENT_HISTORY';
       if (key === 'wait_state_verdict_conflict') return 'REASON_WAIT_STATE_VERDICT_CONFLICT';
@@ -3952,6 +3966,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_target_near_current') return 'Target Near Current';
       if (key === 'wait_current_rr_below_min') return 'Current RR Below Min';
       if (key === 'wait_current_distance_above_adaptive') return 'Current Distance Above Adaptive Band';
+      if (key === 'wait_sidecar_conviction_floor') return 'Awaiting Sidecar Conviction Floor';
       if (key === 'wait_earnings_data_missing') return 'Awaiting Earnings Data';
       if (key === 'wait_insufficient_history') return 'Awaiting History Build-up';
       if (key === 'wait_state_verdict_conflict') return 'Awaiting State Conflict Review';
@@ -6822,6 +6837,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           Number.isFinite(stage6MinConvictionRaw) && stage6MinConvictionRaw >= 0
               ? stage6MinConvictionRaw
               : 30;
+      const stage6SidecarMinConvictionRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_SIDECAR_MIN_CONVICTION ?? 69
+      );
+      const STAGE6_SIDECAR_MIN_CONVICTION =
+          Number.isFinite(stage6SidecarMinConvictionRaw) && stage6SidecarMinConvictionRaw >= 0
+              ? Math.max(STAGE6_MIN_CONVICTION, stage6SidecarMinConvictionRaw)
+              : Math.max(STAGE6_MIN_CONVICTION, 69);
       const STAGE6_REQUIRE_BULLISH_VERDICT = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_STAGE6_REQUIRE_BULLISH_VERDICT ?? 'true'
       );
@@ -8150,6 +8172,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision = 'WAIT_PRICE';
               decisionReason = 'wait_verdict_not_sidecar_actionable';
           }
+          const sidecarConvictionFloor = Number(STAGE6_SIDECAR_MIN_CONVICTION.toFixed(1));
+          const sidecarConvictionMargin =
+              convictionScore != null && Number.isFinite(convictionScore)
+                  ? Number((convictionScore - sidecarConvictionFloor).toFixed(1))
+                  : null;
+          const sidecarConvictionPass =
+              sidecarConvictionMargin != null &&
+              Number.isFinite(sidecarConvictionMargin) &&
+              sidecarConvictionMargin >= 0;
+          const sidecarConvictionReasons = [
+              sidecarConvictionMargin == null
+                  ? 'conviction_missing_or_invalid'
+                  : `conviction_margin:${sidecarConvictionMargin.toFixed(1)}`,
+              `stage6_min_conviction:${STAGE6_MIN_CONVICTION.toFixed(1)}`,
+              `sidecar_contract_floor:${sidecarConvictionFloor.toFixed(1)}`
+          ];
+          if (finalDecision === 'EXECUTABLE_NOW' && !sidecarConvictionPass) {
+              finalDecision = 'WAIT_PRICE';
+              decisionReason = 'wait_sidecar_conviction_floor';
+          }
+          const sidecarConvictionPolicyVerdict = sidecarConvictionPass
+              ? 'SIDECAR_CONVICTION_FLOOR_PASS'
+              : 'SIDECAR_CONVICTION_FLOOR_WAIT';
           const weakPillarFundamentalScore = pickFinite(item?.fundamentalScore);
           const weakPillarTechnicalScore = pickFinite(item?.technicalScore);
           const weakPillarIctScore = pickFinite(item?.ictScore);
@@ -8576,6 +8621,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityGatePolicyVerdict: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.verdict,
               qualityGateReasons: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.reasons,
               qualityGateRecommendedAction: qualityGatePolicy.lane === 'not_applicable' ? null : qualityGatePolicy.recommendedAction,
+              sidecarConvictionFloor,
+              sidecarConvictionPass,
+              sidecarConvictionMargin,
+              sidecarConvictionPolicyVerdict,
+              sidecarConvictionReasons,
               weakPillarGateEnabled: STAGE6_WEAK_PILLAR_GATE_ENABLED,
               weakPillarGateVerdict,
               weakPillarGateReasons,
@@ -10148,6 +10198,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityGatePolicyVerdict: normalizeOptionalText(item?.qualityGatePolicyVerdict),
               qualityGateReasons: Array.isArray(item?.qualityGateReasons) ? item.qualityGateReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               qualityGateRecommendedAction: normalizeOptionalText(item?.qualityGateRecommendedAction),
+              sidecarConvictionFloor: toOptionalFiniteNumber(item?.sidecarConvictionFloor),
+              sidecarConvictionPass: item?.sidecarConvictionPass == null ? null : Boolean(item.sidecarConvictionPass),
+              sidecarConvictionMargin: toOptionalFiniteNumber(item?.sidecarConvictionMargin),
+              sidecarConvictionPolicyVerdict: normalizeOptionalText(item?.sidecarConvictionPolicyVerdict),
+              sidecarConvictionReasons: Array.isArray(item?.sidecarConvictionReasons) ? item.sidecarConvictionReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               weakPillarGateEnabled: item?.weakPillarGateEnabled == null ? null : Boolean(item.weakPillarGateEnabled),
               weakPillarGateVerdict: normalizeOptionalText(item?.weakPillarGateVerdict),
               weakPillarGateReasons: Array.isArray(item?.weakPillarGateReasons) ? item.weakPillarGateReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
@@ -10343,6 +10398,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               minRr: STAGE6_MIN_RR_HARD_GATE,
               minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
               minConviction: STAGE6_MIN_CONVICTION,
+              sidecarMinConviction: STAGE6_SIDECAR_MIN_CONVICTION,
+              sidecarConvictionFloorRule: "Stage6 EXECUTABLE_NOW must also pass this conservative sidecar conviction floor contract; otherwise WAIT_PRICE/wait_sidecar_conviction_floor.",
               requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
               actionableVerdicts: Array.from(STAGE6_ACTIONABLE_VERDICTS),
               speculativeBuyExecutableWaiver: STAGE6_SPECULATIVE_BUY_EXECUTABLE_WAIVER,

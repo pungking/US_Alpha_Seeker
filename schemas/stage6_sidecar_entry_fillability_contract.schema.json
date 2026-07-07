@@ -280,7 +280,12 @@
         "qualityGateLane": { "$ref": "#/$defs/nullableString" },
         "qualityGatePolicyVerdict": { "$ref": "#/$defs/nullableString" },
         "qualityGateReasons": { "$ref": "#/$defs/nullableStringArray" },
-        "qualityGateRecommendedAction": { "$ref": "#/$defs/nullableString" }
+        "qualityGateRecommendedAction": { "$ref": "#/$defs/nullableString" },
+        "sidecarConvictionFloor": { "$ref": "#/$defs/nullableNumber" },
+        "sidecarConvictionPass": { "$ref": "#/$defs/nullableBoolean" },
+        "sidecarConvictionMargin": { "$ref": "#/$defs/nullableNumber" },
+        "sidecarConvictionPolicyVerdict": { "$ref": "#/$defs/nullableString" },
+        "sidecarConvictionReasons": { "$ref": "#/$defs/nullableStringArray" }
       },
       "additionalProperties": true
     }

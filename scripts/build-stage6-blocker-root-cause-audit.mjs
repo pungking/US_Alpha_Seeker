@@ -562,6 +562,7 @@ function main() {
       (row?.qualityGateLane && row.qualityGateLane !== 'not_applicable') ||
       [
         'wait_verdict_not_sidecar_actionable',
+        'wait_sidecar_conviction_floor',
         'wait_earnings_data_missing_quality_floor',
         'blocked_quality_verdict_unusable',
         'blocked_quality_conviction_floor',

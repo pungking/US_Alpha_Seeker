@@ -303,6 +303,7 @@ function qualityGateLane(row) {
   const reason = reasonOf(row);
   if (reason === 'wait_earnings_data_missing_quality_floor' || reason === 'wait_earnings_data_missing') return 'earnings_data_coverage';
   if (reason === 'wait_verdict_not_sidecar_actionable') return 'non_actionable_verdict';
+  if (reason === 'wait_sidecar_conviction_floor') return 'sidecar_conviction_floor';
   if (reason === 'blocked_quality_verdict_unusable') return 'verdict_unusable';
   if (reason === 'blocked_quality_conviction_floor') return 'conviction_floor';
   if (reason === 'blocked_quality_missing_expected_return') return 'expected_return_missing';

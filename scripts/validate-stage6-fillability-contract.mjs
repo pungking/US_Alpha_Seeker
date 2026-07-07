@@ -147,6 +147,7 @@ const weakPillarGateEnabled = data?.decisionGate?.weakPillarGateEnabled === true
 const weakPillarMinFundamentalScore = Number(data?.decisionGate?.weakPillarMinFundamentalScore ?? 50);
 const weakPillarMinTechnicalScore = Number(data?.decisionGate?.weakPillarMinTechnicalScore ?? 50);
 const weakPillarMinIctScore = Number(data?.decisionGate?.weakPillarMinIctScore ?? 60);
+const sidecarMinConviction = Number(data?.decisionGate?.sidecarMinConviction ?? 69);
 const isTrue = (value) => value === true || String(value).toLowerCase() === 'true';
 const isBooleanLike = (value) => value === true || value === false || String(value).toLowerCase() === 'true' || String(value).toLowerCase() === 'false';
 const isFiniteNumber = (value) => value !== null && value !== '' && value !== undefined && !Number.isNaN(Number(value)) && Number.isFinite(Number(value));
@@ -247,7 +248,12 @@ const requiredSchemaFields = [
   'currentEntryRequiredStopDistancePct',
   'executionActionableVerdict',
   'fillabilityPolicyVerdict',
-  'entryTimingPolicyVerdict'
+  'entryTimingPolicyVerdict',
+  'sidecarConvictionFloor',
+  'sidecarConvictionPass',
+  'sidecarConvictionMargin',
+  'sidecarConvictionPolicyVerdict',
+  'sidecarConvictionReasons'
 ];
 for (const field of requiredSchemaFields) {
   if (!Object.prototype.hasOwnProperty.call(schemaCandidateProperties, field)) {
@@ -332,12 +338,23 @@ for (const [idx, row] of candidates.entries()) {
     errors.push(`${label}: entryTimingPolicyVerdict must mirror executionFeasibilityAtCurrentVerdict`);
   }
   const actionableVerdict = actionableVerdicts.has(verdictKey(row.aiVerdict || row.verdictFinal || row.verdict));
+  if (!isFiniteNumber(row.sidecarConvictionFloor)) errors.push(`${label}: missing sidecarConvictionFloor`);
+  if (!isBooleanLike(row.sidecarConvictionPass)) errors.push(`${label}: missing sidecarConvictionPass`);
+  if (!isFiniteNumber(row.sidecarConvictionMargin)) errors.push(`${label}: missing sidecarConvictionMargin`);
+  if (!String(row.sidecarConvictionPolicyVerdict || '').trim()) errors.push(`${label}: missing sidecarConvictionPolicyVerdict`);
+  if (!Array.isArray(row.sidecarConvictionReasons) || row.sidecarConvictionReasons.length === 0) {
+    errors.push(`${label}: missing sidecarConvictionReasons array`);
+  }
   if (row.finalDecision === 'EXECUTABLE_NOW') {
     if (!actionableVerdict) errors.push(`${label}: executable verdict is not sidecar-actionable`);
     if (row.executionActionableVerdict !== true) errors.push(`${label}: executable must declare executionActionableVerdict=true`);
     if (row.executionFeasibilityAtCurrent !== 'PASS') errors.push(`${label}: executable must have current feasibility PASS`);
     if (Number(row.executionFeasibilityAtCurrentRr) < Number(row.executionFeasibilityAtCurrentMinRr)) errors.push(`${label}: executable current RR below min`);
     if (Number(row.executionFeasibilityAtCurrentDistancePct) > Number(row.executionFeasibilityAtCurrentMaxDistancePct)) errors.push(`${label}: executable current distance above adaptive band`);
+    if (!isTrue(row.sidecarConvictionPass)) errors.push(`${label}: executable must pass sidecar conviction floor`);
+    if (isFiniteNumber(row.convictionScore) && Number(row.convictionScore) < sidecarMinConviction) {
+      errors.push(`${label}: executable convictionScore below sidecarMinConviction`);
+    }
     const hasWeakPillarScores = [row.fundamentalScore, row.technicalScore, row.ictScore].some(isFiniteNumber);
     if (weakPillarGateEnabled && hasWeakPillarScores && !isTrue(row.weakPillarGateWaiver)) {
       if (!isFiniteNumber(row.fundamentalScore) || Number(row.fundamentalScore) < weakPillarMinFundamentalScore) {
@@ -349,6 +366,17 @@ for (const [idx, row] of candidates.entries()) {
       if (!isFiniteNumber(row.ictScore) || Number(row.ictScore) < weakPillarMinIctScore) {
         errors.push(`${label}: executable weak-pillar gate failed ictScore`);
       }
+    }
+  }
+  if (row.finalDecision === 'WAIT_PRICE' && row.decisionReason === 'wait_sidecar_conviction_floor') {
+    if (row.qualityGateLane !== 'sidecar_conviction_floor') {
+      errors.push(`${label}: sidecar conviction wait must declare qualityGateLane=sidecar_conviction_floor`);
+    }
+    if (row.qualityGatePolicyVerdict !== 'QUALITY_GATE_SIDECAR_CONVICTION_FLOOR_WAIT') {
+      errors.push(`${label}: sidecar conviction wait must declare QUALITY_GATE_SIDECAR_CONVICTION_FLOOR_WAIT`);
+    }
+    if (isTrue(row.sidecarConvictionPass)) {
+      errors.push(`${label}: sidecar conviction wait cannot have sidecarConvictionPass=true`);
     }
   }
   if (!actionableVerdict && row.finalDecision === 'WAIT_PRICE' && row.decisionReason === 'wait_verdict_not_sidecar_actionable' && row.executionActionableVerdict !== false) {

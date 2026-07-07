@@ -159,7 +159,9 @@
           "structure_reject_never_promotes_without_confirmed_structure",
           "sidecar_reprice_never_solves_stage6_target_geometry"
         ]
-      }
+      },
+      "sidecarMinConviction": 69,
+      "sidecarConvictionFloorRule": "Stage6 EXECUTABLE_NOW must also pass this conservative sidecar conviction floor contract; otherwise WAIT_PRICE/wait_sidecar_conviction_floor."
     }
   },
   "execution_contract": {
