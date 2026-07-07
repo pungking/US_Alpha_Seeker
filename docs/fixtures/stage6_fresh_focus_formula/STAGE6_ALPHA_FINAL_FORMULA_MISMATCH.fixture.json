@@ -30,7 +30,10 @@
           "zeroExecutableFormulaAdjustmentMagnitude",
           "zeroExecutableFormulaAdjustmentRationale",
           "zeroExecutableFormulaReasons",
-          "zeroExecutableFormulaRecommendedAction"
+          "zeroExecutableFormulaRecommendedAction",
+          "zeroExecutableFormulaBlockedBy",
+          "zeroExecutableFormulaNextAction",
+          "zeroExecutableFormulaDoneWhenEvidence"
         ],
         "laneToBottleneck": {
           "TARGET_RECALIBRATION": "TARGET_RECALIBRATION_FORMULA",
@@ -207,7 +210,16 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [
+          "breakout_proof_not_confirmed",
+          "breakout_promotion_not_ready"
+        ],
+        "zeroExecutableFormulaNextAction": "generate_breakout_proof_confirmed_from_retest_or_continuation_evidence",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "breakoutRetestProofConfirmed=true",
+          "breakoutRetestProofCurrentExtensionOk=true"
+        ]
       },
       {
         "symbol": "FORMNOBAD",
@@ -250,7 +262,13 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [],
+        "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+          "zeroExecutableFormulaSeverity=0"
+        ]
       }
     ],
     "watchlistTop": [],

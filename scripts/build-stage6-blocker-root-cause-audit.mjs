@@ -90,7 +90,10 @@ function formulaProfile(row) {
     adjustmentMagnitude: round(row?.zeroExecutableFormulaAdjustmentMagnitude),
     adjustmentRationale: text(row?.zeroExecutableFormulaAdjustmentRationale),
     reasons: arr(row?.zeroExecutableFormulaReasons),
-    recommendedAction: text(row?.zeroExecutableFormulaRecommendedAction)
+    recommendedAction: text(row?.zeroExecutableFormulaRecommendedAction),
+    blockedBy: arr(row?.zeroExecutableFormulaBlockedBy),
+    nextAction: text(row?.zeroExecutableFormulaNextAction),
+    doneWhenEvidence: arr(row?.zeroExecutableFormulaDoneWhenEvidence)
   };
 }
 

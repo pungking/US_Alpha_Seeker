@@ -231,9 +231,10 @@ function markdown(report) {
       const structure = row.structureProofEvidence || {};
       const targetSummary = `required=${target.requiredTargetPrice ?? 'N/A'} source=${target.requiredTargetSource || 'N/A'} viability=${target.viabilityVerdict || 'N/A'} noTrade=${target.noTradeConfirmed}`;
       const structureSummary = `verdict=${structure.currentEntryStructureVerdict || 'N/A'} lane=${structure.structurePolicyBlockerLane || 'N/A'} rrOk=${structure.structurePolicyCurrentRrOk} bufferOk=${structure.structurePolicyTargetBufferOk} distOk=${structure.structurePolicyDistanceWithinReviewBand}`;
-      return `| ${row.symbol || 'N/A'} | ${row.producerTrack || 'N/A'} | ${row.adjustmentKnob || 'N/A'} | ${row.rowEvidenceSummary || 'N/A'} | ${targetSummary} | ${structureSummary} |`;
+      const decisionPackageSummary = `blockedBy=${(row.formulaBlockedBy || []).join(',') || 'none'} nextAction=${row.formulaNextAction || 'N/A'} doneWhen=${(row.formulaDoneWhenEvidence || []).join(',') || 'none'}`;
+      return `| ${row.symbol || 'N/A'} | ${row.producerTrack || 'N/A'} | ${row.adjustmentKnob || 'N/A'} | ${row.rowEvidenceSummary || 'N/A'} | ${decisionPackageSummary} | ${targetSummary} | ${structureSummary} |`;
     })
-    .join('\n') || '| none | none | none | none | none | none |';
+    .join('\n') || '| none | none | none | none | none | none | none |';
   return `# Stage6 Runtime Formula Contract Proof\n\n` +
     `- GeneratedAt: ${report.generatedAt}\n` +
     `- Overall: **${report.overall}**\n` +
@@ -260,7 +261,7 @@ function markdown(report) {
     `## Producer Field Recommendations\n\n` +
     `| Track | Knob | Field | Action | Guardrail |\n| --- | --- | --- | --- | --- |\n${fieldRows}\n\n` +
     `## Producer Evidence Rows\n\n` +
-    `| Symbol | Track | Knob | Row Evidence | Target Evidence | Structure Evidence |\n| --- | --- | --- | --- | --- | --- |\n${evidenceRows}\n\n` +
+    `| Symbol | Track | Knob | Row Evidence | Decision Package | Target Evidence | Structure Evidence |\n| --- | --- | --- | --- | --- | --- | --- |\n${evidenceRows}\n\n` +
     `## Split Tuning Lanes\n\n` +
     `- target recalibration: ${report.splitTuning.targetRecalibration}\n` +
     `- risk geometry: ${report.splitTuning.riskGeometry}\n` +
@@ -313,6 +314,9 @@ function main() {
       producerTrack: row.producerTrack || null,
       adjustmentKnob: row.adjustmentKnob || null,
       rowEvidenceSummary: row.rowEvidenceSummary || null,
+      formulaBlockedBy: row.formulaBlockedBy || [],
+      formulaNextAction: row.formulaNextAction || null,
+      formulaDoneWhenEvidence: row.formulaDoneWhenEvidence || [],
       targetRecalibrationEvidence: row.targetRecalibrationEvidence || null,
       structureProofEvidence: row.structureProofEvidence || null
     }));

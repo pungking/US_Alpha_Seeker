@@ -23,14 +23,14 @@
         "formula_adjustment_direction:RECALIBRATE_TARGET_WITH_FRESH_THESIS"
       ],
       "zeroExecutableFormulaRecommendedAction": "Mismatch fixture.",
-      "zeroExecutableFormulaObservedValue": 0.0,
+      "zeroExecutableFormulaObservedValue": 0,
       "zeroExecutableFormulaThresholdValue": 0,
-      "zeroExecutableFormulaDeltaValue": 0.0,
+      "zeroExecutableFormulaDeltaValue": 0,
       "zeroExecutableFormulaUnit": "pct_shortfall",
       "zeroExecutableFormulaEvidenceBasis": "target_recalibration_shortfall",
       "zeroExecutableFormulaAdjustmentKnob": "TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE",
       "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_WITH_FRESH_THESIS",
-      "zeroExecutableFormulaAdjustmentMagnitude": 0.0,
+      "zeroExecutableFormulaAdjustmentMagnitude": 0,
       "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion."
     }
   ]

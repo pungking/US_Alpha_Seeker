@@ -1,6 +1,6 @@
 # Stage3-5 Methodology Audit
 
-- GeneratedAt: 2026-06-24T23:17:54.475Z
+- GeneratedAt: 2026-07-07T14:05:06.502Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json
 - Stage6Hash: ea95063da8d317a9815b98329be26842853ee1678e4db93f385192ac61d12a49
 - Overall: **pass_full_artifact_methodology_review**
@@ -49,7 +49,7 @@
 | Stage5 | yes | stage5_ict_metric_components | components/IctAnalysis.tsx | 19 |
 | Stage6 | yes | stage6_weak_pillar_gate | components/AlphaAnalysis.tsx | 64 |
 | Stage6 | yes | stage6_non_actionable_verdict_gate | components/AlphaAnalysis.tsx | 63 |
-| Stage6 | yes | stage6_breakout_proof_gate | components/AlphaAnalysis.tsx | 10103 |
+| Stage6 | yes | stage6_breakout_proof_gate | components/AlphaAnalysis.tsx | 10374 |
 
 ## Artifact Audit Snapshot
 

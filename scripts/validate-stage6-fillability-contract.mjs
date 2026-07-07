@@ -22,7 +22,10 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaAdjustmentMagnitude',
   'zeroExecutableFormulaAdjustmentRationale',
   'zeroExecutableFormulaReasons',
-  'zeroExecutableFormulaRecommendedAction'
+  'zeroExecutableFormulaRecommendedAction',
+  'zeroExecutableFormulaBlockedBy',
+  'zeroExecutableFormulaNextAction',
+  'zeroExecutableFormulaDoneWhenEvidence'
 ];
 const EXPECTED_LANE_TO_BOTTLENECK = {
   TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
@@ -396,6 +399,17 @@ for (const [idx, row] of candidates.entries()) {
   if (!Array.isArray(row.zeroExecutableFormulaReasons)) errors.push(`${label}: missing zeroExecutableFormulaReasons array`);
   if (!stringArray(row.zeroExecutableFormulaReasons).length) errors.push(`${label}: zeroExecutableFormulaReasons must contain formula evidence`);
   if (!String(row.zeroExecutableFormulaRecommendedAction || '').trim()) errors.push(`${label}: missing zeroExecutableFormulaRecommendedAction`);
+  if (!Array.isArray(row.zeroExecutableFormulaBlockedBy)) errors.push(`${label}: missing zeroExecutableFormulaBlockedBy array`);
+  if (
+    tuningLane(row) !== 'NO_ZERO_EXECUTABLE_TUNING_ACTION' &&
+    formulaBottleneck(row) !== 'NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK' &&
+    !stringArray(row.zeroExecutableFormulaBlockedBy).length
+  ) {
+    errors.push(`${label}: zeroExecutableFormulaBlockedBy must contain decision-package blockers`);
+  }
+  if (!String(row.zeroExecutableFormulaNextAction || '').trim()) errors.push(`${label}: missing zeroExecutableFormulaNextAction`);
+  if (!Array.isArray(row.zeroExecutableFormulaDoneWhenEvidence)) errors.push(`${label}: missing zeroExecutableFormulaDoneWhenEvidence array`);
+  if (!stringArray(row.zeroExecutableFormulaDoneWhenEvidence).length) errors.push(`${label}: zeroExecutableFormulaDoneWhenEvidence must contain completion evidence`);
   if (tuningLane(row) === 'TARGET_RECALIBRATION') {
     if (formulaBottleneck(row) !== 'TARGET_RECALIBRATION_FORMULA') errors.push(`${label}: target lane must expose TARGET_RECALIBRATION_FORMULA bottleneck`);
     if (!isFiniteNumber(row.zeroExecutableTargetShortfallPct)) errors.push(`${label}: target lane missing zeroExecutableTargetShortfallPct`);

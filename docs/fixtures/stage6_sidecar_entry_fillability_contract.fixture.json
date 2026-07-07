@@ -44,7 +44,10 @@
         "zeroExecutableFormulaAdjustmentMagnitude",
         "zeroExecutableFormulaAdjustmentRationale",
         "zeroExecutableFormulaReasons",
-        "zeroExecutableFormulaRecommendedAction"
+        "zeroExecutableFormulaRecommendedAction",
+        "zeroExecutableFormulaBlockedBy",
+        "zeroExecutableFormulaNextAction",
+        "zeroExecutableFormulaDoneWhenEvidence"
       ],
       "laneToBottleneck": {
         "TARGET_RECALIBRATION": "TARGET_RECALIBRATION_FORMULA",
@@ -250,7 +253,13 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
-      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "zeroExecutableFormulaBlockedBy": [],
+      "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+        "zeroExecutableFormulaSeverity=0"
+      ]
     },
     {
       "symbol": "CURRENT_RECALC_EXEC",
@@ -356,7 +365,13 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
-      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "zeroExecutableFormulaBlockedBy": [],
+      "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+        "zeroExecutableFormulaSeverity=0"
+      ]
     },
     {
       "symbol": "WAIT1",
@@ -437,7 +452,13 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND"
+      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND",
+      "zeroExecutableFormulaBlockedBy": [],
+      "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+        "zeroExecutableFormulaSeverity=0"
+      ]
     },
     {
       "symbol": "SPEC_WAIT",
@@ -525,7 +546,13 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
-      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "zeroExecutableFormulaBlockedBy": [],
+      "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+        "zeroExecutableFormulaSeverity=0"
+      ]
     },
     {
       "symbol": "STRUCT_REJECT_WAIT",
@@ -634,7 +661,17 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN"
+      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN",
+      "zeroExecutableFormulaBlockedBy": [
+        "structure_fixture_blocker",
+        "structure_current_rr_below_min"
+      ],
+      "zeroExecutableFormulaNextAction": "improve_structure_support_stop_rr_proof_or_keep_wait",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "structurePolicyCurrentRrOk=true",
+        "structurePolicyTargetBufferOk=true",
+        "currentEntryStructureVerdict confirms support/stop relation"
+      ]
     },
     {
       "symbol": "STRUCT_OVERBLOCK_REVIEW_WAIT",
@@ -742,7 +779,17 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
-      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "zeroExecutableFormulaBlockedBy": [
+        "structure_fixture_blocker",
+        "structure_current_rr_below_min"
+      ],
+      "zeroExecutableFormulaNextAction": "improve_structure_support_stop_rr_proof_or_keep_wait",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "structurePolicyCurrentRrOk=true",
+        "structurePolicyTargetBufferOk=true",
+        "currentEntryStructureVerdict confirms support/stop relation"
+      ]
     },
     {
       "symbol": "BREAKOUT_REVIEW_WAIT",
@@ -859,7 +906,16 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND"
+      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND",
+      "zeroExecutableFormulaBlockedBy": [
+        "breakout_proof_not_confirmed",
+        "breakout_promotion_not_ready"
+      ],
+      "zeroExecutableFormulaNextAction": "generate_breakout_proof_confirmed_from_retest_or_continuation_evidence",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "breakoutRetestProofConfirmed=true",
+        "breakoutRetestProofCurrentExtensionOk=true"
+      ]
     },
     {
       "symbol": "BREAKOUT_CONFIRMED_WAIT_PROMO_DISABLED",
@@ -970,7 +1026,16 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND"
+      "entryTimingPolicyVerdict": "CURRENT_DISTANCE_ABOVE_ADAPTIVE_BAND",
+      "zeroExecutableFormulaBlockedBy": [
+        "breakout_proof_not_confirmed",
+        "breakout_promotion_not_ready"
+      ],
+      "zeroExecutableFormulaNextAction": "generate_breakout_proof_confirmed_from_retest_or_continuation_evidence",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "breakoutRetestProofConfirmed=true",
+        "breakoutRetestProofCurrentExtensionOk=true"
+      ]
     },
     {
       "symbol": "TARGET_NEAR_WAIT",
@@ -1126,7 +1191,16 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN"
+      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN",
+      "zeroExecutableFormulaBlockedBy": [
+        "target_recalibration_fixture_blocker",
+        "required_target_shortfall_positive"
+      ],
+      "zeroExecutableFormulaNextAction": "recompute_stage6_target_recalibration_candidate",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "targetRecalibrationRequiredTargetPrice > currentPrice",
+        "targetRecalibrationViabilityVerdict is not evidence_incomplete"
+      ]
     },
     {
       "symbol": "TARGET_GAP_NO_TRADE",
@@ -1285,7 +1359,16 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN"
+      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN",
+      "zeroExecutableFormulaBlockedBy": [
+        "target_recalibration_fixture_blocker",
+        "required_target_shortfall_positive"
+      ],
+      "zeroExecutableFormulaNextAction": "recompute_stage6_target_recalibration_candidate",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "targetRecalibrationRequiredTargetPrice > currentPrice",
+        "targetRecalibrationViabilityVerdict is not evidence_incomplete"
+      ]
     },
     {
       "symbol": "TARGET_REACHED_NO_TRADE",
@@ -1441,7 +1524,16 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN"
+      "entryTimingPolicyVerdict": "CURRENT_TARGET_BUFFER_BELOW_MIN",
+      "zeroExecutableFormulaBlockedBy": [
+        "target_recalibration_fixture_blocker",
+        "required_target_shortfall_positive"
+      ],
+      "zeroExecutableFormulaNextAction": "recompute_stage6_target_recalibration_candidate",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "targetRecalibrationRequiredTargetPrice > currentPrice",
+        "targetRecalibrationViabilityVerdict is not evidence_incomplete"
+      ]
     },
     {
       "symbol": "STOP_TIGHT_BLOCK",
@@ -1557,7 +1649,17 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
-      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "zeroExecutableFormulaBlockedBy": [
+        "risk_geometry_fixture_blocker",
+        "recalculated_stop_rr_below_min"
+      ],
+      "zeroExecutableFormulaNextAction": "complete_recalculated_stop_rr_target_buffer_proof",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "riskGeometryRequiredStopValid=true",
+        "riskGeometryRecalculatedStopRrOk=true",
+        "riskGeometryTargetBufferOk=true"
+      ]
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_RECALC_WAIT",
@@ -1693,7 +1795,17 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN"
+      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN",
+      "zeroExecutableFormulaBlockedBy": [
+        "risk_geometry_fixture_blocker",
+        "recalculated_stop_rr_below_min"
+      ],
+      "zeroExecutableFormulaNextAction": "complete_recalculated_stop_rr_target_buffer_proof",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "riskGeometryRequiredStopValid=true",
+        "riskGeometryRecalculatedStopRrOk=true",
+        "riskGeometryTargetBufferOk=true"
+      ]
     },
     {
       "symbol": "WEAK_PILLAR_WAIT",
@@ -1793,7 +1905,13 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_PASS",
-      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE"
+      "entryTimingPolicyVerdict": "CURRENT_ENTRY_FEASIBLE",
+      "zeroExecutableFormulaBlockedBy": [],
+      "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+        "zeroExecutableFormulaSeverity=0"
+      ]
     },
     {
       "symbol": "RISK_GEOMETRY_TARGET_GAP_NO_TRADE",
@@ -1932,7 +2050,17 @@
       "currentEntryStructureStopAboveSupportPct": 0,
       "currentEntryStructureStopBelowSupportPct": 0,
       "fillabilityPolicyVerdict": "FILLABILITY_POLICY_BLOCKED",
-      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN"
+      "entryTimingPolicyVerdict": "CURRENT_RR_BELOW_MIN",
+      "zeroExecutableFormulaBlockedBy": [
+        "risk_geometry_fixture_blocker",
+        "recalculated_stop_rr_below_min"
+      ],
+      "zeroExecutableFormulaNextAction": "complete_recalculated_stop_rr_target_buffer_proof",
+      "zeroExecutableFormulaDoneWhenEvidence": [
+        "riskGeometryRequiredStopValid=true",
+        "riskGeometryRecalculatedStopRrOk=true",
+        "riskGeometryTargetBufferOk=true"
+      ]
     }
   ]
 }

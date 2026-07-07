@@ -26,7 +26,12 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaAdjustmentKnob',
   'zeroExecutableFormulaAdjustmentDirection',
   'zeroExecutableFormulaAdjustmentMagnitude',
-  'zeroExecutableFormulaAdjustmentRationale'
+  'zeroExecutableFormulaAdjustmentRationale',
+  'zeroExecutableFormulaReasons',
+  'zeroExecutableFormulaRecommendedAction',
+  'zeroExecutableFormulaBlockedBy',
+  'zeroExecutableFormulaNextAction',
+  'zeroExecutableFormulaDoneWhenEvidence'
 ];
 const PRODUCER_TRACK_BY_BOTTLENECK = {
   TARGET_RECALIBRATION_FORMULA: 'target_recalibration',
@@ -195,6 +200,10 @@ function normalizeText(value) {
   return text || null;
 }
 
+function stringArray(value) {
+  return Array.isArray(value) ? value.map((item) => String(item ?? '').trim()).filter(Boolean) : [];
+}
+
 const EXPECTED_SOURCE_SHA = normalizeText(EXPECTED_SOURCE_SHA_ENV);
 
 function stage6SourceAudit(stage6) {
@@ -331,7 +340,22 @@ function formulaEvidenceWeak(row, missingFields, missingLaneFields) {
   const delta = numberOrNull(row?.zeroExecutableFormulaDeltaValue);
   const magnitude = numberOrNull(row?.zeroExecutableFormulaAdjustmentMagnitude);
   const severity = numberOrNull(row?.zeroExecutableFormulaSeverity);
-  return !(observed != null && observed > 0 && delta != null && delta > 0 && magnitude != null && magnitude > 0 && severity != null && severity > 0);
+  const blockedBy = stringArray(row?.zeroExecutableFormulaBlockedBy);
+  const nextAction = normalizeText(row?.zeroExecutableFormulaNextAction);
+  const doneWhenEvidence = stringArray(row?.zeroExecutableFormulaDoneWhenEvidence);
+  return !(
+    observed != null &&
+    observed > 0 &&
+    delta != null &&
+    delta > 0 &&
+    magnitude != null &&
+    magnitude > 0 &&
+    severity != null &&
+    severity > 0 &&
+    blockedBy.length > 0 &&
+    nextAction &&
+    doneWhenEvidence.length > 0
+  );
 }
 
 function formulaLaneMismatch(row, missingFields) {
@@ -414,7 +438,15 @@ function formulaEvidenceSummary(row) {
   const threshold = round(row?.zeroExecutableFormulaThresholdValue);
   const delta = round(row?.zeroExecutableFormulaDeltaValue);
   const unit = normalizeText(row?.zeroExecutableFormulaUnit) || 'unit_missing';
-  return `${basis}: observed=${observed ?? 'N/A'} threshold=${threshold ?? 'N/A'} delta=${delta ?? 'N/A'} ${unit}`;
+  const blockedBy = stringArray(row?.zeroExecutableFormulaBlockedBy);
+  const nextAction = normalizeText(row?.zeroExecutableFormulaNextAction) || 'missing_next_action';
+  const doneWhenEvidence = stringArray(row?.zeroExecutableFormulaDoneWhenEvidence);
+  return [
+    `${basis}: observed=${observed ?? 'N/A'} threshold=${threshold ?? 'N/A'} delta=${delta ?? 'N/A'} ${unit}`,
+    `blockedBy=${blockedBy.length ? blockedBy.join(',') : 'none'}`,
+    `nextAction=${nextAction}`,
+    `doneWhen=${doneWhenEvidence.length ? doneWhenEvidence.join(',') : 'none'}`
+  ].join('; ');
 }
 
 function inferZeroExecutableRelationship(row) {
@@ -543,6 +575,11 @@ function rowBacklog(row, contractIncomplete = false) {
     adjustmentDirection: normalizeText(row?.zeroExecutableFormulaAdjustmentDirection),
     adjustmentMagnitude: magnitude,
     adjustmentRationale: normalizeText(row?.zeroExecutableFormulaAdjustmentRationale),
+    formulaReasons: stringArray(row?.zeroExecutableFormulaReasons),
+    formulaRecommendedAction: normalizeText(row?.zeroExecutableFormulaRecommendedAction),
+    formulaBlockedBy: stringArray(row?.zeroExecutableFormulaBlockedBy),
+    formulaNextAction: normalizeText(row?.zeroExecutableFormulaNextAction),
+    formulaDoneWhenEvidence: stringArray(row?.zeroExecutableFormulaDoneWhenEvidence),
     severity,
     actionRequired,
     missingFormulaFields: missingFields,

@@ -30,7 +30,10 @@
           "zeroExecutableFormulaAdjustmentMagnitude",
           "zeroExecutableFormulaAdjustmentRationale",
           "zeroExecutableFormulaReasons",
-          "zeroExecutableFormulaRecommendedAction"
+          "zeroExecutableFormulaRecommendedAction",
+          "zeroExecutableFormulaBlockedBy",
+          "zeroExecutableFormulaNextAction",
+          "zeroExecutableFormulaDoneWhenEvidence"
         ],
         "laneToBottleneck": {
           "TARGET_RECALIBRATION": "TARGET_RECALIBRATION_FORMULA",

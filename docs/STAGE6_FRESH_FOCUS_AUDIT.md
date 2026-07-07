@@ -1,10 +1,10 @@
 # Stage6 Fresh Focus Audit
 
-- GeneratedAt: 2026-07-07T01:06:33.882Z
+- GeneratedAt: 2026-07-07T14:04:45.463Z
 - Stage6: STAGE6_ALPHA_FINAL_2026-06-24_01-30-56.json
 - Hash: ea95063da8d317a9815b98329be26842853ee1678e4db93f385192ac61d12a49
 - Source SHA: d070335291d1045b733319b41ae80766a2c04cb4
-- Overall: **pass_executable_present_focus_fields_ok**
+- Overall: **warn_formula_bottleneck_fields_missing**
 - Rows: 7
 - Executable Rows: 1
 - Contract Executable Picks: 1
@@ -26,18 +26,18 @@
 | targetRecalibrationRequiredTargetSourceCounts | {"expected_return_and_actual_stop_risk":2,"actual_stop_risk":5} |
 | riskGeometryTargetRecalibrationCandidateCounts | {"false":7} |
 | zeroExecutableFormulaBottleneckCounts | {"NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK":2,"TARGET_RECALIBRATION_FORMULA":2,"STRUCTURE_PROOF_FORMULA":1,"BREAKOUT_PROOF_FORMULA":1,"RISK_GEOMETRY_RECALCULATION_FORMULA":1} |
-| formulaManifestContractIssues | 0 |
+| formulaManifestContractIssues | 3 |
 | formulaLaneConsistencyIssues | 0 |
-| formulaEvidenceQualityIssues | 0 |
-| formulaEvidenceIssueReasonCounts | {} |
-| formulaEvidenceIssueLaneCounts | {} |
+| formulaEvidenceQualityIssues | 7 |
+| formulaEvidenceIssueReasonCounts | {"formula_next_action_missing":7,"formula_done_when_evidence_missing":7,"formula_blocked_by_missing":5} |
+| formulaEvidenceIssueLaneCounts | {"NO_ZERO_EXECUTABLE_TUNING_ACTION":2,"TARGET_RECALIBRATION":2,"STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION":1,"BREAKOUT_PROOF_CONFIRMED_GENERATION":1,"RISK_GEOMETRY_NO_TRADE_OR_RECALIBRATION":1} |
 | laneSpecificFormulaEvidenceIssues | 0 |
 | laneSpecificFormulaEvidenceIssueReasonCounts | {} |
 | laneSpecificFormulaEvidenceIssueLaneCounts | {} |
 | blockerCategoryCounts | {"risk_geometry":3,"target_recalibration":1,"structure":1,"breakout":1,"quality_gate":1} |
 | rawExecutableDowngrades | [] |
-| runtimeProof.status | pass_formula_v4_runtime_proof |
-| guardrails.nextAction | monitor_next_sidecar_fresh_hash_consumption |
+| runtimeProof.status | pending_fresh_stage6_formula_v4_runtime_proof |
+| guardrails.nextAction | generate_fresh_stage6_after_formula_v4_head |
 
 ## Runtime Proof Gate
 
@@ -47,15 +47,15 @@
 | expectedSourceSha | N/A |
 | sourceSha | d070335291d1045b733319b41ae80766a2c04cb4 |
 | sourceShaMatchesExpected | N/A |
-| formulaCoveragePass | true |
+| formulaCoveragePass | false |
 | requiredCoveragePass | true |
-| formulaManifestIssues | 0 |
+| formulaManifestIssues | 3 |
 | formulaLaneConsistencyIssues | 0 |
-| formulaEvidenceQualityIssues | 0 |
+| formulaEvidenceQualityIssues | 7 |
 | laneSpecificFormulaEvidenceIssues | 0 |
-| nextAction | monitor_next_sidecar_fresh_hash_consumption |
+| nextAction | generate_fresh_stage6_after_formula_v4_head |
 | enforceFreshContract | false |
-| freshContractViolation | false |
+| freshContractViolation | true |
 
 ## Field Coverage
 
@@ -130,6 +130,9 @@
 | zeroExecutableFormulaAdjustmentRationale | 7/7 |
 | zeroExecutableFormulaReasons | 7/7 |
 | zeroExecutableFormulaRecommendedAction | 7/7 |
+| zeroExecutableFormulaBlockedBy | 0/7 |
+| zeroExecutableFormulaNextAction | 0/7 |
+| zeroExecutableFormulaDoneWhenEvidence | 0/7 |
 | currentEntryStructureSupportReference | 7/7 |
 | currentEntryStructureSupportGapAtr | 7/7 |
 | currentEntryStructureStopAlignedSupportGapAtr | 7/7 |

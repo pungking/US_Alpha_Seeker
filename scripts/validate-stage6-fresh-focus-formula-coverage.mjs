@@ -83,7 +83,10 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaAdjustmentMagnitude',
   'zeroExecutableFormulaAdjustmentRationale',
   'zeroExecutableFormulaReasons',
-  'zeroExecutableFormulaRecommendedAction'
+  'zeroExecutableFormulaRecommendedAction',
+  'zeroExecutableFormulaBlockedBy',
+  'zeroExecutableFormulaNextAction',
+  'zeroExecutableFormulaDoneWhenEvidence'
 ];
 
 function validateProducerSourceContract() {
@@ -114,7 +117,15 @@ function validateProducerSourceContract() {
   for (const token of [
     'zeroExecutableFormulaBottleneck: executionContract.zeroExecutableFormulaBottleneck',
     'zeroExecutableFormulaBottleneck: normalizeOptionalText(item.zeroExecutableFormulaBottleneck)',
-    'zeroExecutableFormulaBottleneck: normalizeOptionalText(item?.zeroExecutableFormulaBottleneck)'
+    'zeroExecutableFormulaBottleneck: normalizeOptionalText(item?.zeroExecutableFormulaBottleneck)',
+    'zeroExecutableFormulaBlockedBy: zeroExecutableFormulaProfile.blockedBy',
+    'zeroExecutableFormulaNextAction: zeroExecutableFormulaProfile.nextAction',
+    'zeroExecutableFormulaDoneWhenEvidence: zeroExecutableFormulaProfile.doneWhenEvidence',
+    'zeroExecutableFormulaBlockedBy: executionContract.zeroExecutableFormulaBlockedBy',
+    'zeroExecutableFormulaNextAction: executionContract.zeroExecutableFormulaNextAction',
+    'zeroExecutableFormulaDoneWhenEvidence: executionContract.zeroExecutableFormulaDoneWhenEvidence',
+    'zeroExecutableFormulaBlockedBy: Array.isArray(item.zeroExecutableFormulaBlockedBy)',
+    'zeroExecutableFormulaBlockedBy: Array.isArray(item?.zeroExecutableFormulaBlockedBy)'
   ]) {
     if (!source.includes(token)) {
       throw new Error(`producer formula field surface propagation missing token: ${token}`);
@@ -268,7 +279,10 @@ function runCase(testCase) {
         !Array.isArray(issue.issueReasons) ||
         issue.issueReasons.length === 0 ||
         !Object.prototype.hasOwnProperty.call(issue, 'zeroExecutableFormulaReasons') ||
-        !Object.prototype.hasOwnProperty.call(issue, 'zeroExecutableFormulaRecommendedAction')
+        !Object.prototype.hasOwnProperty.call(issue, 'zeroExecutableFormulaRecommendedAction') ||
+        !Object.prototype.hasOwnProperty.call(issue, 'zeroExecutableFormulaBlockedBy') ||
+        !Object.prototype.hasOwnProperty.call(issue, 'zeroExecutableFormulaNextAction') ||
+        !Object.prototype.hasOwnProperty.call(issue, 'zeroExecutableFormulaDoneWhenEvidence')
     );
     if (malformedEvidenceIssues.length > 0) {
       throw new Error(`${testCase.name}: formulaEvidenceQualityIssues missing reason/action details`);

@@ -30,7 +30,10 @@
           "zeroExecutableFormulaAdjustmentMagnitude",
           "zeroExecutableFormulaAdjustmentRationale",
           "zeroExecutableFormulaReasons",
-          "zeroExecutableFormulaRecommendedAction"
+          "zeroExecutableFormulaRecommendedAction",
+          "zeroExecutableFormulaBlockedBy",
+          "zeroExecutableFormulaNextAction",
+          "zeroExecutableFormulaDoneWhenEvidence"
         ],
         "laneToBottleneck": {
           "TARGET_RECALIBRATION": "TARGET_RECALIBRATION_FORMULA",
@@ -207,7 +210,16 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [
+          "target_recalibration_fixture_blocker",
+          "required_target_shortfall_positive"
+        ],
+        "zeroExecutableFormulaNextAction": "recompute_stage6_target_recalibration_candidate",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "targetRecalibrationRequiredTargetPrice > currentPrice",
+          "targetRecalibrationViabilityVerdict is not evidence_incomplete"
+        ]
       }
     ],
     "watchlistTop": [],

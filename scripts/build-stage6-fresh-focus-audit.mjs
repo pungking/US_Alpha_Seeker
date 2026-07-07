@@ -27,7 +27,10 @@ const REQUIRED_FORMULA_FIELDS = [
   'zeroExecutableFormulaAdjustmentMagnitude',
   'zeroExecutableFormulaAdjustmentRationale',
   'zeroExecutableFormulaReasons',
-  'zeroExecutableFormulaRecommendedAction'
+  'zeroExecutableFormulaRecommendedAction',
+  'zeroExecutableFormulaBlockedBy',
+  'zeroExecutableFormulaNextAction',
+  'zeroExecutableFormulaDoneWhenEvidence'
 ];
 const EXPECTED_FORMULA_CONTRACT = {
   version: 'zero_executable_formula_v4',
@@ -364,6 +367,9 @@ function formulaEvidenceQualityIssue(row) {
   const adjustmentRationale = String(row?.zeroExecutableFormulaAdjustmentRationale || '').trim();
   const reasons = stringArray(row?.zeroExecutableFormulaReasons);
   const action = String(row?.zeroExecutableFormulaRecommendedAction || '').trim();
+  const blockedBy = stringArray(row?.zeroExecutableFormulaBlockedBy);
+  const nextAction = String(row?.zeroExecutableFormulaNextAction || '').trim();
+  const doneWhenEvidence = stringArray(row?.zeroExecutableFormulaDoneWhenEvidence);
   const issueReasons = [];
 
   if (!Number.isFinite(severity)) issueReasons.push('formula_severity_missing');
@@ -378,6 +384,9 @@ function formulaEvidenceQualityIssue(row) {
   if (!adjustmentRationale) issueReasons.push('formula_adjustment_rationale_missing');
   if (reasons.length === 0) issueReasons.push('formula_reasons_missing');
   if (!action) issueReasons.push('formula_recommended_action_missing');
+  if (lane !== 'NO_ZERO_EXECUTABLE_TUNING_ACTION' && blockedBy.length === 0) issueReasons.push('formula_blocked_by_missing');
+  if (!nextAction) issueReasons.push('formula_next_action_missing');
+  if (doneWhenEvidence.length === 0) issueReasons.push('formula_done_when_evidence_missing');
 
   if (lane === 'TARGET_RECALIBRATION' && !(targetShortfall != null && targetShortfall > 0)) {
     issueReasons.push('target_shortfall_not_positive');
@@ -454,6 +463,9 @@ function formulaEvidenceQualityIssue(row) {
     zeroExecutableFormulaAdjustmentRationale: adjustmentRationale || null,
     zeroExecutableFormulaReasons: reasons,
     zeroExecutableFormulaRecommendedAction: action || null,
+    zeroExecutableFormulaBlockedBy: blockedBy,
+    zeroExecutableFormulaNextAction: nextAction || null,
+    zeroExecutableFormulaDoneWhenEvidence: doneWhenEvidence,
     issueReasons,
     finalDecision: decisionOf(row),
     decisionReason: reasonOf(row)
@@ -1063,6 +1075,9 @@ function main() {
     zeroExecutableFormulaAdjustmentRationale: requiredFieldCoverage(rows, 'zeroExecutableFormulaAdjustmentRationale'),
     zeroExecutableFormulaReasons: requiredFieldCoverage(rows, 'zeroExecutableFormulaReasons'),
     zeroExecutableFormulaRecommendedAction: requiredFieldCoverage(rows, 'zeroExecutableFormulaRecommendedAction'),
+    zeroExecutableFormulaBlockedBy: requiredFieldCoverage(rows, 'zeroExecutableFormulaBlockedBy'),
+    zeroExecutableFormulaNextAction: requiredFieldCoverage(rows, 'zeroExecutableFormulaNextAction'),
+    zeroExecutableFormulaDoneWhenEvidence: requiredFieldCoverage(rows, 'zeroExecutableFormulaDoneWhenEvidence'),
     currentEntryStructureSupportReference: requiredFieldCoverage(rows, 'currentEntryStructureSupportReference'),
     currentEntryStructureSupportGapAtr: requiredFieldCoverage(rows, 'currentEntryStructureSupportGapAtr'),
     currentEntryStructureStopAlignedSupportGapAtr: requiredFieldCoverage(rows, 'currentEntryStructureStopAlignedSupportGapAtr')

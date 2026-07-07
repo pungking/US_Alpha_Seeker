@@ -314,6 +314,9 @@ interface AlphaCandidate {
   zeroExecutableFormulaAdjustmentRationale?: string | null;
   zeroExecutableFormulaReasons?: string[] | null;
   zeroExecutableFormulaRecommendedAction?: string | null;
+  zeroExecutableFormulaBlockedBy?: string[] | null;
+  zeroExecutableFormulaNextAction?: string | null;
+  zeroExecutableFormulaDoneWhenEvidence?: string[] | null;
   tradePlanDecision?: string | null;
   tradePlanReason?: string | null;
   expectedReturnPct?: number | null;
@@ -950,6 +953,9 @@ type Stage6ZeroExecutableFormulaProfilePayload = {
   adjustmentRationale: string;
   reasons: string[];
   recommendedAction: string;
+  blockedBy: string[];
+  nextAction: string;
+  doneWhenEvidence: string[];
 };
 
 const CURRENT_ENTRY_STRUCTURE_POLICY = {
@@ -999,7 +1005,10 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
     'zeroExecutableFormulaAdjustmentMagnitude',
     'zeroExecutableFormulaAdjustmentRationale',
     'zeroExecutableFormulaReasons',
-    'zeroExecutableFormulaRecommendedAction'
+    'zeroExecutableFormulaRecommendedAction',
+    'zeroExecutableFormulaBlockedBy',
+    'zeroExecutableFormulaNextAction',
+    'zeroExecutableFormulaDoneWhenEvidence'
   ],
   laneToBottleneck: {
     TARGET_RECALIBRATION: 'TARGET_RECALIBRATION_FORMULA',
@@ -3269,6 +3278,98 @@ const deriveZeroExecutableFormulaProfile = (input: {
       `structure_formula_delta:${input.structurePolicy.formulaDeltaValue}`
     ] : [])
   ];
+  const decisionPackageEvidence = (() => {
+    if (winner.key === 'TARGET_RECALIBRATION_FORMULA') {
+      const blockedBy = [
+        ...(input.targetPolicy.noTradeConfirmed ? ['target_no_trade_confirmed'] : []),
+        ...(input.targetPolicy.recalibrationCandidate ? [] : ['target_recalibration_candidate_false']),
+        ...(input.targetPolicy.executionFloorViable ? [] : ['execution_floor_not_viable']),
+        ...(input.targetPolicy.shortfallPct != null && input.targetPolicy.shortfallPct > 0 ? ['required_target_shortfall_positive'] : ['required_target_shortfall_missing']),
+        `target_viability:${input.targetPolicy.viabilityVerdict}`
+      ];
+      return {
+        blockedBy,
+        nextAction: input.targetPolicy.noTradeConfirmed
+          ? 'refresh_stage6_target_source_or_keep_no_trade'
+          : 'recompute_stage6_target_recalibration_candidate',
+        doneWhenEvidence: [
+          'targetRecalibrationCandidate=true or targetNoTradeConfirmed=true with fresh source timestamp',
+          'targetRecalibrationRequiredTargetPrice > currentPrice',
+          'targetRecalibrationViabilityVerdict is not evidence_incomplete',
+          'zeroExecutableFormulaDeltaValue explains the remaining target shortfall'
+        ]
+      };
+    }
+    if (winner.key === 'RISK_GEOMETRY_RECALCULATION_FORMULA') {
+      const blockedBy = [
+        ...(input.riskGeometryPolicy.requiredStopValid ? [] : ['required_stop_invalid']),
+        ...(input.riskGeometryPolicy.requiredStopDistanceValid ? [] : ['required_stop_distance_invalid']),
+        ...(input.riskGeometryPolicy.recalculatedStopRrOk ? [] : ['recalculated_stop_rr_below_min']),
+        ...(input.riskGeometryPolicy.targetBufferOk ? [] : ['target_buffer_below_min']),
+        ...(input.riskGeometryPolicy.targetRecalibrationProofReady ? [] : ['target_recalibration_proof_not_ready']),
+        `risk_repair_lane:${input.riskGeometryPolicy.repairLane}`
+      ];
+      return {
+        blockedBy,
+        nextAction: input.riskGeometryPolicy.noTradeRequired
+          ? 'refresh_stage6_stop_target_geometry_or_keep_no_trade'
+          : 'complete_recalculated_stop_rr_target_buffer_proof',
+        doneWhenEvidence: [
+          'riskGeometryRequiredStopValid=true',
+          'riskGeometryRequiredStopDistanceValid=true',
+          'riskGeometryRecalculatedStopRrOk=true',
+          'riskGeometryTargetBufferOk=true',
+          'riskGeometryTargetRecalibrationProofReady=true when required target exceeds current target'
+        ]
+      };
+    }
+    if (winner.key === 'BREAKOUT_PROOF_FORMULA') {
+      const blockedBy = [
+        ...(input.breakoutPromotion.eligible ? [] : ['breakout_proof_not_confirmed']),
+        ...(input.breakoutPromotion.blockedBy || []),
+        ...(input.breakoutPromotion.ready ? [] : ['breakout_promotion_not_ready']),
+        `breakout_policy_decision:${input.breakoutPromotion.policyDecision}`
+      ];
+      return {
+        blockedBy: [...new Set(blockedBy)],
+        nextAction: 'generate_breakout_proof_confirmed_from_retest_or_continuation_evidence',
+        doneWhenEvidence: [
+          'breakoutRetestProofConfirmed=true',
+          'breakoutRetestProofRetestFresh=true or breakoutRetestProofContinuationConfirmed=true',
+          'breakoutRetestProofCurrentExtensionOk=true',
+          'breakoutRetestPromotionPolicyDecision is not WAIT_REVIEW_READY_ONLY'
+        ]
+      };
+    }
+    if (winner.key === 'STRUCTURE_PROOF_FORMULA') {
+      const blockedBy = [
+        ...(input.structurePolicy.currentRrOk ? [] : ['structure_current_rr_below_min']),
+        ...(input.structurePolicy.targetBufferOk ? [] : ['structure_target_buffer_below_min']),
+        ...(input.structurePolicy.distanceWithinReviewBand ? [] : ['structure_distance_outside_review_band']),
+        `structure_blocker_lane:${input.structurePolicy.blockerLane}`,
+        `structure_verdict:${input.structurePolicy.verdict}`
+      ];
+      return {
+        blockedBy,
+        nextAction: 'improve_structure_support_stop_rr_proof_or_keep_wait',
+        doneWhenEvidence: [
+          'structurePolicyCurrentRrOk=true',
+          'structurePolicyTargetBufferOk=true',
+          'structurePolicyDistanceWithinReviewBand=true',
+          'currentEntryStructureVerdict confirms support/stop relation',
+          'structurePolicyBlockerLane is not STRUCTURE_CURRENT_RR_WEAK'
+        ]
+      };
+    }
+    return {
+      blockedBy: [],
+      nextAction: 'no_zero_executable_formula_action_required',
+      doneWhenEvidence: [
+        'zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK',
+        'zeroExecutableFormulaSeverity=0'
+      ]
+    };
+  })();
   return {
     bottleneck: winner.key,
     severity: roundOrNull(winner.severity, 2) ?? 0,
@@ -3295,7 +3396,10 @@ const deriveZeroExecutableFormulaProfile = (input: {
             ? 'Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable.'
             : winner.key === 'STRUCTURE_PROOF_FORMULA'
               ? 'Improve structure proof generation or keep WAIT; do not relax structure gates blindly.'
-              : 'No formula bottleneck detected for this row.'
+              : 'No formula bottleneck detected for this row.',
+    blockedBy: decisionPackageEvidence.blockedBy,
+    nextAction: decisionPackageEvidence.nextAction,
+    doneWhenEvidence: decisionPackageEvidence.doneWhenEvidence
   };
 };
 
@@ -8506,6 +8610,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               zeroExecutableFormulaAdjustmentRationale: zeroExecutableFormulaProfile.adjustmentRationale,
               zeroExecutableFormulaReasons: zeroExecutableFormulaProfile.reasons,
               zeroExecutableFormulaRecommendedAction: zeroExecutableFormulaProfile.recommendedAction,
+              zeroExecutableFormulaBlockedBy: zeroExecutableFormulaProfile.blockedBy,
+              zeroExecutableFormulaNextAction: zeroExecutableFormulaProfile.nextAction,
+              zeroExecutableFormulaDoneWhenEvidence: zeroExecutableFormulaProfile.doneWhenEvidence,
               tradePlanDecision: `${finalDecision}/${decisionReason}`,
               tradePlanReason:
                   useRecalculatedCurrentEntry
@@ -8804,6 +8911,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               zeroExecutableFormulaAdjustmentRationale: executionContract.zeroExecutableFormulaAdjustmentRationale,
               zeroExecutableFormulaReasons: executionContract.zeroExecutableFormulaReasons,
               zeroExecutableFormulaRecommendedAction: executionContract.zeroExecutableFormulaRecommendedAction,
+              zeroExecutableFormulaBlockedBy: executionContract.zeroExecutableFormulaBlockedBy,
+              zeroExecutableFormulaNextAction: executionContract.zeroExecutableFormulaNextAction,
+              zeroExecutableFormulaDoneWhenEvidence: executionContract.zeroExecutableFormulaDoneWhenEvidence,
               tradePlanDecision: executionContract.tradePlanDecision,
               tradePlanReason: executionContract.tradePlanReason,
               verdictConflict: executionContract.verdictConflict,
@@ -9800,6 +9910,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               zeroExecutableFormulaAdjustmentRationale: normalizeOptionalText(item.zeroExecutableFormulaAdjustmentRationale),
               zeroExecutableFormulaReasons: Array.isArray(item.zeroExecutableFormulaReasons) ? item.zeroExecutableFormulaReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               zeroExecutableFormulaRecommendedAction: normalizeOptionalText(item.zeroExecutableFormulaRecommendedAction),
+              zeroExecutableFormulaBlockedBy: Array.isArray(item.zeroExecutableFormulaBlockedBy) ? item.zeroExecutableFormulaBlockedBy.map((reason: any) => String(reason)).filter(Boolean) : null,
+              zeroExecutableFormulaNextAction: normalizeOptionalText(item.zeroExecutableFormulaNextAction),
+              zeroExecutableFormulaDoneWhenEvidence: Array.isArray(item.zeroExecutableFormulaDoneWhenEvidence) ? item.zeroExecutableFormulaDoneWhenEvidence.map((reason: any) => String(reason)).filter(Boolean) : null,
               tradePlanDecision: normalizeOptionalText(item.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item.tradePlanReason),
               executionVerdict: normalizeOptionalText(item.executionVerdict),
@@ -10069,6 +10182,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               zeroExecutableFormulaAdjustmentRationale: normalizeOptionalText(item?.zeroExecutableFormulaAdjustmentRationale),
               zeroExecutableFormulaReasons: Array.isArray(item?.zeroExecutableFormulaReasons) ? item.zeroExecutableFormulaReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               zeroExecutableFormulaRecommendedAction: normalizeOptionalText(item?.zeroExecutableFormulaRecommendedAction),
+              zeroExecutableFormulaBlockedBy: Array.isArray(item?.zeroExecutableFormulaBlockedBy) ? item.zeroExecutableFormulaBlockedBy.map((reason: any) => String(reason)).filter(Boolean) : null,
+              zeroExecutableFormulaNextAction: normalizeOptionalText(item?.zeroExecutableFormulaNextAction),
+              zeroExecutableFormulaDoneWhenEvidence: Array.isArray(item?.zeroExecutableFormulaDoneWhenEvidence) ? item.zeroExecutableFormulaDoneWhenEvidence.map((reason: any) => String(reason)).filter(Boolean) : null,
               tradePlanDecision: normalizeOptionalText(item?.tradePlanDecision),
               tradePlanReason: normalizeOptionalText(item?.tradePlanReason),
               executionBucket:

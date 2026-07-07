@@ -100,6 +100,9 @@ Done when the Stage6 row evidence includes:
 - `zeroExecutableStructureProofGapCount`
 - `zeroExecutableFormulaReasons`
 - `zeroExecutableFormulaRecommendedAction`
+- `zeroExecutableFormulaBlockedBy`
+- `zeroExecutableFormulaNextAction`
+- `zeroExecutableFormulaDoneWhenEvidence`
 
 Interpretation:
 
@@ -120,6 +123,10 @@ Interpretation:
 - `zeroExecutableFormulaBottleneck` is the primary formula bottleneck for the
   row's `zeroExecutableTuningLane`; secondary target/risk proof weaknesses
   should remain in `zeroExecutableFormulaReasons`, not override the primary lane.
+- `zeroExecutableFormulaBlockedBy`, `zeroExecutableFormulaNextAction`, and
+  `zeroExecutableFormulaDoneWhenEvidence` map the row to a TradingCodex
+  Decision Package: blocker evidence, next producer action, and exact completion
+  proof. They are audit evidence only, not execution approval.
 - `warn_formula_bottleneck_fields_missing` means the Stage6 artifact is stale
   relative to the current producer contract or the producer failed to emit the
   formula fields. Generate/inspect a fresh Stage6 before tuning sidecar policy.

@@ -40,20 +40,30 @@
           "formula_adjustment_direction:IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE"
         ],
         "zeroExecutableFormulaRecommendedAction": "Improve structure proof generation or keep WAIT; do not relax structure gates blindly.",
-        "zeroExecutableFormulaObservedValue": 2.0,
+        "zeroExecutableFormulaObservedValue": 2,
         "zeroExecutableFormulaThresholdValue": 0,
-        "zeroExecutableFormulaDeltaValue": 2.0,
+        "zeroExecutableFormulaDeltaValue": 2,
         "zeroExecutableFormulaUnit": "proof_gap_count",
         "zeroExecutableFormulaEvidenceBasis": "structure_proof_gap_count",
         "zeroExecutableFormulaAdjustmentKnob": "CURRENT_ENTRY_STRUCTURE_SUPPORT_PROOF",
         "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_STRUCTURE_PROOF_NOT_RELAX_GATE",
-        "zeroExecutableFormulaAdjustmentMagnitude": 2.0,
+        "zeroExecutableFormulaAdjustmentMagnitude": 2,
         "zeroExecutableFormulaAdjustmentRationale": "Structure wait requires stronger support/RR/distance proof; blind structure relaxation remains blocked.",
         "structurePolicyFormulaEvidenceBasis": "structure_proof_gap_count",
-        "structurePolicyFormulaObservedValue": 2.0,
+        "structurePolicyFormulaObservedValue": 2,
         "structurePolicyFormulaThresholdValue": 0,
-        "structurePolicyFormulaDeltaValue": 2.0,
-        "structurePolicyFormulaUnit": "proof_gap_count"
+        "structurePolicyFormulaDeltaValue": 2,
+        "structurePolicyFormulaUnit": "proof_gap_count",
+        "zeroExecutableFormulaBlockedBy": [
+          "structure_fixture_blocker",
+          "structure_current_rr_below_min"
+        ],
+        "zeroExecutableFormulaNextAction": "improve_structure_support_stop_rr_proof_or_keep_wait",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "structurePolicyCurrentRrOk=true",
+          "structurePolicyTargetBufferOk=true",
+          "currentEntryStructureVerdict confirms support/stop relation"
+        ]
       },
       {
         "symbol": "FORMBRK",
@@ -80,15 +90,24 @@
           "formula_adjustment_direction:IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION"
         ],
         "zeroExecutableFormulaRecommendedAction": "Tune breakout proofConfirmed generation criteria; reviewReady alone must stay non-promotable.",
-        "zeroExecutableFormulaObservedValue": 2.0,
+        "zeroExecutableFormulaObservedValue": 2,
         "zeroExecutableFormulaThresholdValue": 0,
-        "zeroExecutableFormulaDeltaValue": 2.0,
+        "zeroExecutableFormulaDeltaValue": 2,
         "zeroExecutableFormulaUnit": "proof_gap_count",
         "zeroExecutableFormulaEvidenceBasis": "breakout_proof_gap_count",
         "zeroExecutableFormulaAdjustmentKnob": "BREAKOUT_PROOF_CONFIRMED_GENERATION",
         "zeroExecutableFormulaAdjustmentDirection": "IMPROVE_PROOF_GENERATION_NOT_AUTO_PROMOTION",
-        "zeroExecutableFormulaAdjustmentMagnitude": 2.0,
-        "zeroExecutableFormulaAdjustmentRationale": "Review-ready breakout is not enough; only proofConfirmed rows may become executable."
+        "zeroExecutableFormulaAdjustmentMagnitude": 2,
+        "zeroExecutableFormulaAdjustmentRationale": "Review-ready breakout is not enough; only proofConfirmed rows may become executable.",
+        "zeroExecutableFormulaBlockedBy": [
+          "breakout_proof_not_confirmed",
+          "breakout_promotion_not_ready"
+        ],
+        "zeroExecutableFormulaNextAction": "generate_breakout_proof_confirmed_from_retest_or_continuation_evidence",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "breakoutRetestProofConfirmed=true",
+          "breakoutRetestProofCurrentExtensionOk=true"
+        ]
       },
       {
         "symbol": "FORMTGT",
@@ -123,7 +142,16 @@
         "zeroExecutableFormulaAdjustmentKnob": "TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE",
         "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_WITH_FRESH_THESIS",
         "zeroExecutableFormulaAdjustmentMagnitude": 7.5,
-        "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion."
+        "zeroExecutableFormulaAdjustmentRationale": "Current target is below the producer-required target; tune target recalibration evidence before promotion.",
+        "zeroExecutableFormulaBlockedBy": [
+          "target_recalibration_fixture_blocker",
+          "required_target_shortfall_positive"
+        ],
+        "zeroExecutableFormulaNextAction": "recompute_stage6_target_recalibration_candidate",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "targetRecalibrationRequiredTargetPrice > currentPrice",
+          "targetRecalibrationViabilityVerdict is not evidence_incomplete"
+        ]
       },
       {
         "symbol": "FORMRISK",
@@ -158,7 +186,17 @@
         "zeroExecutableFormulaAdjustmentKnob": "RISK_GEOMETRY_REQUIRED_TARGET_PRICE",
         "zeroExecutableFormulaAdjustmentDirection": "RECALIBRATE_TARGET_OR_KEEP_NO_TRADE",
         "zeroExecutableFormulaAdjustmentMagnitude": 13.6,
-        "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop still requires a higher target; producer must refresh target/stop geometry before promotion."
+        "zeroExecutableFormulaAdjustmentRationale": "Recalculated stop still requires a higher target; producer must refresh target/stop geometry before promotion.",
+        "zeroExecutableFormulaBlockedBy": [
+          "risk_geometry_fixture_blocker",
+          "recalculated_stop_rr_below_min"
+        ],
+        "zeroExecutableFormulaNextAction": "complete_recalculated_stop_rr_target_buffer_proof",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "riskGeometryRequiredStopValid=true",
+          "riskGeometryRecalculatedStopRrOk=true",
+          "riskGeometryTargetBufferOk=true"
+        ]
       },
       {
         "symbol": "FORMNO",
@@ -193,7 +231,13 @@
         "zeroExecutableFormulaAdjustmentKnob": "NONE",
         "zeroExecutableFormulaAdjustmentDirection": "NO_ADJUSTMENT_REQUIRED",
         "zeroExecutableFormulaAdjustmentMagnitude": 0,
-        "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row."
+        "zeroExecutableFormulaAdjustmentRationale": "No zero-executable formula bottleneck detected for this row.",
+        "zeroExecutableFormulaBlockedBy": [],
+        "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+          "zeroExecutableFormulaSeverity=0"
+        ]
       }
     ],
     "watchlistTop": [],

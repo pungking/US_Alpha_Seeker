@@ -30,7 +30,10 @@
           "zeroExecutableFormulaAdjustmentMagnitude",
           "zeroExecutableFormulaAdjustmentRationale",
           "zeroExecutableFormulaReasons",
-          "zeroExecutableFormulaRecommendedAction"
+          "zeroExecutableFormulaRecommendedAction",
+          "zeroExecutableFormulaBlockedBy",
+          "zeroExecutableFormulaNextAction",
+          "zeroExecutableFormulaDoneWhenEvidence"
         ],
         "laneToBottleneck": {
           "TARGET_RECALIBRATION": "TARGET_RECALIBRATION_FORMULA",
@@ -218,7 +221,17 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [
+          "structure_fixture_blocker",
+          "structure_current_rr_below_min"
+        ],
+        "zeroExecutableFormulaNextAction": "improve_structure_support_stop_rr_proof_or_keep_wait",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "structurePolicyCurrentRrOk=true",
+          "structurePolicyTargetBufferOk=true",
+          "currentEntryStructureVerdict confirms support/stop relation"
+        ]
       },
       {
         "symbol": "FORMBRK",
@@ -268,7 +281,16 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [
+          "breakout_proof_not_confirmed",
+          "breakout_promotion_not_ready"
+        ],
+        "zeroExecutableFormulaNextAction": "generate_breakout_proof_confirmed_from_retest_or_continuation_evidence",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "breakoutRetestProofConfirmed=true",
+          "breakoutRetestProofCurrentExtensionOk=true"
+        ]
       },
       {
         "symbol": "FORMTGT",
@@ -318,7 +340,16 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [
+          "target_recalibration_fixture_blocker",
+          "required_target_shortfall_positive"
+        ],
+        "zeroExecutableFormulaNextAction": "recompute_stage6_target_recalibration_candidate",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "targetRecalibrationRequiredTargetPrice > currentPrice",
+          "targetRecalibrationViabilityVerdict is not evidence_incomplete"
+        ]
       },
       {
         "symbol": "FORMRISK",
@@ -368,7 +399,17 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [
+          "risk_geometry_fixture_blocker",
+          "recalculated_stop_rr_below_min"
+        ],
+        "zeroExecutableFormulaNextAction": "complete_recalculated_stop_rr_target_buffer_proof",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "riskGeometryRequiredStopValid=true",
+          "riskGeometryRecalculatedStopRrOk=true",
+          "riskGeometryTargetBufferOk=true"
+        ]
       },
       {
         "symbol": "FORMRISK_NO_TRADE",
@@ -425,7 +466,17 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GAP_TOO_WIDE_NO_TRADE",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [
+          "risk_geometry_fixture_blocker",
+          "recalculated_stop_rr_below_min"
+        ],
+        "zeroExecutableFormulaNextAction": "complete_recalculated_stop_rr_target_buffer_proof",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "riskGeometryRequiredStopValid=true",
+          "riskGeometryRecalculatedStopRrOk=true",
+          "riskGeometryTargetBufferOk=true"
+        ]
       },
       {
         "symbol": "FORMNO",
@@ -468,7 +519,13 @@
         "riskGeometryStopDistancePolicyVerdict": "REQUIRED_STOP_DISTANCE_UNAVAILABLE",
         "riskGeometryTargetShortfallPolicyVerdict": "TARGET_GEOMETRY_OK",
         "currentEntryStructureStopSupportRelation": "support_stop_gap_unavailable",
-        "currentEntryStructureSupportStopGapPct": 0
+        "currentEntryStructureSupportStopGapPct": 0,
+        "zeroExecutableFormulaBlockedBy": [],
+        "zeroExecutableFormulaNextAction": "no_zero_executable_formula_action_required",
+        "zeroExecutableFormulaDoneWhenEvidence": [
+          "zeroExecutableFormulaBottleneck=NO_ZERO_EXECUTABLE_FORMULA_BOTTLENECK",
+          "zeroExecutableFormulaSeverity=0"
+        ]
       }
     ],
     "watchlistTop": [],
