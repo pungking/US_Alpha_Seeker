@@ -234,6 +234,12 @@ interface AlphaCandidate {
   targetRecalibrationFormulaThresholdValue?: number | null;
   targetRecalibrationFormulaDeltaValue?: number | null;
   targetRecalibrationFormulaUnit?: string | null;
+  targetRecalibrationRequiredTargetUpliftPct?: number | null;
+  targetRecalibrationExecutionFloorUpliftPct?: number | null;
+  targetRecalibrationExpectedReturnUpliftPct?: number | null;
+  targetRecalibrationNoTradeReason?: string | null;
+  targetRecalibrationFreshSourceRequired?: boolean | null;
+  targetRecalibrationSourceFreshnessVerdict?: string | null;
   targetRecalibrationReasons?: string[] | null;
   targetRecalibrationRecommendedAction?: string | null;
   riskGeometryPolicyVerdict?: string | null;
@@ -880,6 +886,12 @@ type Stage6TargetPolicyPayload = {
   formulaThresholdValue: number;
   formulaDeltaValue: number;
   formulaUnit: string;
+  requiredTargetUpliftPct: number | null;
+  executionFloorUpliftPct: number | null;
+  expectedReturnUpliftPct: number | null;
+  noTradeReason: string | null;
+  freshSourceRequired: boolean;
+  sourceFreshnessVerdict: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -1070,11 +1082,18 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
       'targetRecalibrationRequiredTargetSource',
       'targetRecalibrationRequiredTargetByExecutionFloorPrice',
       'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+      'targetRecalibrationRequiredTargetByRrPrice',
       'targetRecalibrationExecutionFloorGapPct',
       'targetRecalibrationExecutionFloorShortfallPct',
       'targetRecalibrationExpectedReturnShortfallPct',
       'targetRecalibrationExecutionFloorViable',
       'targetRecalibrationRequiredTargetDominantReason',
+      'targetRecalibrationRequiredTargetUpliftPct',
+      'targetRecalibrationExecutionFloorUpliftPct',
+      'targetRecalibrationExpectedReturnUpliftPct',
+      'targetRecalibrationNoTradeReason',
+      'targetRecalibrationFreshSourceRequired',
+      'targetRecalibrationSourceFreshnessVerdict',
       'targetRecalibrationViabilityVerdict'
     ],
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
@@ -2248,6 +2267,28 @@ const deriveTargetRecalibrationPolicy = (input: {
     (targetGeometryRequiresAction &&
       !targetRecalibrationCandidate &&
       (!targetInputsValid || currentTargetShortfallPct > targetRecalibrationGapPolicyPct));
+  const targetRecalibrationRequiredTargetUpliftPct = currentTargetShortfallPct > 0 ? currentTargetShortfallPct : null;
+  const targetRecalibrationExecutionFloorUpliftPct = executionFloorShortfallPct > 0 ? executionFloorShortfallPct : null;
+  const targetRecalibrationExpectedReturnUpliftPct = expectedReturnShortfallPct > 0 ? expectedReturnShortfallPct : null;
+  const targetRecalibrationFreshSourceRequired = targetGeometryRequiresAction;
+  const targetRecalibrationNoTradeReason = targetAlreadyReached
+    ? 'target_not_above_current'
+    : targetNoTradeConfirmed && !targetInputsValid
+      ? 'target_recalibration_inputs_incomplete'
+      : targetNoTradeConfirmed && currentTargetShortfallPct > targetRecalibrationGapPolicyPct
+        ? executionFloorViable && expectedReturnShortfallPct > targetRecalibrationGapPolicyPct
+          ? 'expected_return_required_target_gap_above_policy'
+          : 'required_target_gap_above_policy'
+        : targetNoTradeConfirmed
+          ? 'target_no_trade_until_fresh_thesis'
+          : null;
+  const targetRecalibrationSourceFreshnessVerdict = !targetRecalibrationFreshSourceRequired
+    ? 'TARGET_SOURCE_REFRESH_NOT_REQUIRED'
+    : targetRecalibrationCandidate
+      ? 'TARGET_SOURCE_REFRESH_REQUIRED_FOR_RECALIBRATION_REVIEW'
+      : targetNoTradeConfirmed
+        ? 'TARGET_SOURCE_REFRESH_REQUIRED_FOR_NO_TRADE_REEVALUATION'
+        : 'TARGET_SOURCE_REFRESH_REQUIRED_FOR_RECALCULATION';
   const viabilityReasons = [
     ...(targetAlreadyReached ? ['target_not_above_current'] : []),
     ...(!targetInputsValid && targetGeometryRequiresAction ? ['target_recalibration_inputs_incomplete'] : []),
@@ -2255,6 +2296,8 @@ const deriveTargetRecalibrationPolicy = (input: {
     ...(currentTargetShortfallPct > targetRecalibrationGapPolicyPct ? ['target_recalibration_gap_above_policy'] : []),
     ...(executionFloorViable ? ['execution_floor_target_recalibration_viable'] : []),
     ...(targetRecalibrationCandidate ? ['target_recalibration_gap_within_policy'] : []),
+    ...(targetRecalibrationNoTradeReason ? [`no_trade_reason:${targetRecalibrationNoTradeReason}`] : []),
+    ...(targetRecalibrationFreshSourceRequired ? ['fresh_target_source_required'] : []),
     ...(targetNoTradeConfirmed && !targetAlreadyReached ? ['target_no_trade_until_fresh_thesis'] : [])
   ];
   const viabilityVerdict = targetRecalibrationCandidate
@@ -2341,7 +2384,13 @@ const deriveTargetRecalibrationPolicy = (input: {
     formulaObservedValue: targetFormulaEvidence.observed,
     formulaThresholdValue: targetFormulaEvidence.threshold,
     formulaDeltaValue: targetFormulaEvidence.delta,
-    formulaUnit: targetFormulaEvidence.unit
+    formulaUnit: targetFormulaEvidence.unit,
+    requiredTargetUpliftPct: roundOrNull(targetRecalibrationRequiredTargetUpliftPct, 2),
+    executionFloorUpliftPct: roundOrNull(targetRecalibrationExecutionFloorUpliftPct, 2),
+    expectedReturnUpliftPct: roundOrNull(targetRecalibrationExpectedReturnUpliftPct, 2),
+    noTradeReason: targetRecalibrationNoTradeReason,
+    freshSourceRequired: targetRecalibrationFreshSourceRequired,
+    sourceFreshnessVerdict: targetRecalibrationSourceFreshnessVerdict
   };
   if (input.decisionReason !== 'wait_target_near_current' && !targetGeometryRequiresAction) {
     return {
@@ -8574,6 +8623,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationFormulaThresholdValue: targetRecalibrationPolicy.formulaThresholdValue,
               targetRecalibrationFormulaDeltaValue: targetRecalibrationPolicy.formulaDeltaValue,
               targetRecalibrationFormulaUnit: targetRecalibrationPolicy.formulaUnit,
+              targetRecalibrationRequiredTargetUpliftPct: targetRecalibrationPolicy.requiredTargetUpliftPct,
+              targetRecalibrationExecutionFloorUpliftPct: targetRecalibrationPolicy.executionFloorUpliftPct,
+              targetRecalibrationExpectedReturnUpliftPct: targetRecalibrationPolicy.expectedReturnUpliftPct,
+              targetRecalibrationNoTradeReason: targetRecalibrationPolicy.noTradeReason,
+              targetRecalibrationFreshSourceRequired: targetRecalibrationPolicy.freshSourceRequired,
+              targetRecalibrationSourceFreshnessVerdict: targetRecalibrationPolicy.sourceFreshnessVerdict,
               targetRecalibrationReasons: targetRecalibrationPolicy.reasons,
               targetRecalibrationRecommendedAction: targetRecalibrationPolicy.recommendedAction,
               riskGeometryPolicyVerdict: riskGeometryPolicy.verdict,
@@ -8881,6 +8936,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationFormulaThresholdValue: executionContract.targetRecalibrationFormulaThresholdValue,
               targetRecalibrationFormulaDeltaValue: executionContract.targetRecalibrationFormulaDeltaValue,
               targetRecalibrationFormulaUnit: executionContract.targetRecalibrationFormulaUnit,
+              targetRecalibrationRequiredTargetUpliftPct: executionContract.targetRecalibrationRequiredTargetUpliftPct,
+              targetRecalibrationExecutionFloorUpliftPct: executionContract.targetRecalibrationExecutionFloorUpliftPct,
+              targetRecalibrationExpectedReturnUpliftPct: executionContract.targetRecalibrationExpectedReturnUpliftPct,
+              targetRecalibrationNoTradeReason: executionContract.targetRecalibrationNoTradeReason,
+              targetRecalibrationFreshSourceRequired: executionContract.targetRecalibrationFreshSourceRequired,
+              targetRecalibrationSourceFreshnessVerdict: executionContract.targetRecalibrationSourceFreshnessVerdict,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
@@ -9473,6 +9534,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationFormulaThresholdValue: executionContract.targetRecalibrationFormulaThresholdValue,
               targetRecalibrationFormulaDeltaValue: executionContract.targetRecalibrationFormulaDeltaValue,
               targetRecalibrationFormulaUnit: executionContract.targetRecalibrationFormulaUnit,
+              targetRecalibrationRequiredTargetUpliftPct: executionContract.targetRecalibrationRequiredTargetUpliftPct,
+              targetRecalibrationExecutionFloorUpliftPct: executionContract.targetRecalibrationExecutionFloorUpliftPct,
+              targetRecalibrationExpectedReturnUpliftPct: executionContract.targetRecalibrationExpectedReturnUpliftPct,
+              targetRecalibrationNoTradeReason: executionContract.targetRecalibrationNoTradeReason,
+              targetRecalibrationFreshSourceRequired: executionContract.targetRecalibrationFreshSourceRequired,
+              targetRecalibrationSourceFreshnessVerdict: executionContract.targetRecalibrationSourceFreshnessVerdict,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
@@ -9887,6 +9954,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationFormulaThresholdValue: toOptionalFiniteNumber(item.targetRecalibrationFormulaThresholdValue),
               targetRecalibrationFormulaDeltaValue: toOptionalFiniteNumber(item.targetRecalibrationFormulaDeltaValue),
               targetRecalibrationFormulaUnit: normalizeOptionalText(item.targetRecalibrationFormulaUnit),
+              targetRecalibrationRequiredTargetUpliftPct: toOptionalFiniteNumber(item.targetRecalibrationRequiredTargetUpliftPct),
+              targetRecalibrationExecutionFloorUpliftPct: toOptionalFiniteNumber(item.targetRecalibrationExecutionFloorUpliftPct),
+              targetRecalibrationExpectedReturnUpliftPct: toOptionalFiniteNumber(item.targetRecalibrationExpectedReturnUpliftPct),
+              targetRecalibrationNoTradeReason: normalizeOptionalText(item.targetRecalibrationNoTradeReason),
+              targetRecalibrationFreshSourceRequired: item.targetRecalibrationFreshSourceRequired ?? null,
+              targetRecalibrationSourceFreshnessVerdict: normalizeOptionalText(item.targetRecalibrationSourceFreshnessVerdict),
               targetRecalibrationReasons: Array.isArray(item.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item.riskGeometryPolicyVerdict),
@@ -10159,6 +10232,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationFormulaThresholdValue: toOptionalFiniteNumber(item?.targetRecalibrationFormulaThresholdValue),
               targetRecalibrationFormulaDeltaValue: toOptionalFiniteNumber(item?.targetRecalibrationFormulaDeltaValue),
               targetRecalibrationFormulaUnit: normalizeOptionalText(item?.targetRecalibrationFormulaUnit),
+              targetRecalibrationRequiredTargetUpliftPct: toOptionalFiniteNumber(item?.targetRecalibrationRequiredTargetUpliftPct),
+              targetRecalibrationExecutionFloorUpliftPct: toOptionalFiniteNumber(item?.targetRecalibrationExecutionFloorUpliftPct),
+              targetRecalibrationExpectedReturnUpliftPct: toOptionalFiniteNumber(item?.targetRecalibrationExpectedReturnUpliftPct),
+              targetRecalibrationNoTradeReason: normalizeOptionalText(item?.targetRecalibrationNoTradeReason),
+              targetRecalibrationFreshSourceRequired: item?.targetRecalibrationFreshSourceRequired ?? null,
+              targetRecalibrationSourceFreshnessVerdict: normalizeOptionalText(item?.targetRecalibrationSourceFreshnessVerdict),
               targetRecalibrationReasons: Array.isArray(item?.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item?.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item?.riskGeometryPolicyVerdict),

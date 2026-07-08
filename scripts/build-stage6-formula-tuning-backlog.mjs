@@ -94,6 +94,13 @@ const EXPECTED_TUNABLE_POLICY_FIELDS = {
     'targetRecalibrationRequiredTargetSource',
     'targetRecalibrationRequiredTargetByExecutionFloorPrice',
     'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+    'targetRecalibrationRequiredTargetByRrPrice',
+    'targetRecalibrationRequiredTargetUpliftPct',
+    'targetRecalibrationExecutionFloorUpliftPct',
+    'targetRecalibrationExpectedReturnUpliftPct',
+    'targetRecalibrationNoTradeReason',
+    'targetRecalibrationFreshSourceRequired',
+    'targetRecalibrationSourceFreshnessVerdict',
     'targetRecalibrationRequiredTargetDominantReason',
     'targetRecalibrationExecutionFloorGapPct',
     'targetRecalibrationExecutionFloorShortfallPct',
@@ -377,6 +384,13 @@ function targetRecalibrationEvidence(row) {
     requiredTargetDominantReason: normalizeText(row?.targetRecalibrationRequiredTargetDominantReason),
     requiredTargetByExecutionFloorPrice: round(row?.targetRecalibrationRequiredTargetByExecutionFloorPrice),
     requiredTargetByExpectedReturnPrice: round(row?.targetRecalibrationRequiredTargetByExpectedReturnPrice),
+    requiredTargetByRrPrice: round(row?.targetRecalibrationRequiredTargetByRrPrice),
+    requiredTargetUpliftPct: round(row?.targetRecalibrationRequiredTargetUpliftPct),
+    executionFloorUpliftPct: round(row?.targetRecalibrationExecutionFloorUpliftPct),
+    expectedReturnUpliftPct: round(row?.targetRecalibrationExpectedReturnUpliftPct),
+    noTradeReason: normalizeText(row?.targetRecalibrationNoTradeReason),
+    freshSourceRequired: row?.targetRecalibrationFreshSourceRequired ?? null,
+    sourceFreshnessVerdict: normalizeText(row?.targetRecalibrationSourceFreshnessVerdict),
     executionFloorGapPct: round(row?.targetRecalibrationExecutionFloorGapPct),
     executionFloorShortfallPct: round(row?.targetRecalibrationExecutionFloorShortfallPct),
     expectedReturnShortfallPct: round(row?.targetRecalibrationExpectedReturnShortfallPct),
@@ -392,6 +406,8 @@ function targetRecalibrationProofGaps(evidence) {
   if (evidence.executionFloorViable == null) gaps.push('missing_execution_floor_viability');
   if (!evidence.requiredTargetDominantReason) gaps.push('missing_required_target_dominant_reason');
   if (!evidence.viabilityVerdict) gaps.push('missing_viability_verdict');
+  if (evidence.noTradeConfirmed === true && !evidence.noTradeReason) gaps.push('missing_no_trade_reason');
+  if (evidence.freshSourceRequired === true && !evidence.sourceFreshnessVerdict) gaps.push('missing_source_freshness_verdict');
   return gaps;
 }
 
@@ -404,6 +420,11 @@ function targetRecalibrationProofSummary(evidence, gaps = []) {
     `expectedReturn=${evidence.requiredTargetByExpectedReturnPrice ?? 'N/A'}`,
     `source=${evidence.requiredTargetSource || 'N/A'}`,
     `dominant=${evidence.requiredTargetDominantReason || 'N/A'}`,
+    `requiredUplift=${evidence.requiredTargetUpliftPct ?? 'N/A'}%`,
+    `execFloorUplift=${evidence.executionFloorUpliftPct ?? 'N/A'}%`,
+    `expectedReturnUplift=${evidence.expectedReturnUpliftPct ?? 'N/A'}%`,
+    `noTradeReason=${evidence.noTradeReason || 'N/A'}`,
+    `sourceFreshness=${evidence.sourceFreshnessVerdict || 'N/A'}`,
     `execFloorGap=${evidence.executionFloorGapPct ?? 'N/A'}%`,
     `execFloorShortfall=${evidence.executionFloorShortfallPct ?? 'N/A'}%`,
     `execFloorViable=${evidence.executionFloorViable ?? 'N/A'}`,
@@ -675,6 +696,18 @@ function producerFieldRecommendationsForGroup(groupRows, base) {
         'targetRecalibrationViabilityVerdict',
         'Explicitly separate recalibration candidate from no-trade target geometry.',
         'emit_recalibration_or_no_trade_verdict',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationNoTradeReason',
+        'Explain why target geometry is no-trade instead of leaving the row at a generic source refresh.',
+        'emit_target_no_trade_reason',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationSourceFreshnessVerdict',
+        'State whether a fresh target thesis is required before recalibration or no-trade reevaluation.',
+        'emit_target_source_freshness_verdict',
         commonContext
       ),
       producerFieldRecommendation(

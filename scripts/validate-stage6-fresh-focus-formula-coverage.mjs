@@ -133,6 +133,13 @@ function validateProducerSourceContract() {
   }
   for (const token of [
     'targetRecalibrationRequiredTargetByExecutionFloorPrice: executionContract.targetRecalibrationRequiredTargetByExecutionFloorPrice',
+    'targetRecalibrationRequiredTargetByRrPrice: executionContract.targetRecalibrationRequiredTargetByRrPrice',
+    'targetRecalibrationRequiredTargetUpliftPct: executionContract.targetRecalibrationRequiredTargetUpliftPct',
+    'targetRecalibrationExecutionFloorUpliftPct: executionContract.targetRecalibrationExecutionFloorUpliftPct',
+    'targetRecalibrationExpectedReturnUpliftPct: executionContract.targetRecalibrationExpectedReturnUpliftPct',
+    'targetRecalibrationNoTradeReason: executionContract.targetRecalibrationNoTradeReason',
+    'targetRecalibrationFreshSourceRequired: executionContract.targetRecalibrationFreshSourceRequired',
+    'targetRecalibrationSourceFreshnessVerdict: executionContract.targetRecalibrationSourceFreshnessVerdict',
     'targetRecalibrationExecutionFloorGapPct: executionContract.targetRecalibrationExecutionFloorGapPct',
     'targetRecalibrationExpectedReturnGapPct: executionContract.targetRecalibrationExpectedReturnGapPct',
     'targetRecalibrationExecutionFloorShortfallPct: executionContract.targetRecalibrationExecutionFloorShortfallPct',
@@ -213,6 +220,8 @@ function validateProducerSourceContract() {
     'riskGeometryRrAtRequiredTargetAndRecalculatedStop',
     'targetRecalibrationExecutionFloorViable',
     'targetRecalibrationRequiredTargetDominantReason',
+    'targetRecalibrationNoTradeReason',
+    'targetRecalibrationSourceFreshnessVerdict',
     'breakoutRetestProofUndercutReclaimFound',
     'breakout_review_ready_never_promotes',
     'target_already_reached_requires_recalibration_or_no_trade',

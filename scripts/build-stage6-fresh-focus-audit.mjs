@@ -88,6 +88,13 @@ const EXPECTED_FORMULA_CONTRACT = {
       'targetRecalibrationRequiredTargetSource',
       'targetRecalibrationRequiredTargetByExecutionFloorPrice',
       'targetRecalibrationRequiredTargetByExpectedReturnPrice',
+      'targetRecalibrationRequiredTargetByRrPrice',
+      'targetRecalibrationRequiredTargetUpliftPct',
+      'targetRecalibrationExecutionFloorUpliftPct',
+      'targetRecalibrationExpectedReturnUpliftPct',
+      'targetRecalibrationNoTradeReason',
+      'targetRecalibrationFreshSourceRequired',
+      'targetRecalibrationSourceFreshnessVerdict',
       'targetRecalibrationExecutionFloorGapPct',
       'targetRecalibrationExecutionFloorShortfallPct',
       'targetRecalibrationExpectedReturnShortfallPct',
@@ -759,6 +766,12 @@ function compactRow(row) {
     targetRecalibrationExecutionFloorGapPct: numberOrNull(row?.targetRecalibrationExecutionFloorGapPct),
     targetRecalibrationExecutionFloorShortfallPct: numberOrNull(row?.targetRecalibrationExecutionFloorShortfallPct),
     targetRecalibrationExpectedReturnShortfallPct: numberOrNull(row?.targetRecalibrationExpectedReturnShortfallPct),
+    targetRecalibrationRequiredTargetUpliftPct: numberOrNull(row?.targetRecalibrationRequiredTargetUpliftPct),
+    targetRecalibrationExecutionFloorUpliftPct: numberOrNull(row?.targetRecalibrationExecutionFloorUpliftPct),
+    targetRecalibrationExpectedReturnUpliftPct: numberOrNull(row?.targetRecalibrationExpectedReturnUpliftPct),
+    targetRecalibrationNoTradeReason: row?.targetRecalibrationNoTradeReason || null,
+    targetRecalibrationFreshSourceRequired: row?.targetRecalibrationFreshSourceRequired ?? null,
+    targetRecalibrationSourceFreshnessVerdict: row?.targetRecalibrationSourceFreshnessVerdict || null,
     targetRecalibrationFormulaEvidenceBasis: row?.targetRecalibrationFormulaEvidenceBasis || null,
     targetRecalibrationFormulaObservedValue: numberOrNull(row?.targetRecalibrationFormulaObservedValue),
     targetRecalibrationFormulaThresholdValue: numberOrNull(row?.targetRecalibrationFormulaThresholdValue),
@@ -840,6 +853,9 @@ function buildMarkdown(report) {
   lines.push(`| breakoutContinuationConfirmedCounts | ${esc(JSON.stringify(report.summary.breakoutContinuationConfirmedCounts))} |`);
   lines.push(`| targetRecalibrationViabilityVerdictCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationViabilityVerdictCounts))} |`);
   lines.push(`| targetRecalibrationRequiredTargetSourceCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationRequiredTargetSourceCounts))} |`);
+  lines.push(`| targetRecalibrationNoTradeReasonCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationNoTradeReasonCounts))} |`);
+  lines.push(`| targetRecalibrationSourceFreshnessVerdictCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationSourceFreshnessVerdictCounts))} |`);
+  lines.push(`| targetRecalibrationFreshSourceRequiredCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationFreshSourceRequiredCounts))} |`);
   lines.push(`| riskGeometryTargetRecalibrationCandidateCounts | ${esc(JSON.stringify(report.summary.riskGeometryTargetRecalibrationCandidateCounts))} |`);
   lines.push(`| zeroExecutableFormulaBottleneckCounts | ${esc(JSON.stringify(report.summary.zeroExecutableFormulaBottleneckCounts))} |`);
   lines.push(`| formulaManifestContractIssues | ${esc(report.summary.formulaManifestContractIssues)} |`);
@@ -1030,6 +1046,12 @@ function main() {
     targetRecalibrationFormulaThresholdValue: requiredFieldCoverage(rows, 'targetRecalibrationFormulaThresholdValue'),
     targetRecalibrationFormulaDeltaValue: requiredFieldCoverage(rows, 'targetRecalibrationFormulaDeltaValue'),
     targetRecalibrationFormulaUnit: requiredFieldCoverage(rows, 'targetRecalibrationFormulaUnit'),
+    targetRecalibrationRequiredTargetUpliftPct: requiredFieldCoverage(rows, 'targetRecalibrationRequiredTargetUpliftPct'),
+    targetRecalibrationExecutionFloorUpliftPct: requiredFieldCoverage(rows, 'targetRecalibrationExecutionFloorUpliftPct'),
+    targetRecalibrationExpectedReturnUpliftPct: requiredFieldCoverage(rows, 'targetRecalibrationExpectedReturnUpliftPct'),
+    targetRecalibrationNoTradeReason: requiredFieldCoverage(rows, 'targetRecalibrationNoTradeReason'),
+    targetRecalibrationFreshSourceRequired: requiredFieldCoverage(rows, 'targetRecalibrationFreshSourceRequired'),
+    targetRecalibrationSourceFreshnessVerdict: requiredFieldCoverage(rows, 'targetRecalibrationSourceFreshnessVerdict'),
     structurePolicyBlockerLane: requiredFieldCoverage(rows, 'structurePolicyBlockerLane'),
     structurePolicyFormulaEvidenceBasis: requiredFieldCoverage(rows, 'structurePolicyFormulaEvidenceBasis'),
     structurePolicyFormulaObservedValue: requiredFieldCoverage(rows, 'structurePolicyFormulaObservedValue'),
@@ -1157,6 +1179,9 @@ function main() {
       breakoutPromotionPolicyDecisionCounts: countBy(rows, (row) => row?.breakoutRetestPromotionPolicyDecision || 'missing'),
       targetRecalibrationViabilityVerdictCounts: countBy(rows, (row) => row?.targetRecalibrationViabilityVerdict || 'missing'),
       targetRecalibrationRequiredTargetSourceCounts: countBy(rows, (row) => row?.targetRecalibrationRequiredTargetSource || 'missing'),
+      targetRecalibrationNoTradeReasonCounts: countBy(rows, (row) => row?.targetRecalibrationNoTradeReason || 'missing'),
+      targetRecalibrationSourceFreshnessVerdictCounts: countBy(rows, (row) => row?.targetRecalibrationSourceFreshnessVerdict || 'missing'),
+      targetRecalibrationFreshSourceRequiredCounts: countBy(rows, (row) => String(row?.targetRecalibrationFreshSourceRequired ?? 'missing')),
       riskGeometryTargetRecalibrationCandidateCounts: countBy(rows, (row) => String(row?.riskGeometryTargetRecalibrationCandidate ?? 'missing')),
       zeroExecutableFormulaBottleneckCounts: countBy(rows, (row) => row?.zeroExecutableFormulaBottleneck || 'missing'),
       formulaManifestContractIssues: formulaManifestIssues.length,

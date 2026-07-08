@@ -159,6 +159,8 @@ function runCase(testCase) {
       'targetRecalibrationRequiredTargetPrice',
       'targetRecalibrationExecutionFloorViable',
       'targetRecalibrationRequiredTargetDominantReason',
+      'targetRecalibrationNoTradeReason',
+      'targetRecalibrationSourceFreshnessVerdict',
       'riskGeometryRequiredTargetPrice',
       'breakoutRetestProofConfirmed',
       'currentEntryStructureVerdict'
