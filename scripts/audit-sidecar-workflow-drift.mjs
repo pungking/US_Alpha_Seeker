@@ -28,12 +28,6 @@ const findCron = (text, cronExpr) => {
   return text.includes(`cron: "${cronExpr}"`) || text.includes(`cron: '${cronExpr}'`);
 };
 
-const findDefaultInput = (text, inputName, expected) => {
-  if (!text) return false;
-  const marker = new RegExp(`${inputName}:([\\s\\S]{0,260}?)default:\\s*["']${expected}["']`, "m");
-  return marker.test(text);
-};
-
 const asCheck = (id, pass, detail, severity = "error") => ({ id, pass, detail, severity });
 
 const buildMarkdown = (report) => {
@@ -115,7 +109,7 @@ const main = () => {
   checks.push(
     asCheck(
       "bridge_target_repo_default",
-      findDefaultInput(texts.bridgeDryRun, "target_repo", "pungking/alpha-exec-engine"),
+      /TARGET_REPO[\s\S]{0,240}pungking\/alpha-exec-engine|process\.env\.TARGET_REPO[\s\S]{0,120}pungking\/alpha-exec-engine/.test(texts.bridgeDryRun || ""),
       "bridge target_repo default should be pungking/alpha-exec-engine",
       "warn"
     )
@@ -123,7 +117,7 @@ const main = () => {
   checks.push(
     asCheck(
       "bridge_target_workflow_default",
-      findDefaultInput(texts.bridgeDryRun, "target_workflow", "dry-run.yml"),
+      /TARGET_WORKFLOW[\s\S]{0,240}dry-run\.yml|process\.env\.TARGET_WORKFLOW[\s\S]{0,120}dry-run\.yml/.test(texts.bridgeDryRun || ""),
       "bridge target_workflow default should be dry-run.yml",
       "warn"
     )
@@ -131,7 +125,7 @@ const main = () => {
   checks.push(
     asCheck(
       "canary_target_workflow_default",
-      findDefaultInput(texts.canary, "target_workflow", "dry-run.yml"),
+      /TARGET_WORKFLOW:\s*dry-run\.yml/.test(texts.canary || ""),
       "canary target_workflow default should be dry-run.yml",
       "warn"
     )
@@ -146,10 +140,30 @@ const main = () => {
   );
   checks.push(
     asCheck(
-      "schedule_sidecar_watchdog_kicker_cron",
-      findCron(texts.schedule, "8,23,38,53 13-21 * * 1-5"),
-      "schedule kicker cron should match sidecar watchdog cadence",
-      "warn"
+      "bridge_watchdog_cron",
+      findCron(texts.bridgeWatchdog, "8,23,38,53 13-21 * * 1-5"),
+      "bridge watchdog owns the weekday cadence"
+    )
+  );
+  checks.push(
+    asCheck(
+      "bridge_watchdog_no_self_requeue",
+      !/workflow_id:\s*["']sidecar-dispatch-watchdog\.yml["']|BRIDGE_WATCHDOG_LOOP|loop_enabled/.test(texts.bridgeWatchdog || ""),
+      "bridge watchdog must not dispatch itself"
+    )
+  );
+  checks.push(
+    asCheck(
+      "schedule_no_watchdog_loop_seed",
+      !/Seed bridge watchdog|BRIDGE_LOOP_SEED|loop_enabled/.test(texts.schedule || ""),
+      "main scheduler must not seed a watchdog loop"
+    )
+  );
+  checks.push(
+    asCheck(
+      "bridge_watchdog_overlap_cancel",
+      /cancel-in-progress:\s*true/.test(texts.bridgeWatchdog || ""),
+      "overlapping watchdog runs are canceled"
     )
   );
   checks.push(

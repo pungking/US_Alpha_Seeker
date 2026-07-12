@@ -64,6 +64,8 @@ jobs:
         run: npm run ops:stage6:earnings:audit
       - name: Auto-scheduler reliability audit
         run: npm run ops:auto-scheduler:audit
+      - name: TypeScript contract check
+        run: npm run typecheck
       - name: TypeScript debt report (non-blocking)
         run: npm run ops:tsc:debt
         continue-on-error: true
