@@ -336,6 +336,10 @@ jobs:
         if: success()
         run: npm run ops:stage3-5:quant:audit
 
+      - name: Audit Stage3-5 | OOS and transaction cost evidence
+        if: success()
+        run: npm run ops:stage3-5:oos-cost:audit
+
       - name: Audit Stage6 Policy | Execution gate
         if: success()
         run: npm run ops:stage6:exec:audit
@@ -639,6 +643,8 @@ jobs:
             docs/STAGE6_WEAK_PILLAR_RUNTIME_AUDIT.md
             state/stage6-quality-trend-audit.json
             state/stage6-quality-trend-audit.md
+            state/stage3-5-oos-cost-audit.json
+            docs/STAGE3_5_OOS_COST_AUDIT.md
             state/stage3-6-full-stage-audit.json
             state/stage3-6-audit-group-summary.*
             docs/STAGE3_6_FULL_STAGE_AUDIT.md

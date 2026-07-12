@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "stage3-5-oos-v1",
+  "rows": [
+    {
+      "symbol": "AAA",
+      "signalDate": "2026-06-01",
+      "split": "OOS",
+      "side": "LONG",
+      "entryPrice": 100,
+      "exitPrice": 110,
+      "holdingDays": 10,
+      "spreadBps": 10,
+      "slippageBps": 5,
+      "commissionBps": 1
+    },
+    {
+      "symbol": "BBB",
+      "signalDate": "2026-06-02",
+      "split": "OOS",
+      "side": "LONG",
+      "entryPrice": 100,
+      "exitPrice": 95,
+      "holdingDays": 8,
+      "spreadBps": 20,
+      "slippageBps": 5,
+      "commissionBps": 1
+    },
+    {
+      "symbol": "CCC",
+      "signalDate": "2026-06-03",
+      "split": "OOS",
+      "side": "LONG",
+      "entryPrice": 100,
+      "exitPrice": 102,
+      "holdingDays": 12,
+      "spreadBps": 8,
+      "slippageBps": 4,
+      "commissionBps": 1
+    },
+    {
+      "symbol": "TRAIN_ONLY",
+      "signalDate": "2026-05-01",
+      "split": "TRAIN",
+      "side": "LONG",
+      "entryPrice": 100,
+      "exitPrice": 200,
+      "holdingDays": 5,
+      "spreadBps": 1,
+      "slippageBps": 1,
+      "commissionBps": 1
+    }
+  ]
+}

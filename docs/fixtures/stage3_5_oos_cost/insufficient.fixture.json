@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "stage3-5-oos-v1",
+  "rows": [
+    {
+      "symbol": "ONE",
+      "signalDate": "2026-06-01",
+      "split": "OOS",
+      "side": "LONG",
+      "entryPrice": 100,
+      "exitPrice": 101,
+      "holdingDays": 5,
+      "spreadBps": 10,
+      "slippageBps": 5,
+      "commissionBps": 1
+    }
+  ]
+}

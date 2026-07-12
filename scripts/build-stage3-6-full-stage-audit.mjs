@@ -48,6 +48,7 @@ const subreportPath = (name) => path.join(SUBREPORT_DIR, name);
 const SUBREPORTS = {
   stage35Methodology: subreportPath('stage3-5-methodology-audit.json'),
   stage35QuantQuality: subreportPath('stage3-5-quant-quality-audit.json'),
+  stage35OosCost: subreportPath('stage3-5-oos-cost-audit.json'),
   stage6FreshFocus: subreportPath('stage6-fresh-focus-audit.json'),
   stage6FormulaTuningBacklog: subreportPath('stage6-formula-tuning-backlog.json'),
   stage6RuntimeFormulaContractProof: subreportPath('stage6-runtime-formula-contract-proof.json'),
@@ -689,6 +690,7 @@ function deriveRuntimeProof(stage6Rows, subreports) {
 function deriveStageVerdicts(stages, subreports, runtimeProof) {
   const quant = subreports.stage35QuantQuality;
   const methodology = subreports.stage35Methodology;
+  const oosCost = subreports.stage35OosCost;
   const stage6Fresh = subreports.stage6FreshFocus;
   const stage6Blockers = subreports.stage6BlockerRootCause;
   return {
@@ -698,6 +700,7 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
       source: stages.stage3.file,
       methodStatus: methodology.overall,
       quantStatus: quant.overall,
+      oosCostStatus: oosCost.overall,
       coverage: coverage(stages.stage3.rows, STAGE_FIELD_GROUPS.stage3)
     },
     Stage4: {
@@ -706,6 +709,7 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
       source: stages.stage4.file,
       methodStatus: methodology.overall,
       quantStatus: quant.overall,
+      oosCostStatus: oosCost.overall,
       coverage: coverage(stages.stage4.rows, STAGE_FIELD_GROUPS.stage4)
     },
     Stage5: {
@@ -714,6 +718,7 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
       source: stages.stage5.file,
       methodStatus: methodology.overall,
       quantStatus: quant.overall,
+      oosCostStatus: oosCost.overall,
       coverage: coverage(stages.stage5.rows, STAGE_FIELD_GROUPS.stage5)
     },
     Stage6: {
@@ -1034,6 +1039,7 @@ function buildMarkdown(report) {
     verdict.verdict,
     verdict.rows,
     verdict.source || 'N/A',
+    verdict.oosCostStatus || 'N/A',
     coverageSummary(verdict.coverage)
   ]);
   const lineageRows = [
@@ -1138,7 +1144,7 @@ function buildMarkdown(report) {
     `- Safety: report-only; brokerMutationAllowed=false; sidecarMutationAllowed=false.\n\n` +
     `## Lineage\n\n${mdTable(['Edge', 'Producer Source', 'Local Artifact', 'Match', 'Source Status'], lineageRows)}\n\n` +
     `Reasons: ${report.lineage.reason.join(', ')}\n\n` +
-    `## Stage Verdicts\n\n${mdTable(['Stage', 'Verdict', 'Rows', 'Source', 'Coverage'], stageRows)}\n\n` +
+    `## Stage Verdicts\n\n${mdTable(['Stage', 'Verdict', 'Rows', 'Source', 'OOS / Cost Evidence', 'Coverage'], stageRows)}\n\n` +
     `## Stage Formula Evidence\n\n${mdTable(['Stage', 'Present / Checks', 'Missing Required', 'Evidence Sources'], formulaRows)}\n\n` +
     `${missingFormulaRows.length ? `${mdTable(['Source', 'Stage', 'Check', 'File', 'Line'], missingFormulaRows)}\n\n` : 'Missing required formula evidence: none\n\n'}` +
     `## Stage Data Health\n\n${mdTable(['Stage', 'Rows', 'Score Bounds', 'Source Counts', 'Freshness Coverage', 'Freshness Age', 'Fallback Flags', 'Price History'], dataHealthRows)}\n\n` +
