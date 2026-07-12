@@ -14,11 +14,13 @@ The roadmap is evidence-driven and does not authorize broker mutation. Readiness
 
 | Area | Evidence | Current interpretation |
 |---|---|---|
-| Stage3-6 lineage | Latest same-run chain through `STAGE6_ALPHA_FINAL_2026-07-11_01-45-17.json` passes the full-stage lineage audit. | Pipeline handoff is auditable; formula quality still needs row-level tuning. |
-| Stage6 blocker mix | Latest runtime has 4 target-recalibration, 1 structure-proof, and 1 breakout-proof blocker. | Do not relax global filters. Improve target thesis evidence first. |
-| TypeScript | `npx tsc --noEmit` passes after completing the non-applicable risk-geometry return contract. | Typecheck can move from non-blocking debt report to a blocking CI gate after one clean CI run. |
-| Scheduler/watchdog | 80 of the latest 100 Actions runs are `Sidecar Dispatch Watchdog`; the workflow has both cron cadence and an optional 48-run self-requeue loop seeded by the main scheduler. | P0 workflow amplification/cost risk. Fix separately from Stage6 policy. |
-| Harvester universe | Authoritative listing refresh, analysis-eligible common-stock classification, mapping refresh audit, and mapping prune count exist. | Core freshness lane is present; corporate-action and partial-retry proof remain. |
+| Stage3-6 lineage | `STAGE6_ALPHA_FINAL_2026-07-12_18-25-42.json` passes same-run lineage, freshness, runtime formula, and target-thesis field coverage. | Static/runtime analysis contracts pass; this does not prove alpha performance. |
+| Stage6 blocker mix | The latest holiday analysis-only run produced two actionable executable candidates and five bounded wait/risk rows. | The former zero-executable condition is not permanent; do not relax global filters. |
+| TypeScript | `npm run typecheck` is a blocking `analysis-safety-ci` step and passes on `main`. | Structural TypeScript regressions now block CI; the debt report remains diagnostic only. |
+| Scheduler/watchdog | The weekday cron is the single watchdog cadence owner; self-requeue and main-scheduler loop seeding were removed. | Workflow amplification is contained and guarded by a 16-check drift audit. |
+| Harvester target lineage | Harvester records target vendor, retrieval time, and explicit unknown vendor as-of status; Stage0 propagation has a blocking contract check. | Full scheduled collection runtime proof is still required because dispatch mode collects OHLCV only. |
+| Stage3-5 OOS/cost | The deterministic OOS/cost contract passes fixtures, but the real evidence store contains 0/30 labeled OOS rows. | No empirical alpha or net-return claim is permitted yet. |
+| Dependency security | `npm audit --omit=dev` reports 1 critical, 3 high, and 9 moderate transitive findings. | Remediate in an isolated dependency/security task; do not apply a blind bulk audit fix. |
 | Sidecar safety | Live-readiness scorecard and report-only protection/guard lanes exist; broker mutation remains approval-gated. | Paper safety is mature, but unresolved protection metadata must keep live readiness blocked. |
 
 ## Priority 0 - correctness and operational containment
@@ -32,6 +34,8 @@ Owner: `US_Alpha_Seeker`
 - Keep `finalDecision` and promotion rules unchanged.
 - Done when runtime audits report no target-lineage/thesis proof gaps and historical artifacts remain backward compatible.
 
+Status: **complete for Stage6 target-thesis fields** on run `29186871032`; Harvester vendor lineage runtime propagation remains under P1.1.
+
 ### P0.2 Eliminate watchdog workflow amplification
 
 Owner: `US_Alpha_Seeker` workflows; separate PR.
@@ -41,6 +45,8 @@ Owner: `US_Alpha_Seeker` workflows; separate PR.
 - Add `cancel-in-progress` or an explicit active-loop lease/idempotency key.
 - Done when one market session creates the documented bounded number of watchdog runs and no overlapping loop chain exists.
 
+Status: **implemented and CI-verified**. The next market session supplies the bounded run-count observation only.
+
 ### P0.3 Make TypeScript typecheck blocking
 
 Owner: `US_Alpha_Seeker` CI; separate PR.
@@ -48,6 +54,17 @@ Owner: `US_Alpha_Seeker` CI; separate PR.
 - Add a direct `tsc --noEmit` CI step.
 - Keep the debt report only for diagnostics; remove `continue-on-error` after one clean CI proof.
 - Done when analysis-safety CI fails on a structural type regression and passes on `main`.
+
+Status: **complete**; `analysis-safety-ci` passed on heads `5d495a62` and `c98b22ad`.
+
+### P0.5 Remediate dependency vulnerabilities without a blind bulk upgrade
+
+Owner: `US_Alpha_Seeker`; isolated dependency PR.
+
+- Trace `protobufjs`, `ws`, `minimatch`, and `basic-ftp` through direct parents before changing the lockfile.
+- Upgrade the smallest direct dependency set, then rerun build, typecheck, browser automation, Gemini smoke, and analysis safety CI.
+- Do not use an unreviewed `npm audit fix` because the current dry-run proposes broad transitive churn.
+- Done when production audit has no critical/high findings or every remaining finding has a documented non-reachable exception.
 
 ### P0.4 Preserve execution boundaries
 
@@ -78,6 +95,8 @@ Owner: all repositories.
 - Add walk-forward and out-of-sample calibration for score buckets, sector neutrality, turnover, drawdown, and transaction-cost sensitivity.
 - Separate predictive quality from data availability and from execution feasibility.
 - Do not claim maximum accuracy without these empirical tests.
+
+Current gate: `state/stage3-5-oos-cost-audit.json` reports `insufficient_oos_evidence` with 0/30 valid OOS rows. The next implementation must capture timestamped forward outcomes; it must not synthesize or relabel historical winners.
 
 ### P1.4 Scheduler state-machine simplification
 
@@ -114,22 +133,28 @@ Owner: all repositories.
 - Keep paid/vendor secrets server-side and prevent `VITE_*` exposure for secret values.
 - Continue redacting account identifiers, positions, tokens, and paid-data credentials from public artifacts.
 
+### P2.5 Web bundle and browser-automation cost
+
+- The production bundle is approximately 1.88 MB minified / 529 KB gzip and exceeds the Vite 500 KB warning threshold.
+- Characterize route-level and analysis-module loading before splitting; do not refactor Stage6 policy merely to reduce bundle size.
+- Measure Auto-Scheduler startup and Puppeteer stability after any code split.
+
 ## Recommended sequence
 
-1. Complete P0.1 with one fresh Stage6 runtime proof.
-2. Fix P0.2 watchdog amplification in an isolated workflow PR.
-3. Promote P0.3 typecheck to a blocking gate.
-4. Implement P1.1 target lineage at the Harvester source boundary.
-5. Execute P1.2 and P1.3 before any micro-live readiness review.
-6. Reassess the sidecar live-readiness scorecard only after protection/ledger blockers close.
+1. Build the Stage7-style timestamped outcome ledger required by P1.3; keep the current 0/30 result explicit until real labels mature.
+2. Complete P1.1 runtime proof after the next full scheduled Harvester collection; dispatch-only OHLCV runs do not exercise target lineage.
+3. Remediate P0.5 dependency findings in an isolated lockfile/security change.
+4. Execute P1.2 corporate-action and bounded partial-retry fixtures.
+5. Simplify the scheduler state machine under P1.4 without reintroducing self-requeue.
+6. Reassess sidecar live readiness only after OOS evidence and protection/ledger blockers close.
 
 ## Engineering readiness estimate
 
 | Area | Estimate | Main remaining evidence |
 |---|---:|---|
-| Harvester/universe freshness | 82/100 | corporate-action fixtures and bounded partial retry |
-| Stage3-5 analytical reliability | 74/100 | out-of-sample calibration and cost-aware validation |
-| Stage6 decision contract | 78/100 | fresh target-thesis runtime proof and continued zero-executable calibration |
+| Harvester/universe freshness | 84/100 | full-collection target lineage proof, corporate-action fixtures, bounded partial retry |
+| Stage3-5 analytical reliability | 74/100 | real timestamped OOS outcomes; current valid sample is 0/30 |
+| Stage6 decision contract | 84/100 | target vendor lineage runtime propagation and continued regime-diverse calibration |
 | Paper execution/ledger safety | 82/100 | close remaining protection and metadata blockers |
 | Micro-live review readiness | 48/100 | empirical strategy proof, operational containment, and protection closure |
 
