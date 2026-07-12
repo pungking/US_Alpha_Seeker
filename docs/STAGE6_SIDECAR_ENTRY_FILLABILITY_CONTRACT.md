@@ -41,6 +41,22 @@ If the original Stage6 entry is too far from current price, or the current price
 | `fillabilityPolicyVerdict` | string | Sidecar-friendly alias derived from `executionFeasibilityAtCurrent`. |
 | `entryTimingPolicyVerdict` | string | Sidecar-friendly alias derived from `executionFeasibilityAtCurrentVerdict`. |
 
+### Target thesis evidence
+
+Target recalibration rows also carry report-only evidence that separates stale or unknown source lineage from a structurally unsupported target thesis:
+
+| Field | Meaning |
+|---|---|
+| `targetRecalibrationSourceField` | Exact producer input selected for the target, such as `targetMeanPrice` or `resistanceLevel`. |
+| `targetRecalibrationSourceRetrievedAt` | Latest row/artifact retrieval timestamp known to Stage6. It is not an analyst-consensus effective date. |
+| `targetRecalibrationSourceAsOfStatus` | Explicit as-of quality. Vendor consensus targets remain `VENDOR_TARGET_ASOF_UNKNOWN` unless the vendor supplies an effective date. |
+| `targetRecalibrationTechnicalCeilingPrice` | Recent swing-high ceiling used to test whether the required target is technically plausible. |
+| `targetRecalibrationTechnicalCeilingGapPct` | Gap between the technical ceiling and the producer-required target. |
+| `targetRecalibrationTechnicalCeilingSufficient` | Whether the technical ceiling reaches the required target. This is evidence only and never an execution waiver. |
+| `targetRecalibrationThesisVerdict` | Separates missing ceiling evidence, supported review, and structurally insufficient no-trade cases. |
+
+These fields must not promote a row by themselves. `finalDecision`, risk geometry, current-entry feasibility, and all existing quality gates remain authoritative.
+
 ## Downgrade Semantics
 
 When Stage6 initially qualifies a candidate as executable but the current-market check fails:

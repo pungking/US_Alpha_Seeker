@@ -240,6 +240,15 @@ interface AlphaCandidate {
   targetRecalibrationNoTradeReason?: string | null;
   targetRecalibrationFreshSourceRequired?: boolean | null;
   targetRecalibrationSourceFreshnessVerdict?: string | null;
+  targetRecalibrationSourceField?: string | null;
+  targetRecalibrationSourceRetrievedAt?: string | null;
+  targetRecalibrationSourceAsOfStatus?: string | null;
+  targetRecalibrationTechnicalCeilingPrice?: number | null;
+  targetRecalibrationTechnicalCeilingSource?: string | null;
+  targetRecalibrationTechnicalCeilingDate?: string | null;
+  targetRecalibrationTechnicalCeilingGapPct?: number | null;
+  targetRecalibrationTechnicalCeilingSufficient?: boolean | null;
+  targetRecalibrationThesisVerdict?: string | null;
   targetRecalibrationReasons?: string[] | null;
   targetRecalibrationRecommendedAction?: string | null;
   riskGeometryPolicyVerdict?: string | null;
@@ -892,6 +901,15 @@ type Stage6TargetPolicyPayload = {
   noTradeReason: string | null;
   freshSourceRequired: boolean;
   sourceFreshnessVerdict: string;
+  sourceField: string | null;
+  sourceRetrievedAt: string | null;
+  sourceAsOfStatus: string;
+  technicalCeilingPrice: number | null;
+  technicalCeilingSource: string | null;
+  technicalCeilingDate: string | null;
+  technicalCeilingGapPct: number | null;
+  technicalCeilingSufficient: boolean | null;
+  thesisVerdict: string;
   reasons: string[];
   recommendedAction: string;
 };
@@ -1094,6 +1112,15 @@ const STAGE6_ZERO_EXECUTABLE_FORMULA_CONTRACT = {
       'targetRecalibrationNoTradeReason',
       'targetRecalibrationFreshSourceRequired',
       'targetRecalibrationSourceFreshnessVerdict',
+      'targetRecalibrationSourceField',
+      'targetRecalibrationSourceRetrievedAt',
+      'targetRecalibrationSourceAsOfStatus',
+      'targetRecalibrationTechnicalCeilingPrice',
+      'targetRecalibrationTechnicalCeilingSource',
+      'targetRecalibrationTechnicalCeilingDate',
+      'targetRecalibrationTechnicalCeilingGapPct',
+      'targetRecalibrationTechnicalCeilingSufficient',
+      'targetRecalibrationThesisVerdict',
       'targetRecalibrationViabilityVerdict'
     ],
     STOP_TARGET_RISK_GEOMETRY_RECALCULATION: [
@@ -2080,6 +2107,12 @@ const deriveTargetRecalibrationPolicy = (input: {
   stop: number | null;
   minTargetBufferPct?: number | null;
   minRr?: number | null;
+  targetSourceField?: string | null;
+  targetSourceRetrievedAt?: string | null;
+  targetSourceAsOfStatus?: string | null;
+  technicalCeilingPrice?: number | null;
+  technicalCeilingSource?: string | null;
+  technicalCeilingDate?: string | null;
 }): Stage6TargetPolicyPayload => {
   const targetAlreadyReached =
     input.price != null &&
@@ -2248,6 +2281,26 @@ const deriveTargetRecalibrationPolicy = (input: {
     currentTargetGapPct != null &&
     Number.isFinite(currentTargetGapPct);
   const targetGeometryRequiresAction = targetAlreadyReached || targetBufferWeak;
+  const targetSourceField = String(input.targetSourceField || '').trim() || null;
+  const targetSourceRetrievedAt = String(input.targetSourceRetrievedAt || '').trim() || null;
+  const targetSourceAsOfStatus = String(input.targetSourceAsOfStatus || '').trim() ||
+    (targetSourceRetrievedAt ? 'TARGET_SOURCE_RETRIEVED_ASOF_UNKNOWN' : 'TARGET_SOURCE_LINEAGE_MISSING');
+  const technicalCeilingPrice =
+    input.technicalCeilingPrice != null &&
+    Number.isFinite(input.technicalCeilingPrice) &&
+    input.technicalCeilingPrice > 0
+      ? input.technicalCeilingPrice
+      : null;
+  const technicalCeilingSource = String(input.technicalCeilingSource || '').trim() || null;
+  const technicalCeilingDate = String(input.technicalCeilingDate || '').trim() || null;
+  const technicalCeilingGapPct =
+    technicalCeilingPrice != null && requiredTargetPrice != null && requiredTargetPrice > 0
+      ? ((technicalCeilingPrice - requiredTargetPrice) / requiredTargetPrice) * 100
+      : null;
+  const technicalCeilingSufficient =
+    technicalCeilingPrice != null && requiredTargetPrice != null
+      ? technicalCeilingPrice >= requiredTargetPrice
+      : null;
   const targetRecalibrationCandidate =
     input.decisionReason === 'wait_target_near_current' &&
     !targetAlreadyReached &&
@@ -2270,7 +2323,10 @@ const deriveTargetRecalibrationPolicy = (input: {
   const targetRecalibrationRequiredTargetUpliftPct = currentTargetShortfallPct > 0 ? currentTargetShortfallPct : null;
   const targetRecalibrationExecutionFloorUpliftPct = executionFloorShortfallPct > 0 ? executionFloorShortfallPct : null;
   const targetRecalibrationExpectedReturnUpliftPct = expectedReturnShortfallPct > 0 ? expectedReturnShortfallPct : null;
-  const targetRecalibrationFreshSourceRequired = targetGeometryRequiresAction;
+  const targetSourceAsOfUnknown = targetSourceAsOfStatus.includes('UNKNOWN');
+  const targetRecalibrationFreshSourceRequired = Boolean(
+    targetGeometryRequiresAction && (!targetSourceRetrievedAt || targetSourceAsOfUnknown)
+  );
   const targetRecalibrationNoTradeReason = targetAlreadyReached
     ? 'target_not_above_current'
     : targetNoTradeConfirmed && !targetInputsValid
@@ -2282,13 +2338,26 @@ const deriveTargetRecalibrationPolicy = (input: {
         : targetNoTradeConfirmed
           ? 'target_no_trade_until_fresh_thesis'
           : null;
-  const targetRecalibrationSourceFreshnessVerdict = !targetRecalibrationFreshSourceRequired
+  const targetRecalibrationSourceFreshnessVerdict = !targetGeometryRequiresAction
     ? 'TARGET_SOURCE_REFRESH_NOT_REQUIRED'
-    : targetRecalibrationCandidate
-      ? 'TARGET_SOURCE_REFRESH_REQUIRED_FOR_RECALIBRATION_REVIEW'
-      : targetNoTradeConfirmed
-        ? 'TARGET_SOURCE_REFRESH_REQUIRED_FOR_NO_TRADE_REEVALUATION'
-        : 'TARGET_SOURCE_REFRESH_REQUIRED_FOR_RECALCULATION';
+    : !targetSourceRetrievedAt
+      ? 'TARGET_SOURCE_LINEAGE_MISSING_REFRESH_REQUIRED'
+      : targetSourceAsOfUnknown
+        ? 'TARGET_SOURCE_RETRIEVED_ASOF_UNKNOWN_THESIS_REBUILD_REQUIRED'
+        : targetRecalibrationCandidate
+          ? 'TARGET_SOURCE_PRESENT_RECALIBRATION_REVIEW'
+          : targetNoTradeConfirmed
+            ? 'TARGET_SOURCE_PRESENT_NO_TRADE_REEVALUATION'
+            : 'TARGET_SOURCE_PRESENT_RECALCULATION';
+  const targetRecalibrationThesisVerdict = !targetGeometryRequiresAction
+    ? 'TARGET_THESIS_NOT_APPLICABLE'
+    : requiredTargetPrice == null
+      ? 'TARGET_THESIS_REQUIRED_TARGET_MISSING'
+      : technicalCeilingPrice == null
+        ? 'TARGET_THESIS_TECHNICAL_CEILING_MISSING'
+        : technicalCeilingSufficient === true
+          ? 'TARGET_THESIS_TECHNICAL_CEILING_SUPPORTS_RECALIBRATION_REVIEW'
+          : 'TARGET_THESIS_TECHNICAL_CEILING_BELOW_REQUIRED_TARGET_NO_TRADE';
   const viabilityReasons = [
     ...(targetAlreadyReached ? ['target_not_above_current'] : []),
     ...(!targetInputsValid && targetGeometryRequiresAction ? ['target_recalibration_inputs_incomplete'] : []),
@@ -2298,6 +2367,13 @@ const deriveTargetRecalibrationPolicy = (input: {
     ...(targetRecalibrationCandidate ? ['target_recalibration_gap_within_policy'] : []),
     ...(targetRecalibrationNoTradeReason ? [`no_trade_reason:${targetRecalibrationNoTradeReason}`] : []),
     ...(targetRecalibrationFreshSourceRequired ? ['fresh_target_source_required'] : []),
+    ...(targetGeometryRequiresAction && technicalCeilingPrice == null ? ['technical_target_ceiling_missing'] : []),
+    ...(targetGeometryRequiresAction && technicalCeilingSufficient === false
+      ? ['technical_target_ceiling_below_required_target']
+      : []),
+    ...(targetGeometryRequiresAction && technicalCeilingSufficient === true
+      ? ['technical_target_ceiling_supports_recalibration_review']
+      : []),
     ...(targetNoTradeConfirmed && !targetAlreadyReached ? ['target_no_trade_until_fresh_thesis'] : [])
   ];
   const viabilityVerdict = targetRecalibrationCandidate
@@ -2390,7 +2466,16 @@ const deriveTargetRecalibrationPolicy = (input: {
     expectedReturnUpliftPct: roundOrNull(targetRecalibrationExpectedReturnUpliftPct, 2),
     noTradeReason: targetRecalibrationNoTradeReason,
     freshSourceRequired: targetRecalibrationFreshSourceRequired,
-    sourceFreshnessVerdict: targetRecalibrationSourceFreshnessVerdict
+    sourceFreshnessVerdict: targetRecalibrationSourceFreshnessVerdict,
+    sourceField: targetSourceField,
+    sourceRetrievedAt: targetSourceRetrievedAt,
+    sourceAsOfStatus: targetSourceAsOfStatus,
+    technicalCeilingPrice: roundOrNull(technicalCeilingPrice, 4),
+    technicalCeilingSource,
+    technicalCeilingDate,
+    technicalCeilingGapPct: roundOrNull(technicalCeilingGapPct, 2),
+    technicalCeilingSufficient,
+    thesisVerdict: targetRecalibrationThesisVerdict
   };
   if (input.decisionReason !== 'wait_target_near_current' && !targetGeometryRequiresAction) {
     return {
@@ -2495,6 +2580,7 @@ const deriveRiskGeometryPolicy = (input: {
       recalculatedStopPrice: null,
       recalculatedStopDistancePct: null,
       rrAtRecalculatedStop: null,
+      rrAtRequiredTargetAndRecalculatedStop: null,
       requiredTargetPrice: null,
       requiredTargetByStopPrice: null,
       requiredTargetByBufferPrice: null,
@@ -2515,6 +2601,8 @@ const deriveRiskGeometryPolicy = (input: {
       targetShortfallPolicyVerdict: 'not_applicable',
       recalculatedStopRrOk: false,
       targetBufferOk: false,
+      targetBufferAtRequiredTargetPct: null,
+      targetRecalibrationProofReady: false,
       repairLane: 'not_applicable',
       proofConfirmed: false,
       proofReasons: ['not_risk_geometry_blocker'],
@@ -3219,17 +3307,33 @@ const deriveZeroExecutableFormulaProfile = (input: {
     if (winner.key === 'TARGET_RECALIBRATION_FORMULA') {
       const noTrade = input.targetPolicy.noTradeConfirmed;
       const basis = input.targetPolicy.formulaEvidenceBasis;
+      const sourceLineageMissing =
+        !input.targetPolicy.sourceField ||
+        !input.targetPolicy.sourceRetrievedAt ||
+        input.targetPolicy.sourceAsOfStatus.includes('LINEAGE_MISSING');
+      const technicalCeilingMissing = input.targetPolicy.technicalCeilingPrice == null;
+      const technicalCeilingInsufficient =
+        input.targetPolicy.technicalCeilingPrice != null &&
+        input.targetPolicy.technicalCeilingSufficient === false;
       return {
         knob: basis.includes('input_gap')
           ? 'TARGET_RECALIBRATION_INPUT_COVERAGE'
-          : noTrade
-            ? 'TARGET_RECALIBRATION_SOURCE_REFRESH'
-            : 'TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE',
-        direction: noTrade ? 'NO_TRADE_UNTIL_FRESH_TARGET_SOURCE' : 'RECALIBRATE_TARGET_WITH_FRESH_THESIS',
+          : sourceLineageMissing
+            ? 'TARGET_RECALIBRATION_SOURCE_LINEAGE'
+            : technicalCeilingMissing
+              ? 'TARGET_RECALIBRATION_TECHNICAL_CEILING'
+              : technicalCeilingInsufficient
+                ? 'TARGET_RECALIBRATION_THESIS_REBUILD'
+                : input.targetPolicy.freshSourceRequired
+                  ? 'TARGET_RECALIBRATION_SOURCE_ASOF'
+                  : 'TARGET_RECALIBRATION_REQUIRED_TARGET_PRICE',
+        direction: noTrade
+          ? 'KEEP_NO_TRADE_UNTIL_TARGET_THESIS_EVIDENCE_COMPLETE'
+          : 'RECALIBRATE_TARGET_WITH_PROVEN_THESIS',
         magnitude: formulaEvidence.deltaValue,
         rationale: noTrade
-          ? 'Current target shortfall is not safely repairable by execution-side chase; require fresh target source/thesis.'
-          : 'Current target is below the producer-required target; tune target recalibration evidence before promotion.'
+          ? 'Current target shortfall is not safely repairable by execution-side chase; require source lineage and a sufficient technical target ceiling.'
+          : 'Current target is below the producer-required target; prove source lineage and technical ceiling before recalibration review.'
       };
     }
     if (winner.key === 'RISK_GEOMETRY_RECALCULATION_FORMULA') {
@@ -3322,7 +3426,11 @@ const deriveZeroExecutableFormulaProfile = (input: {
     ...(targetSeverity > 0 ? [
       `target_shortfall_pct:${roundOrNull(targetShortfallPct, 2) ?? 0}`,
       `target_formula_basis:${input.targetPolicy.formulaEvidenceBasis}`,
-      `target_formula_delta:${input.targetPolicy.formulaDeltaValue}`
+      `target_formula_delta:${input.targetPolicy.formulaDeltaValue}`,
+      `target_source_field:${input.targetPolicy.sourceField || 'missing'}`,
+      `target_source_asof_status:${input.targetPolicy.sourceAsOfStatus}`,
+      `target_technical_ceiling_sufficient:${input.targetPolicy.technicalCeilingSufficient}`,
+      `target_thesis_verdict:${input.targetPolicy.thesisVerdict}`
     ] : []),
     ...(riskSeverity > 0 ? [
       `risk_target_shortfall_pct:${roundOrNull(riskTargetShortfallPct, 2) ?? 0}`,
@@ -3347,15 +3455,24 @@ const deriveZeroExecutableFormulaProfile = (input: {
         ...(input.targetPolicy.recalibrationCandidate ? [] : ['target_recalibration_candidate_false']),
         ...(input.targetPolicy.executionFloorViable ? [] : ['execution_floor_not_viable']),
         ...(input.targetPolicy.shortfallPct != null && input.targetPolicy.shortfallPct > 0 ? ['required_target_shortfall_positive'] : ['required_target_shortfall_missing']),
+        ...(input.targetPolicy.sourceField ? [] : ['target_source_field_missing']),
+        ...(input.targetPolicy.sourceRetrievedAt ? [] : ['target_source_retrieved_at_missing']),
+        ...(input.targetPolicy.technicalCeilingPrice != null ? [] : ['target_technical_ceiling_missing']),
+        ...(input.targetPolicy.technicalCeilingSufficient === true ? [] : ['target_technical_ceiling_below_required_target']),
+        `target_source_asof:${input.targetPolicy.sourceAsOfStatus}`,
+        `target_thesis:${input.targetPolicy.thesisVerdict}`,
         `target_viability:${input.targetPolicy.viabilityVerdict}`
       ];
       return {
-        blockedBy,
+        blockedBy: [...new Set(blockedBy)],
         nextAction: input.targetPolicy.noTradeConfirmed
-          ? 'refresh_stage6_target_source_or_keep_no_trade'
-          : 'recompute_stage6_target_recalibration_candidate',
+          ? 'rebuild_stage6_target_thesis_or_keep_no_trade'
+          : 'prove_stage6_target_source_and_technical_ceiling',
         doneWhenEvidence: [
-          'targetRecalibrationCandidate=true or targetNoTradeConfirmed=true with fresh source timestamp',
+          'targetRecalibrationSourceField and targetRecalibrationSourceRetrievedAt are present',
+          'targetRecalibrationSourceAsOfStatus explicitly states vendor or technical as-of quality',
+          'targetRecalibrationTechnicalCeilingPrice and targetRecalibrationTechnicalCeilingSufficient prove target feasibility',
+          'targetRecalibrationThesisVerdict is explicit',
           'targetRecalibrationRequiredTargetPrice > currentPrice',
           'targetRecalibrationViabilityVerdict is not evidence_incomplete',
           'zeroExecutableFormulaDeltaValue explains the remaining target shortfall'
@@ -7676,7 +7793,40 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               ? pickPositiveFinite(item?.currentEntryRequiredStopPrice, item?.riskGeometryRecalculatedStopPrice, item?.stopLoss, item?.ictStopLoss)
               : null;
           const mirroredEntry = pickPositiveFinite(priorCurrentEntryPrice, item?.otePrice, item?.supportLevel, item?.entryPrice);
-          const mirroredTarget = pickPositiveFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
+          const targetMeanPrice = pickPositiveFinite(item?.targetMeanPrice);
+          const resistanceTarget = pickPositiveFinite(item?.resistanceLevel);
+          const explicitTargetPrice = pickPositiveFinite(item?.targetPrice);
+          const targetSourceRetrievedAt = normalizeOptionalText(
+              item?.updated || item?.lastUpdate || stage5SourceRef.current?.timestamp
+          );
+          const targetSourceSelection = targetMeanPrice != null
+              ? {
+                  price: targetMeanPrice,
+                  field: 'targetMeanPrice',
+                  asOfStatus: 'VENDOR_TARGET_ASOF_UNKNOWN'
+              }
+              : resistanceTarget != null
+                  ? {
+                      price: resistanceTarget,
+                      field: 'resistanceLevel',
+                      asOfStatus: 'TECHNICAL_TARGET_ASOF_LATEST_BAR'
+                  }
+                  : explicitTargetPrice != null
+                      ? {
+                          price: explicitTargetPrice,
+                          field: 'targetPrice',
+                          asOfStatus: 'TARGET_SOURCE_ASOF_UNKNOWN'
+                      }
+                      : {
+                          price: null,
+                          field: null,
+                          asOfStatus: 'TARGET_SOURCE_LINEAGE_MISSING'
+                      };
+          const mirroredTarget = targetSourceSelection.price;
+          const targetTechnicalCeilingPrice = pickPositiveFinite(
+              item?.recentSwingHigh,
+              item?.techMetrics?.recentSwingHigh
+          );
           const mirroredStop = pickPositiveFinite(priorRecalculatedStop, item?.stopLoss, item?.ictStopLoss);
           const entryAnchorPrice = pickPositiveFinite(priorCurrentEntryPrice, item?.otePrice, item?.supportLevel, mirroredEntry);
           const entryExecPriceShadow = pickPositiveFinite(priorCurrentEntryPrice, item?.entryPrice, entryAnchorPrice, item?.price);
@@ -8401,7 +8551,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               price: livePrice,
               stop: mirroredStop,
               minRr: STAGE6_CURRENT_ENTRY_MIN_RR,
-              minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT
+              minTargetBufferPct: STAGE6_CURRENT_ENTRY_MIN_TARGET_BUFFER_PCT,
+              targetSourceField: targetSourceSelection.field,
+              targetSourceRetrievedAt,
+              targetSourceAsOfStatus: targetSourceSelection.asOfStatus,
+              technicalCeilingPrice: targetTechnicalCeilingPrice,
+              technicalCeilingSource: targetTechnicalCeilingPrice != null ? 'stage5_recent_swing_high' : null,
+              technicalCeilingDate: targetTechnicalCeilingPrice != null ? currentEntryStructureLatestBarDate : null
           });
           const riskGeometryPolicy = deriveRiskGeometryPolicy({
               decisionReason,
@@ -8629,6 +8785,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationNoTradeReason: targetRecalibrationPolicy.noTradeReason,
               targetRecalibrationFreshSourceRequired: targetRecalibrationPolicy.freshSourceRequired,
               targetRecalibrationSourceFreshnessVerdict: targetRecalibrationPolicy.sourceFreshnessVerdict,
+              targetRecalibrationSourceField: targetRecalibrationPolicy.sourceField,
+              targetRecalibrationSourceRetrievedAt: targetRecalibrationPolicy.sourceRetrievedAt,
+              targetRecalibrationSourceAsOfStatus: targetRecalibrationPolicy.sourceAsOfStatus,
+              targetRecalibrationTechnicalCeilingPrice: targetRecalibrationPolicy.technicalCeilingPrice,
+              targetRecalibrationTechnicalCeilingSource: targetRecalibrationPolicy.technicalCeilingSource,
+              targetRecalibrationTechnicalCeilingDate: targetRecalibrationPolicy.technicalCeilingDate,
+              targetRecalibrationTechnicalCeilingGapPct: targetRecalibrationPolicy.technicalCeilingGapPct,
+              targetRecalibrationTechnicalCeilingSufficient: targetRecalibrationPolicy.technicalCeilingSufficient,
+              targetRecalibrationThesisVerdict: targetRecalibrationPolicy.thesisVerdict,
               targetRecalibrationReasons: targetRecalibrationPolicy.reasons,
               targetRecalibrationRecommendedAction: targetRecalibrationPolicy.recommendedAction,
               riskGeometryPolicyVerdict: riskGeometryPolicy.verdict,
@@ -8942,6 +9107,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationNoTradeReason: executionContract.targetRecalibrationNoTradeReason,
               targetRecalibrationFreshSourceRequired: executionContract.targetRecalibrationFreshSourceRequired,
               targetRecalibrationSourceFreshnessVerdict: executionContract.targetRecalibrationSourceFreshnessVerdict,
+              targetRecalibrationSourceField: executionContract.targetRecalibrationSourceField,
+              targetRecalibrationSourceRetrievedAt: executionContract.targetRecalibrationSourceRetrievedAt,
+              targetRecalibrationSourceAsOfStatus: executionContract.targetRecalibrationSourceAsOfStatus,
+              targetRecalibrationTechnicalCeilingPrice: executionContract.targetRecalibrationTechnicalCeilingPrice,
+              targetRecalibrationTechnicalCeilingSource: executionContract.targetRecalibrationTechnicalCeilingSource,
+              targetRecalibrationTechnicalCeilingDate: executionContract.targetRecalibrationTechnicalCeilingDate,
+              targetRecalibrationTechnicalCeilingGapPct: executionContract.targetRecalibrationTechnicalCeilingGapPct,
+              targetRecalibrationTechnicalCeilingSufficient: executionContract.targetRecalibrationTechnicalCeilingSufficient,
+              targetRecalibrationThesisVerdict: executionContract.targetRecalibrationThesisVerdict,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
@@ -9540,6 +9714,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationNoTradeReason: executionContract.targetRecalibrationNoTradeReason,
               targetRecalibrationFreshSourceRequired: executionContract.targetRecalibrationFreshSourceRequired,
               targetRecalibrationSourceFreshnessVerdict: executionContract.targetRecalibrationSourceFreshnessVerdict,
+              targetRecalibrationSourceField: executionContract.targetRecalibrationSourceField,
+              targetRecalibrationSourceRetrievedAt: executionContract.targetRecalibrationSourceRetrievedAt,
+              targetRecalibrationSourceAsOfStatus: executionContract.targetRecalibrationSourceAsOfStatus,
+              targetRecalibrationTechnicalCeilingPrice: executionContract.targetRecalibrationTechnicalCeilingPrice,
+              targetRecalibrationTechnicalCeilingSource: executionContract.targetRecalibrationTechnicalCeilingSource,
+              targetRecalibrationTechnicalCeilingDate: executionContract.targetRecalibrationTechnicalCeilingDate,
+              targetRecalibrationTechnicalCeilingGapPct: executionContract.targetRecalibrationTechnicalCeilingGapPct,
+              targetRecalibrationTechnicalCeilingSufficient: executionContract.targetRecalibrationTechnicalCeilingSufficient,
+              targetRecalibrationThesisVerdict: executionContract.targetRecalibrationThesisVerdict,
               targetRecalibrationReasons: executionContract.targetRecalibrationReasons,
               targetRecalibrationRecommendedAction: executionContract.targetRecalibrationRecommendedAction,
               riskGeometryPolicyVerdict: executionContract.riskGeometryPolicyVerdict,
@@ -9960,6 +10143,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationNoTradeReason: normalizeOptionalText(item.targetRecalibrationNoTradeReason),
               targetRecalibrationFreshSourceRequired: item.targetRecalibrationFreshSourceRequired ?? null,
               targetRecalibrationSourceFreshnessVerdict: normalizeOptionalText(item.targetRecalibrationSourceFreshnessVerdict),
+              targetRecalibrationSourceField: normalizeOptionalText(item.targetRecalibrationSourceField),
+              targetRecalibrationSourceRetrievedAt: normalizeOptionalText(item.targetRecalibrationSourceRetrievedAt),
+              targetRecalibrationSourceAsOfStatus: normalizeOptionalText(item.targetRecalibrationSourceAsOfStatus),
+              targetRecalibrationTechnicalCeilingPrice: toOptionalFiniteNumber(item.targetRecalibrationTechnicalCeilingPrice),
+              targetRecalibrationTechnicalCeilingSource: normalizeOptionalText(item.targetRecalibrationTechnicalCeilingSource),
+              targetRecalibrationTechnicalCeilingDate: normalizeOptionalText(item.targetRecalibrationTechnicalCeilingDate),
+              targetRecalibrationTechnicalCeilingGapPct: toOptionalFiniteNumber(item.targetRecalibrationTechnicalCeilingGapPct),
+              targetRecalibrationTechnicalCeilingSufficient: item.targetRecalibrationTechnicalCeilingSufficient == null
+                  ? null
+                  : Boolean(item.targetRecalibrationTechnicalCeilingSufficient),
+              targetRecalibrationThesisVerdict: normalizeOptionalText(item.targetRecalibrationThesisVerdict),
               targetRecalibrationReasons: Array.isArray(item.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item.riskGeometryPolicyVerdict),
@@ -10238,6 +10432,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetRecalibrationNoTradeReason: normalizeOptionalText(item?.targetRecalibrationNoTradeReason),
               targetRecalibrationFreshSourceRequired: item?.targetRecalibrationFreshSourceRequired ?? null,
               targetRecalibrationSourceFreshnessVerdict: normalizeOptionalText(item?.targetRecalibrationSourceFreshnessVerdict),
+              targetRecalibrationSourceField: normalizeOptionalText(item?.targetRecalibrationSourceField),
+              targetRecalibrationSourceRetrievedAt: normalizeOptionalText(item?.targetRecalibrationSourceRetrievedAt),
+              targetRecalibrationSourceAsOfStatus: normalizeOptionalText(item?.targetRecalibrationSourceAsOfStatus),
+              targetRecalibrationTechnicalCeilingPrice: toOptionalFiniteNumber(item?.targetRecalibrationTechnicalCeilingPrice),
+              targetRecalibrationTechnicalCeilingSource: normalizeOptionalText(item?.targetRecalibrationTechnicalCeilingSource),
+              targetRecalibrationTechnicalCeilingDate: normalizeOptionalText(item?.targetRecalibrationTechnicalCeilingDate),
+              targetRecalibrationTechnicalCeilingGapPct: toOptionalFiniteNumber(item?.targetRecalibrationTechnicalCeilingGapPct),
+              targetRecalibrationTechnicalCeilingSufficient: item?.targetRecalibrationTechnicalCeilingSufficient == null
+                  ? null
+                  : Boolean(item.targetRecalibrationTechnicalCeilingSufficient),
+              targetRecalibrationThesisVerdict: normalizeOptionalText(item?.targetRecalibrationThesisVerdict),
               targetRecalibrationReasons: Array.isArray(item?.targetRecalibrationReasons) ? item.targetRecalibrationReasons.map((reason: any) => String(reason)).filter(Boolean) : null,
               targetRecalibrationRecommendedAction: normalizeOptionalText(item?.targetRecalibrationRecommendedAction),
               riskGeometryPolicyVerdict: normalizeOptionalText(item?.riskGeometryPolicyVerdict),

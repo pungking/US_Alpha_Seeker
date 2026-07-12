@@ -101,6 +101,15 @@ const EXPECTED_TUNABLE_POLICY_FIELDS = {
     'targetRecalibrationNoTradeReason',
     'targetRecalibrationFreshSourceRequired',
     'targetRecalibrationSourceFreshnessVerdict',
+    'targetRecalibrationSourceField',
+    'targetRecalibrationSourceRetrievedAt',
+    'targetRecalibrationSourceAsOfStatus',
+    'targetRecalibrationTechnicalCeilingPrice',
+    'targetRecalibrationTechnicalCeilingSource',
+    'targetRecalibrationTechnicalCeilingDate',
+    'targetRecalibrationTechnicalCeilingGapPct',
+    'targetRecalibrationTechnicalCeilingSufficient',
+    'targetRecalibrationThesisVerdict',
     'targetRecalibrationRequiredTargetDominantReason',
     'targetRecalibrationExecutionFloorGapPct',
     'targetRecalibrationExecutionFloorShortfallPct',
@@ -391,6 +400,15 @@ function targetRecalibrationEvidence(row) {
     noTradeReason: normalizeText(row?.targetRecalibrationNoTradeReason),
     freshSourceRequired: row?.targetRecalibrationFreshSourceRequired ?? null,
     sourceFreshnessVerdict: normalizeText(row?.targetRecalibrationSourceFreshnessVerdict),
+    sourceField: normalizeText(row?.targetRecalibrationSourceField),
+    sourceRetrievedAt: normalizeText(row?.targetRecalibrationSourceRetrievedAt),
+    sourceAsOfStatus: normalizeText(row?.targetRecalibrationSourceAsOfStatus),
+    technicalCeilingPrice: round(row?.targetRecalibrationTechnicalCeilingPrice),
+    technicalCeilingSource: normalizeText(row?.targetRecalibrationTechnicalCeilingSource),
+    technicalCeilingDate: normalizeText(row?.targetRecalibrationTechnicalCeilingDate),
+    technicalCeilingGapPct: round(row?.targetRecalibrationTechnicalCeilingGapPct),
+    technicalCeilingSufficient: row?.targetRecalibrationTechnicalCeilingSufficient ?? null,
+    thesisVerdict: normalizeText(row?.targetRecalibrationThesisVerdict),
     executionFloorGapPct: round(row?.targetRecalibrationExecutionFloorGapPct),
     executionFloorShortfallPct: round(row?.targetRecalibrationExecutionFloorShortfallPct),
     expectedReturnShortfallPct: round(row?.targetRecalibrationExpectedReturnShortfallPct),
@@ -408,6 +426,12 @@ function targetRecalibrationProofGaps(evidence) {
   if (!evidence.viabilityVerdict) gaps.push('missing_viability_verdict');
   if (evidence.noTradeConfirmed === true && !evidence.noTradeReason) gaps.push('missing_no_trade_reason');
   if (evidence.freshSourceRequired === true && !evidence.sourceFreshnessVerdict) gaps.push('missing_source_freshness_verdict');
+  if (!evidence.sourceField) gaps.push('missing_target_source_field');
+  if (!evidence.sourceRetrievedAt) gaps.push('missing_target_source_retrieved_at');
+  if (!evidence.sourceAsOfStatus) gaps.push('missing_target_source_asof_status');
+  if (evidence.noTradeConfirmed === true && evidence.technicalCeilingPrice == null) gaps.push('missing_target_technical_ceiling');
+  if (evidence.technicalCeilingPrice != null && evidence.technicalCeilingSufficient == null) gaps.push('missing_target_technical_ceiling_verdict');
+  if (!evidence.thesisVerdict) gaps.push('missing_target_thesis_verdict');
   return gaps;
 }
 
@@ -425,6 +449,13 @@ function targetRecalibrationProofSummary(evidence, gaps = []) {
     `expectedReturnUplift=${evidence.expectedReturnUpliftPct ?? 'N/A'}%`,
     `noTradeReason=${evidence.noTradeReason || 'N/A'}`,
     `sourceFreshness=${evidence.sourceFreshnessVerdict || 'N/A'}`,
+    `sourceField=${evidence.sourceField || 'N/A'}`,
+    `sourceRetrievedAt=${evidence.sourceRetrievedAt || 'N/A'}`,
+    `sourceAsOf=${evidence.sourceAsOfStatus || 'N/A'}`,
+    `technicalCeiling=${evidence.technicalCeilingPrice ?? 'N/A'}`,
+    `technicalCeilingGap=${evidence.technicalCeilingGapPct ?? 'N/A'}%`,
+    `technicalCeilingSufficient=${evidence.technicalCeilingSufficient ?? 'N/A'}`,
+    `thesis=${evidence.thesisVerdict || 'N/A'}`,
     `execFloorGap=${evidence.executionFloorGapPct ?? 'N/A'}%`,
     `execFloorShortfall=${evidence.executionFloorShortfallPct ?? 'N/A'}%`,
     `execFloorViable=${evidence.executionFloorViable ?? 'N/A'}`,
@@ -708,6 +739,24 @@ function producerFieldRecommendationsForGroup(groupRows, base) {
         'targetRecalibrationSourceFreshnessVerdict',
         'State whether a fresh target thesis is required before recalibration or no-trade reevaluation.',
         'emit_target_source_freshness_verdict',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationSourceField',
+        'Identify the exact Stage6 target input field instead of treating all target values as equivalent.',
+        'emit_target_source_field_lineage',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationTechnicalCeilingPrice',
+        'Preserve the structural swing-high ceiling used to test whether the required target is technically plausible.',
+        'emit_recent_swing_high_target_ceiling',
+        commonContext
+      ),
+      producerFieldRecommendation(
+        'targetRecalibrationThesisVerdict',
+        'Separate source-refresh needs from a target thesis that is structurally below the required target.',
+        'emit_target_thesis_support_or_no_trade',
         commonContext
       ),
       producerFieldRecommendation(

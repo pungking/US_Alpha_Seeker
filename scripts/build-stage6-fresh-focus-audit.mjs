@@ -95,6 +95,15 @@ const EXPECTED_FORMULA_CONTRACT = {
       'targetRecalibrationNoTradeReason',
       'targetRecalibrationFreshSourceRequired',
       'targetRecalibrationSourceFreshnessVerdict',
+      'targetRecalibrationSourceField',
+      'targetRecalibrationSourceRetrievedAt',
+      'targetRecalibrationSourceAsOfStatus',
+      'targetRecalibrationTechnicalCeilingPrice',
+      'targetRecalibrationTechnicalCeilingSource',
+      'targetRecalibrationTechnicalCeilingDate',
+      'targetRecalibrationTechnicalCeilingGapPct',
+      'targetRecalibrationTechnicalCeilingSufficient',
+      'targetRecalibrationThesisVerdict',
       'targetRecalibrationExecutionFloorGapPct',
       'targetRecalibrationExecutionFloorShortfallPct',
       'targetRecalibrationExpectedReturnShortfallPct',
@@ -772,6 +781,15 @@ function compactRow(row) {
     targetRecalibrationNoTradeReason: row?.targetRecalibrationNoTradeReason || null,
     targetRecalibrationFreshSourceRequired: row?.targetRecalibrationFreshSourceRequired ?? null,
     targetRecalibrationSourceFreshnessVerdict: row?.targetRecalibrationSourceFreshnessVerdict || null,
+    targetRecalibrationSourceField: row?.targetRecalibrationSourceField || null,
+    targetRecalibrationSourceRetrievedAt: row?.targetRecalibrationSourceRetrievedAt || null,
+    targetRecalibrationSourceAsOfStatus: row?.targetRecalibrationSourceAsOfStatus || null,
+    targetRecalibrationTechnicalCeilingPrice: numberOrNull(row?.targetRecalibrationTechnicalCeilingPrice),
+    targetRecalibrationTechnicalCeilingSource: row?.targetRecalibrationTechnicalCeilingSource || null,
+    targetRecalibrationTechnicalCeilingDate: row?.targetRecalibrationTechnicalCeilingDate || null,
+    targetRecalibrationTechnicalCeilingGapPct: numberOrNull(row?.targetRecalibrationTechnicalCeilingGapPct),
+    targetRecalibrationTechnicalCeilingSufficient: row?.targetRecalibrationTechnicalCeilingSufficient ?? null,
+    targetRecalibrationThesisVerdict: row?.targetRecalibrationThesisVerdict || null,
     targetRecalibrationFormulaEvidenceBasis: row?.targetRecalibrationFormulaEvidenceBasis || null,
     targetRecalibrationFormulaObservedValue: numberOrNull(row?.targetRecalibrationFormulaObservedValue),
     targetRecalibrationFormulaThresholdValue: numberOrNull(row?.targetRecalibrationFormulaThresholdValue),
@@ -855,6 +873,9 @@ function buildMarkdown(report) {
   lines.push(`| targetRecalibrationRequiredTargetSourceCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationRequiredTargetSourceCounts))} |`);
   lines.push(`| targetRecalibrationNoTradeReasonCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationNoTradeReasonCounts))} |`);
   lines.push(`| targetRecalibrationSourceFreshnessVerdictCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationSourceFreshnessVerdictCounts))} |`);
+  lines.push(`| targetRecalibrationSourceAsOfStatusCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationSourceAsOfStatusCounts))} |`);
+  lines.push(`| targetRecalibrationTechnicalCeilingSufficientCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationTechnicalCeilingSufficientCounts))} |`);
+  lines.push(`| targetRecalibrationThesisVerdictCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationThesisVerdictCounts))} |`);
   lines.push(`| targetRecalibrationFreshSourceRequiredCounts | ${esc(JSON.stringify(report.summary.targetRecalibrationFreshSourceRequiredCounts))} |`);
   lines.push(`| riskGeometryTargetRecalibrationCandidateCounts | ${esc(JSON.stringify(report.summary.riskGeometryTargetRecalibrationCandidateCounts))} |`);
   lines.push(`| zeroExecutableFormulaBottleneckCounts | ${esc(JSON.stringify(report.summary.zeroExecutableFormulaBottleneckCounts))} |`);
@@ -1052,6 +1073,15 @@ function main() {
     targetRecalibrationNoTradeReason: requiredFieldCoverage(rows, 'targetRecalibrationNoTradeReason'),
     targetRecalibrationFreshSourceRequired: requiredFieldCoverage(rows, 'targetRecalibrationFreshSourceRequired'),
     targetRecalibrationSourceFreshnessVerdict: requiredFieldCoverage(rows, 'targetRecalibrationSourceFreshnessVerdict'),
+    targetRecalibrationSourceField: requiredFieldCoverage(rows, 'targetRecalibrationSourceField'),
+    targetRecalibrationSourceRetrievedAt: requiredFieldCoverage(rows, 'targetRecalibrationSourceRetrievedAt'),
+    targetRecalibrationSourceAsOfStatus: requiredFieldCoverage(rows, 'targetRecalibrationSourceAsOfStatus'),
+    targetRecalibrationTechnicalCeilingPrice: requiredFieldCoverage(rows, 'targetRecalibrationTechnicalCeilingPrice'),
+    targetRecalibrationTechnicalCeilingSource: requiredFieldCoverage(rows, 'targetRecalibrationTechnicalCeilingSource'),
+    targetRecalibrationTechnicalCeilingDate: requiredFieldCoverage(rows, 'targetRecalibrationTechnicalCeilingDate'),
+    targetRecalibrationTechnicalCeilingGapPct: requiredFieldCoverage(rows, 'targetRecalibrationTechnicalCeilingGapPct'),
+    targetRecalibrationTechnicalCeilingSufficient: requiredFieldCoverage(rows, 'targetRecalibrationTechnicalCeilingSufficient'),
+    targetRecalibrationThesisVerdict: requiredFieldCoverage(rows, 'targetRecalibrationThesisVerdict'),
     structurePolicyBlockerLane: requiredFieldCoverage(rows, 'structurePolicyBlockerLane'),
     structurePolicyFormulaEvidenceBasis: requiredFieldCoverage(rows, 'structurePolicyFormulaEvidenceBasis'),
     structurePolicyFormulaObservedValue: requiredFieldCoverage(rows, 'structurePolicyFormulaObservedValue'),
@@ -1181,6 +1211,9 @@ function main() {
       targetRecalibrationRequiredTargetSourceCounts: countBy(rows, (row) => row?.targetRecalibrationRequiredTargetSource || 'missing'),
       targetRecalibrationNoTradeReasonCounts: countBy(rows, (row) => row?.targetRecalibrationNoTradeReason || 'missing'),
       targetRecalibrationSourceFreshnessVerdictCounts: countBy(rows, (row) => row?.targetRecalibrationSourceFreshnessVerdict || 'missing'),
+      targetRecalibrationSourceAsOfStatusCounts: countBy(rows, (row) => row?.targetRecalibrationSourceAsOfStatus || 'missing'),
+      targetRecalibrationTechnicalCeilingSufficientCounts: countBy(rows, (row) => String(row?.targetRecalibrationTechnicalCeilingSufficient ?? 'missing')),
+      targetRecalibrationThesisVerdictCounts: countBy(rows, (row) => row?.targetRecalibrationThesisVerdict || 'missing'),
       targetRecalibrationFreshSourceRequiredCounts: countBy(rows, (row) => String(row?.targetRecalibrationFreshSourceRequired ?? 'missing')),
       riskGeometryTargetRecalibrationCandidateCounts: countBy(rows, (row) => String(row?.riskGeometryTargetRecalibrationCandidate ?? 'missing')),
       zeroExecutableFormulaBottleneckCounts: countBy(rows, (row) => row?.zeroExecutableFormulaBottleneck || 'missing'),
