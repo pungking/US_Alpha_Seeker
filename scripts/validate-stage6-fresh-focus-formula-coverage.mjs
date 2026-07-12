@@ -231,6 +231,8 @@ function validateProducerSourceContract() {
     'targetRecalibrationSourceField',
     'targetRecalibrationSourceRetrievedAt',
     'targetRecalibrationSourceAsOfStatus',
+    'item?.targetMeanPriceRetrievedAt',
+    'item?.targetMeanPriceAsOfStatus',
     'targetRecalibrationTechnicalCeilingPrice',
     'targetRecalibrationTechnicalCeilingSufficient',
     'targetRecalibrationThesisVerdict',

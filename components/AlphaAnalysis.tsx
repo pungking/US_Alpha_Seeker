@@ -7796,14 +7796,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const targetMeanPrice = pickPositiveFinite(item?.targetMeanPrice);
           const resistanceTarget = pickPositiveFinite(item?.resistanceLevel);
           const explicitTargetPrice = pickPositiveFinite(item?.targetPrice);
-          const targetSourceRetrievedAt = normalizeOptionalText(
+          const fallbackTargetSourceRetrievedAt = normalizeOptionalText(
               item?.updated || item?.lastUpdate || stage5SourceRef.current?.timestamp
           );
+          const targetSourceRetrievedAt = targetMeanPrice != null
+              ? normalizeOptionalText(item?.targetMeanPriceRetrievedAt) || fallbackTargetSourceRetrievedAt
+              : fallbackTargetSourceRetrievedAt;
           const targetSourceSelection = targetMeanPrice != null
               ? {
                   price: targetMeanPrice,
                   field: 'targetMeanPrice',
-                  asOfStatus: 'VENDOR_TARGET_ASOF_UNKNOWN'
+                  asOfStatus: normalizeOptionalText(item?.targetMeanPriceAsOfStatus) || 'VENDOR_TARGET_ASOF_UNKNOWN'
               }
               : resistanceTarget != null
                   ? {
