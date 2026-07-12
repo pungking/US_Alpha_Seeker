@@ -65,6 +65,7 @@
     "ops:stage3-5:quant:audit": "node scripts/build-stage3-5-quant-quality-audit.mjs",
     "ops:stage3-5:oos-cost:audit": "node scripts/build-stage3-5-oos-cost-audit.mjs",
     "ops:stage3-5:oos-cost:validate": "node scripts/validate-stage3-5-oos-cost-audit.mjs",
+    "ops:target-lineage:validate": "node scripts/validate-target-lineage-pipeline.mjs",
     "ops:stage3:score-bounds:validate": "node scripts/validate-stage3-score-bounds.mjs",
     "ops:stage3-5:methodology:audit": "node scripts/build-stage3-5-methodology-audit.mjs",
     "ops:stage5:lineage-contract:validate": "node scripts/validate-stage5-lineage-contract.mjs",

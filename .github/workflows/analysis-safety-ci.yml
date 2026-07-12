@@ -43,6 +43,8 @@ jobs:
         run: npm run ops:stage5:lineage-contract:validate
       - name: Stage3-5 OOS and cost contract fixture
         run: npm run ops:stage3-5:oos-cost:validate
+      - name: Harvester target lineage propagation contract
+        run: npm run ops:target-lineage:validate
       - name: Stage3-6 full-stage audit
         run: npm run ops:stage3-6:full:audit
       - name: Stage6 weak pillar runtime audit

@@ -36,6 +36,10 @@ interface MasterTicker {
   psr: number;            // psr
   pegRatio: number;       // pegRatio
   targetMeanPrice: number;// targetMeanPrice
+  targetMeanPriceSource?: string | null;
+  targetMeanPriceRetrievedAt?: string | null;
+  targetMeanPriceAsOf?: string | null;
+  targetMeanPriceAsOfStatus?: string | null;
   
   // 3. Quality & Efficiency (Quality) - Percentages (%)
   roe: number;            // roe
@@ -1017,6 +1021,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
                   pegRatio: parseFloat(pegRatio.toFixed(2)),
                   targetMeanPrice: Number(root.targetMeanPrice || 0),
+                  targetMeanPriceSource: root.targetMeanPriceSource || null,
+                  targetMeanPriceRetrievedAt: root.targetMeanPriceRetrievedAt || null,
+                  targetMeanPriceAsOf: root.targetMeanPriceAsOf || null,
+                  targetMeanPriceAsOfStatus: root.targetMeanPriceAsOfStatus || null,
 
                   // 3. Profitability & Efficiency (Quality) - FIXED MAPPING
                   roe: toPercent(root.roe || root.returnOnEquity),
