@@ -174,6 +174,14 @@ const main = () => {
       "warn"
     )
   );
+  checks.push(
+    asCheck(
+      "schedule_group_summary_after_dispatch_guards",
+      (texts.schedule || "").indexOf("Dispatch Guard | Stage6 flag parity") <
+        (texts.schedule || "").indexOf("Audit Stage3-6 | Group summary"),
+      "runtime group summary must run after holiday safety and flag parity"
+    )
+  );
 
   const failCount = checks.filter((row) => !row.pass && row.severity === "error").length;
   const warnCount = checks.filter((row) => !row.pass && row.severity === "warn").length;

@@ -396,10 +396,6 @@ jobs:
         if: success()
         run: npm run ops:stage6:runtime-formula-goal:status
 
-      - name: Audit Stage3-6 | Group summary
-        if: success()
-        run: npm run ops:stage3-6:audit-group-summary
-
       - name: Dispatch Guard | Stage6 holiday safety
         id: stage6_holiday_safety
         if: success()
@@ -408,6 +404,10 @@ jobs:
       - name: Dispatch Guard | Stage6 flag parity
         if: success()
         run: npm run ops:stage6:flag-parity:assert
+
+      - name: Audit Stage3-6 | Group summary
+        if: success()
+        run: npm run ops:stage3-6:audit-group-summary
 
       - name: Dispatch | Stage6 payload extract
         id: stage6_dispatch_meta
