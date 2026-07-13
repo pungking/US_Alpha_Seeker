@@ -19,6 +19,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci
+      - name: Dependency high-severity gate
+        run: npm audit --audit-level=high
       - name: Analysis repo boundary guard
         run: npm run ops:safety:analysis-boundary
       - name: Telegram routing policy audit
@@ -43,6 +45,8 @@ jobs:
         run: npm run ops:stage5:lineage-contract:validate
       - name: Stage3-5 OOS and cost contract fixture
         run: npm run ops:stage3-5:oos-cost:validate
+      - name: Stage7 timestamped outcome ledger fixture
+        run: npm run ops:stage7:outcomes:validate
       - name: Harvester target lineage propagation contract
         run: npm run ops:target-lineage:validate
       - name: Stage3-6 full-stage audit
@@ -93,7 +97,9 @@ jobs:
             state/stage3-6-full-stage-audit.*
             state/stage3-6-audit-group-summary.*
             state/stage3-5-oos-cost-audit.*
+            state/stage7-outcome-ledger.*
             docs/STAGE3_5_OOS_COST_AUDIT.md
+            docs/STAGE7_OUTCOME_LEDGER.md
             docs/STAGE3_6_FULL_STAGE_AUDIT.md
             docs/STAGE6_WEAK_PILLAR_RUNTIME_AUDIT.md
             state/stage6-earnings-coverage-audit.*

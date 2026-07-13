@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-01-02T13:00:00.000Z",
+  "horizonBars": 3,
+  "signals": [
+    { "symbol": "TPATH", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
+    { "symbol": "SPATH", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
+    { "symbol": "TIMEO", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
+    { "symbol": "NOFILL", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
+    { "symbol": "AMBIG", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
+    { "symbol": "PENDING", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
+    { "symbol": "NOSOURCE", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 }
+  ],
+  "history": {
+    "TPATH": [
+      { "date": "2026-01-02", "open": 103, "high": 105, "low": 99, "close": 104 },
+      { "date": "2026-01-06", "open": 105, "high": 111, "low": 101, "close": 110 }
+    ],
+    "SPATH": [
+      { "date": "2026-01-05", "open": 103, "high": 105, "low": 99, "close": 104 },
+      { "date": "2026-01-06", "open": 98, "high": 102, "low": 89, "close": 91 }
+    ],
+    "TIMEO": [
+      { "date": "2026-01-05", "open": 103, "high": 105, "low": 99, "close": 104 },
+      { "date": "2026-01-06", "open": 104, "high": 106, "low": 101, "close": 105 },
+      { "date": "2026-01-07", "open": 105, "high": 107, "low": 102, "close": 106 }
+    ],
+    "NOFILL": [
+      { "date": "2026-01-05", "open": 105, "high": 107, "low": 103, "close": 106 },
+      { "date": "2026-01-06", "open": 106, "high": 108, "low": 102, "close": 107 },
+      { "date": "2026-01-07", "open": 107, "high": 109, "low": 101, "close": 108 }
+    ],
+    "AMBIG": [
+      { "date": "2026-01-05", "open": 103, "high": 105, "low": 99, "close": 104 },
+      { "date": "2026-01-06", "open": 100, "high": 111, "low": 89, "close": 100 }
+    ],
+    "PENDING": [
+      { "date": "2026-01-05", "open": 105, "high": 107, "low": 103, "close": 106 }
+    ]
+  },
+  "expected": {
+    "TPATH": "TP_FIRST",
+    "SPATH": "SL_FIRST",
+    "TIMEO": "TIMEOUT",
+    "NOFILL": "NO_FILL",
+    "AMBIG": "AMBIGUOUS_INTRABAR",
+    "PENDING": "PENDING_MARKET_DATA",
+    "NOSOURCE": "PENDING_SOURCE_HISTORY"
+  }
+}

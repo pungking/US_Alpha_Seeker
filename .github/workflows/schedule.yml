@@ -326,6 +326,9 @@ jobs:
 
       - name: Audit Evidence | Export Stage3-6 artifacts
         if: success()
+        env:
+          STAGE_ARTIFACT_EXPORT_STAGE4_LIMIT: "5"
+          STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT: "30"
         run: npm run ops:stage-artifacts:export
 
       - name: Audit Stage3-5 | Methodology
@@ -335,6 +338,10 @@ jobs:
       - name: Audit Stage3-5 | Quant quality
         if: success()
         run: npm run ops:stage3-5:quant:audit
+
+      - name: Audit Stage7 | Timestamped outcome ledger
+        if: success()
+        run: npm run ops:stage7:outcomes
 
       - name: Audit Stage3-5 | OOS and transaction cost evidence
         if: success()
@@ -644,7 +651,10 @@ jobs:
             state/stage6-quality-trend-audit.json
             state/stage6-quality-trend-audit.md
             state/stage3-5-oos-cost-audit.json
+            state/stage3-5-oos-outcomes.json
+            state/stage7-outcome-ledger.json
             docs/STAGE3_5_OOS_COST_AUDIT.md
+            docs/STAGE7_OUTCOME_LEDGER.md
             state/stage3-6-full-stage-audit.json
             state/stage3-6-audit-group-summary.*
             docs/STAGE3_6_FULL_STAGE_AUDIT.md

@@ -150,6 +150,7 @@ async function exportStage(token, rootFolderId, stage, limit) {
   }
   return {
     stage: stage.stage,
+    requestedLimit: limit,
     status: downloaded.length ? 'downloaded' : 'missing_files',
     folderName: folder.name,
     folderId: folder.id,
@@ -186,7 +187,9 @@ async function main() {
   const enabled = String(process.env.STAGE_ARTIFACT_EXPORT_ENABLED || 'true').toLowerCase() !== 'false';
   const rootFolderId = process.env.GDRIVE_ROOT_FOLDER_ID || process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
   const limit = Math.max(1, Math.min(10, Number(process.env.STAGE_ARTIFACT_EXPORT_LIMIT || 1) || 1));
-  const report = { generatedAt, overall: 'unknown', enabled, limit, stages: [], errors: [], safety: { driveWrite: false, brokerMutation: false, stateMutation: false } };
+  const stage4Limit = Math.max(1, Math.min(10, Number(process.env.STAGE_ARTIFACT_EXPORT_STAGE4_LIMIT || limit) || limit));
+  const stage6Limit = Math.max(1, Math.min(60, Number(process.env.STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT || limit) || limit));
+  const report = { generatedAt, overall: 'unknown', enabled, limit, stage4Limit, stage6Limit, stages: [], errors: [], safety: { driveWrite: false, brokerMutation: false, stateMutation: false } };
 
   try {
     if (!enabled) {
@@ -200,7 +203,8 @@ async function main() {
       } else {
         for (const stage of STAGES) {
           try {
-            report.stages.push(await exportStage(tokenResult.token, rootFolderId, stage, limit));
+            const stageLimit = stage.stage === 'Stage6' ? stage6Limit : stage.stage === 'Stage4' ? stage4Limit : limit;
+            report.stages.push(await exportStage(tokenResult.token, rootFolderId, stage, stageLimit));
           } catch (error) {
             report.errors.push({ stage: stage.stage, error: redactError(error) });
             report.stages.push({ stage: stage.stage, status: 'error', downloaded: [] });

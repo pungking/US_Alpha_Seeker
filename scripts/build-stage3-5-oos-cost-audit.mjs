@@ -30,6 +30,7 @@ const raw = inputExists ? fs.readFileSync(inputPath, 'utf8') : '';
 const payload = inputExists ? JSON.parse(raw) : { schemaVersion: 'stage3-5-oos-v1', rows: [] };
 const inputContractValid = payload.schemaVersion === 'stage3-5-oos-v1' && Array.isArray(payload.rows);
 const rows = Array.isArray(payload.rows) ? payload.rows : [];
+const stage7TemporalContract = payload.sourceLedgerSchemaVersion === 'stage7-outcome-ledger-v1';
 const accepted = [];
 const rejected = [];
 
@@ -45,6 +46,16 @@ for (const row of rows) {
   const spreadBps = finite(row?.spreadBps);
   const slippageBps = finite(row?.slippageBps);
   const commissionBps = finite(row?.commissionBps);
+  const sameDatePreRthResolution = row?.signalMarketPhase === 'PRE_RTH'
+    && String(row?.resolvedAt || '') === String(row?.signalDate || '');
+  if (stage7TemporalContract && (
+    !row?.signalDate
+    || !row?.resolvedAt
+    || (String(row.resolvedAt) <= String(row.signalDate) && !sameDatePreRthResolution)
+  )) {
+    rejected.push({ symbol: symbol || null, reason: 'invalid_walk_forward_timestamp_order' });
+    continue;
+  }
   if (!symbol || String(row?.side || '').toUpperCase() !== 'LONG') {
     rejected.push({ symbol: symbol || null, reason: 'unsupported_symbol_or_side' });
     continue;
@@ -65,6 +76,8 @@ for (const row of rows) {
   accepted.push({
     symbol,
     signalDate: row.signalDate || null,
+    resolvedAt: row.resolvedAt || null,
+    walkForwardCohort: row.walkForwardCohort || String(row.signalDate || '').slice(0, 7) || null,
     holdingDays,
     grossReturnPct: round(grossReturnPct),
     roundTripCostBps: round(roundTripCostBps),
@@ -74,6 +87,19 @@ for (const row of rows) {
 
 const mean = (values) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 const validOosRows = accepted.length;
+const cohortMap = new Map();
+for (const row of accepted) {
+  const cohort = row.walkForwardCohort || 'unknown';
+  const values = cohortMap.get(cohort) || [];
+  values.push(row);
+  cohortMap.set(cohort, values);
+}
+const walkForwardCohorts = [...cohortMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([cohort, cohortRows]) => ({
+  cohort,
+  rows: cohortRows.length,
+  netWinRatePct: round((cohortRows.filter((row) => row.netReturnPct > 0).length / cohortRows.length) * 100),
+  meanNetReturnPct: round(mean(cohortRows.map((row) => row.netReturnPct)))
+}));
 const report = {
   schemaVersion: 'stage3-5-oos-cost-audit-v1',
   generatedAt: new Date().toISOString(),
@@ -96,6 +122,11 @@ const report = {
     minimumSample,
     costFormula: 'spreadBps + 2*slippageBps + 2*commissionBps',
     returnBasis: 'price_return_not_total_return'
+  },
+  walkForward: {
+    temporalContractEnforced: stage7TemporalContract,
+    cohortBasis: 'signal_market_month',
+    cohorts: walkForwardCohorts
   },
   summary: {
     inputRows: rows.length,

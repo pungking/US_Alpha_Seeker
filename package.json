@@ -63,6 +63,8 @@
     "ops:stage6:fresh-focus:audit": "node scripts/build-stage6-fresh-focus-audit.mjs",
     "ops:stage6:holiday-safety": "node scripts/check-stage6-holiday-safety.mjs",
     "ops:stage3-5:quant:audit": "node scripts/build-stage3-5-quant-quality-audit.mjs",
+    "ops:stage7:outcomes": "node scripts/build-stage7-outcome-ledger.mjs",
+    "ops:stage7:outcomes:validate": "node scripts/validate-stage7-outcome-ledger.mjs",
     "ops:stage3-5:oos-cost:audit": "node scripts/build-stage3-5-oos-cost-audit.mjs",
     "ops:stage3-5:oos-cost:validate": "node scripts/validate-stage3-5-oos-cost-audit.mjs",
     "ops:target-lineage:validate": "node scripts/validate-target-lineage-pipeline.mjs",
@@ -93,6 +95,14 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.4.3"
+  },
+  "overrides": {
+    "protobufjs@^7.0.0": "7.6.5",
+    "ws@^8.0.0": "8.21.0",
+    "basic-ftp@^5.0.0": "5.3.1",
+    "minimatch@^9.0.0": "9.0.9",
+    "picomatch@^4.0.0": "4.0.4",
+    "rollup@^4.0.0": "4.59.0"
   }
 }

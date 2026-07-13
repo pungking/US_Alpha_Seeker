@@ -35,6 +35,9 @@ if (ready.summary.rejectedNonOosRows !== 1) throw new Error('TRAIN row was not r
 if (ready.summary.netWinRatePct !== 66.67) throw new Error(`unexpected net win rate ${ready.summary.netWinRatePct}`);
 if (ready.summary.meanGrossReturnPct !== 2.33) throw new Error(`unexpected gross return ${ready.summary.meanGrossReturnPct}`);
 if (ready.summary.meanNetReturnPct !== 2.09) throw new Error(`unexpected net return ${ready.summary.meanNetReturnPct}`);
+if (ready.walkForward.cohorts.length !== 1 || ready.walkForward.cohorts[0].cohort !== '2026-06') {
+  throw new Error('walk-forward cohort summary mismatch');
+}
 
 runCase('insufficient.fixture.json', 3, 'insufficient_oos_evidence', 1);
 runCase('invalid-contract.fixture.json', 3, 'invalid_input_contract', 0);
