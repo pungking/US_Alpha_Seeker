@@ -280,23 +280,29 @@ function round(value, digits = 2) {
 
 function rowsFromStageArtifact(payload, config) {
   if (Array.isArray(payload)) return payload.filter((row) => normalizeSymbol(row));
+  if (config.label === 'Stage6') {
+    const contract = payload?.execution_contract || {};
+    const groups = [
+      [contract.executablePicks, 50],
+      [payload?.alpha_candidates, 40],
+      [contract.watchlistTop, 30],
+      [contract.modelTop6, 20],
+      [payload?.candidates, 10]
+    ];
+    const bySymbol = new Map();
+    for (const [rows, priority] of groups) {
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const symbol = normalizeSymbol(row);
+        if (!symbol) continue;
+        const existing = bySymbol.get(symbol);
+        if (!existing || priority > existing.priority) bySymbol.set(symbol, { row, priority });
+      }
+    }
+    if (bySymbol.size > 0) return [...bySymbol.values()].map(({ row }) => row);
+  }
   for (const key of config.rowKeys) {
     const rows = payload?.[key];
     if (Array.isArray(rows)) return rows.filter((row) => normalizeSymbol(row));
-  }
-  if (config.label === 'Stage6') {
-    const contract = payload?.execution_contract || {};
-    const rows = [];
-    const seen = new Set();
-    for (const group of ['executablePicks', 'watchlistTop', 'modelTop6']) {
-      for (const row of Array.isArray(contract[group]) ? contract[group] : []) {
-        const symbol = normalizeSymbol(row);
-        if (!symbol || seen.has(symbol)) continue;
-        seen.add(symbol);
-        rows.push(row);
-      }
-    }
-    return rows;
   }
   return [];
 }
@@ -447,9 +453,17 @@ function deriveStage6EntryEvidence(rows) {
     const present = rows.filter((row) => isPresent(firstPresent(row, fields))).length;
     return [label, { present, total: rows.length, pct: rows.length ? round((present / rows.length) * 100, 1) : 0 }];
   }));
+  const explainedMissingCounts = {
+    rrAtCurrent: rows.filter((row) =>
+      !isPresent(firstPresent(row, ['rrAtCurrent', 'rrAtCurrentPrice'])) &&
+      row?.targetNoTradeConfirmed === true &&
+      isPresent(row?.targetRecalibrationNoTradeReason) &&
+      /^TARGET_NO_TRADE_CONFIRMED_/.test(String(row?.targetRecalibrationViabilityVerdict || ''))
+    ).length
+  };
   const missingCoreFields = STAGE6_ENTRY_CORE_EVIDENCE_FIELDS.filter((field) => {
     const info = fieldCoverage[field];
-    return !info || info.total === 0 || info.present < info.total;
+    return !info || info.total === 0 || info.present + Number(explainedMissingCounts[field] || 0) < info.total;
   });
   const numericRanges = Object.fromEntries(STAGE6_ENTRY_EVIDENCE_FIELDS.slice(0, 4).map(({ label, fields }) => {
     const values = rows.map((row) => toNumber(firstPresent(row, fields))).filter((value) => value != null);
@@ -468,6 +482,7 @@ function deriveStage6EntryEvidence(rows) {
         : 'pass_entry_fillability_evidence_present',
     rows: rows.length,
     missingCoreFields,
+    explainedMissingCounts,
     fieldCoverage,
     numericRanges,
     policyCounts: {
@@ -476,7 +491,7 @@ function deriveStage6EntryEvidence(rows) {
       finalDecision: countBy(rows, (row) => row.finalDecision),
       decisionReason: countBy(rows, (row) => row.decisionReason),
       zeroExecutableTuningLane: countBy(rows, (row) => row.zeroExecutableTuningLane),
-      qualityGateLane: countBy(rows, (row) => row.qualityGateLane)
+      qualityGateLane: countBy(rows, (row) => row.qualityGateLane || 'not_applicable')
     }
   };
 }
