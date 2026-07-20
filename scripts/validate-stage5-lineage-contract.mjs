@@ -46,7 +46,26 @@ function verifyFullAuditLineage() {
     },
     ict_universe: [{ symbol: 'TEST' }]
   });
-  writeJson(stage6, { manifest: { sourceStage5File: path.basename(stage5), timestamp: '2099-01-02T10:00:00Z' }, alpha_candidates: [{ symbol: 'TEST' }] });
+  writeJson(stage6, {
+    manifest: { sourceStage5File: path.basename(stage5), timestamp: '2099-01-02T10:00:00Z' },
+    execution_contract: {
+      modelTop6: [{
+        symbol: 'TEST',
+        finalDecision: 'BLOCKED_RISK',
+        decisionReason: 'blocked_rr_below_min',
+        entryDistancePct: 5,
+        riskRewardRatioValue: 2,
+        rrAtCurrentPrice: null,
+        targetBufferFromCurrentPct: -1,
+        fillabilityPolicyVerdict: 'FILLABILITY_POLICY_BLOCKED',
+        entryTimingPolicyVerdict: 'CURRENT_TARGET_BUFFER_BELOW_MIN',
+        targetNoTradeConfirmed: true,
+        targetRecalibrationNoTradeReason: 'target_not_above_current',
+        targetRecalibrationViabilityVerdict: 'TARGET_NO_TRADE_CONFIRMED_TARGET_NOT_ABOVE_CURRENT'
+      }]
+    },
+    alpha_candidates: []
+  });
 
   const result = spawnSync(process.execPath, ['scripts/build-stage3-6-full-stage-audit.mjs'], {
     cwd: process.cwd(),
@@ -70,7 +89,21 @@ function verifyFullAuditLineage() {
   if (lineage.status !== 'pass_same_run_lineage' || lineage.stage5MatchesStage4 !== true) {
     throw new Error(`lineage fixture expected pass_same_run_lineage with stage5MatchesStage4=true, got ${JSON.stringify(lineage)}`);
   }
-  return { status: 'pass_same_run_lineage', stage5MatchesStage4: true };
+  if (audit.stageVerdicts?.Stage6?.rows !== 1) {
+    throw new Error(`full-stage audit expected one execution_contract row when alpha_candidates is empty, got ${audit.stageVerdicts?.Stage6?.rows}`);
+  }
+  if (audit.stage6EntryEvidence?.status !== 'pass_entry_fillability_evidence_present') {
+    throw new Error(`full-stage audit should accept explicit no-trade as explained missing RR evidence, got ${JSON.stringify(audit.stage6EntryEvidence)}`);
+  }
+  if (audit.stage6EntryEvidence?.policyCounts?.qualityGateLane?.unknown) {
+    throw new Error(`non-applicable quality gate must not be reported as unknown: ${JSON.stringify(audit.stage6EntryEvidence.policyCounts.qualityGateLane)}`);
+  }
+  return {
+    status: 'pass_same_run_lineage',
+    stage5MatchesStage4: true,
+    stage6Rows: 1,
+    noTradeRrEvidence: 'explained'
+  };
 }
 
 let lineageFixture;
