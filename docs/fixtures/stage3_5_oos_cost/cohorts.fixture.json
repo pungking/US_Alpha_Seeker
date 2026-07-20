@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "stage3-5-oos-v2",
+  "sourceLedgerSchemaVersion": "stage7-outcome-ledger-v2",
+  "rows": [
+    { "symbol": "EXA", "decisionCohort": "EXECUTABLE_COHORT", "primaryBlocker": "NONE", "signalDate": "2026-06-01", "resolvedAt": "2026-06-10", "split": "OOS", "side": "LONG", "entryPrice": 100, "exitPrice": 110, "holdingDays": 7, "spreadBps": 10, "slippageBps": 5, "commissionBps": 1, "lineageVerifiedForComparison": true },
+    { "symbol": "EXB", "decisionCohort": "EXECUTABLE_COHORT", "primaryBlocker": "NONE", "signalDate": "2026-06-02", "resolvedAt": "2026-06-11", "split": "OOS", "side": "LONG", "entryPrice": 100, "exitPrice": 95, "holdingDays": 7, "spreadBps": 10, "slippageBps": 5, "commissionBps": 1, "lineageVerifiedForComparison": true },
+    { "symbol": "EXC", "decisionCohort": "EXECUTABLE_COHORT", "primaryBlocker": "NONE", "signalDate": "2026-06-03", "resolvedAt": "2026-06-12", "split": "OOS", "side": "LONG", "entryPrice": 100, "exitPrice": 102, "holdingDays": 7, "spreadBps": 10, "slippageBps": 5, "commissionBps": 1, "lineageVerifiedForComparison": true },
+    { "symbol": "BLA", "decisionCohort": "ACTIONABLE_BLOCKED_COHORT", "primaryBlocker": "STRUCTURE_PROOF", "falseNegativeEligible": true, "signalDate": "2026-06-04", "resolvedAt": "2026-06-15", "split": "OOS", "side": "LONG", "entryPrice": 100, "exitPrice": 105, "holdingDays": 7, "spreadBps": 10, "slippageBps": 5, "commissionBps": 1, "lineageVerifiedForComparison": true },
+    { "symbol": "BLB", "decisionCohort": "ACTIONABLE_BLOCKED_COHORT", "primaryBlocker": "BREAKOUT_PROOF_NOT_CONFIRMED", "falseNegativeEligible": true, "signalDate": "2026-06-05", "resolvedAt": "2026-06-16", "split": "OOS", "side": "LONG", "entryPrice": 100, "exitPrice": 104, "holdingDays": 7, "spreadBps": 10, "slippageBps": 5, "commissionBps": 1, "lineageVerifiedForComparison": true },
+    { "symbol": "BLC", "decisionCohort": "ACTIONABLE_BLOCKED_COHORT", "primaryBlocker": "RISK_GEOMETRY", "falseNegativeEligible": true, "signalDate": "2026-06-06", "resolvedAt": "2026-06-17", "split": "OOS", "side": "LONG", "entryPrice": 100, "exitPrice": 99, "holdingDays": 7, "spreadBps": 10, "slippageBps": 5, "commissionBps": 1, "lineageVerifiedForComparison": true },
+    { "symbol": "CTL", "decisionCohort": "NON_ACTIONABLE_CONTROL_COHORT", "primaryBlocker": "QUALITY_NON_ACTIONABLE_VERDICT", "signalDate": "2026-06-07", "resolvedAt": "2026-06-18", "split": "OOS", "side": "LONG", "entryPrice": 100, "exitPrice": 120, "holdingDays": 7, "spreadBps": 10, "slippageBps": 5, "commissionBps": 1, "lineageVerifiedForComparison": true }
+  ]
+}
