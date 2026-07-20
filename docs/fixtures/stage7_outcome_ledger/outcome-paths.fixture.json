@@ -8,7 +8,82 @@
     { "symbol": "NOFILL", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
     { "symbol": "AMBIG", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
     { "symbol": "PENDING", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 },
-    { "symbol": "NOSOURCE", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 }
+    { "symbol": "NOSOURCE", "previousSymbol": "OLDNAME", "entryExecPrice": 100, "targetPrice": 110, "stopPrice": 90 }
+  ],
+  "blockedSignals": [
+    {
+      "symbol": "BLOCKED",
+      "aiVerdict": "BUY",
+      "executionActionableVerdict": true,
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_structure_confirmation_required",
+      "structurePolicyBlockerLane": "STRUCTURE_CURRENT_RR_WEAK",
+      "zeroExecutableTuningLane": "STRUCTURE_PROOF_REQUIRED_NOT_RELAXATION",
+      "entryExecPrice": 100,
+      "price": 103,
+      "targetPrice": 110,
+      "stopPrice": 90
+    },
+    {
+      "symbol": "BADGEO",
+      "aiVerdict": "STRONG_BUY",
+      "executionActionableVerdict": true,
+      "finalDecision": "BLOCKED_RISK",
+      "decisionReason": "blocked_invalid_geometry",
+      "riskGeometryRepairLane": "TARGET_NO_TRADE",
+      "entryExecPrice": 100,
+      "price": 105,
+      "targetPrice": 95,
+      "stopPrice": 90
+    }
+  ],
+  "controlSignals": [
+    {
+      "symbol": "CONTROL",
+      "aiVerdict": "HOLD",
+      "executionActionableVerdict": false,
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_verdict_not_sidecar_actionable",
+      "entryExecPrice": 100,
+      "price": 101,
+      "targetPrice": 110,
+      "stopPrice": 90
+    },
+    {
+      "symbol": "SPECCTRL",
+      "aiVerdict": "SPECULATIVE_BUY",
+      "executionActionableVerdict": false,
+      "finalDecision": "EXECUTABLE_NOW",
+      "decisionReason": "wait_verdict_not_sidecar_actionable",
+      "entryExecPrice": 100,
+      "price": 101,
+      "targetPrice": 110,
+      "stopPrice": 90
+    }
+  ],
+  "rthGeneratedAt": "2026-01-02T15:00:00.000Z",
+  "rthSignals": [
+    {
+      "symbol": "RTHBAR",
+      "aiVerdict": "BUY",
+      "executionActionableVerdict": true,
+      "entryExecPrice": 100,
+      "targetPrice": 110,
+      "stopPrice": 90
+    }
+  ],
+  "lineageInvalidSignals": [
+    {
+      "symbol": "SOURCEBAD",
+      "aiVerdict": "BUY",
+      "executionActionableVerdict": true,
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_structure_confirmation_required",
+      "structurePolicyBlockerLane": "STRUCTURE_CURRENT_RR_WEAK",
+      "entryExecPrice": 100,
+      "targetPrice": 110,
+      "stopPrice": 90
+    }
   ],
   "history": {
     "TPATH": [
@@ -35,6 +110,33 @@
     ],
     "PENDING": [
       { "date": "2026-01-05", "open": 105, "high": 107, "low": 103, "close": 106 }
+    ],
+    "BLOCKED": [
+      { "date": "2026-01-05", "open": 103, "high": 105, "low": 99, "close": 104 },
+      { "date": "2026-01-06", "open": 104, "high": 111, "low": 101, "close": 110 }
+    ],
+    "BADGEO": [
+      { "date": "2026-01-05", "open": 103, "high": 106, "low": 99, "close": 104 }
+    ],
+    "CONTROL": [
+      { "date": "2026-01-05", "open": 101, "high": 104, "low": 99, "close": 102 },
+      { "date": "2026-01-06", "open": 98, "high": 102, "low": 89, "close": 91 }
+    ],
+    "SPECCTRL": [
+      { "date": "2026-01-05", "open": 101, "high": 104, "low": 99, "close": 102 },
+      { "date": "2026-01-06", "open": 104, "high": 111, "low": 101, "close": 110 }
+    ],
+    "OLDNAME": [
+      { "date": "2026-01-05", "open": 101, "high": 104, "low": 99, "close": 102 }
+    ],
+    "RTHBAR": [
+      { "date": "2026-01-02", "open": 100, "high": 111, "low": 99, "close": 110 },
+      { "date": "2026-01-05", "open": 103, "high": 105, "low": 99, "close": 104 },
+      { "date": "2026-01-06", "open": 104, "high": 111, "low": 101, "close": 110 }
+    ],
+    "SOURCEBAD": [
+      { "date": "2026-01-05", "open": 103, "high": 105, "low": 99, "close": 104 },
+      { "date": "2026-01-06", "open": 104, "high": 111, "low": 101, "close": 110 }
     ]
   },
   "expected": {
