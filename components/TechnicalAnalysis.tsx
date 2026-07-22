@@ -1452,7 +1452,21 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (!hasSupportedShape) {
           throw new Error(`INVALID_OHLCV_FORMAT:${fileName}`);
       }
-      return normalizeDriveOhlcv(rawData);
+      const isLineageEnvelope = rawData?.schemaVersion === 'ohlcv-lineage-v1';
+      const lineage = isLineageEnvelope ? rawData?.lineage : null;
+      if (isLineageEnvelope && (
+          !lineage
+          || typeof lineage !== 'object'
+          || lineage.schemaVersion !== 'corporate-action-lineage-v1'
+          || lineage.lineageStatus !== 'PRESENT'
+          || String(lineage.symbol || '').trim().toUpperCase() !== symbol.trim().toUpperCase()
+      )) {
+          throw new Error(`INVALID_OHLCV_LINEAGE:${fileName}`);
+      }
+      return {
+          candles: normalizeDriveOhlcv(rawData),
+          corporateActionLineage: lineage
+      };
   };
 
   const countTrailingZeroVolumeFlatBars = (candles: any[]) => {
@@ -1897,11 +1911,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       let benchmarkCandles: any[] = [];
       try {
-          benchmarkCandles = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, "SP500_INDEX") || [];
+          benchmarkCandles = (await loadOhlcvFromDrive(accessToken, ohlcvFolderId, "SP500_INDEX"))?.candles || [];
           if (benchmarkCandles.length > 0) {
               addLog("Benchmark (S&P 500 Index) Data Acquired from Drive. RS Rating Active.", "ok");
           } else {
-              benchmarkCandles = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, "NASDAQ_INDEX") || [];
+              benchmarkCandles = (await loadOhlcvFromDrive(accessToken, ohlcvFolderId, "NASDAQ_INDEX"))?.candles || [];
               if (benchmarkCandles.length > 0) addLog("Primary benchmark missing. NASDAQ Index backup engaged.", "warn");
               else addLog("Benchmark index unavailable. Using Internal Relative Strength.", "warn");
           }
@@ -1995,13 +2009,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
 	              try {
 	                  let candles: any[] = [];
+	                  let corporateActionLineage: Record<string, any> | null = null;
 	                  let dataSrc: 'DRIVE' | 'API_FALLBACK' = 'DRIVE';
                       let driveLoadState: 'OK' | 'MISSING' | 'CORRUPT' = 'MISSING';
 
 	                  try {
-	                      const driveCandles = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, item.symbol);
-	                      if (driveCandles && driveCandles.length > 0) {
-                              candles = driveCandles;
+	                      const driveOhlcv = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, item.symbol);
+	                      if (driveOhlcv && driveOhlcv.candles.length > 0) {
+                              candles = driveOhlcv.candles;
+                              corporateActionLineage = driveOhlcv.corporateActionLineage;
                               driveLoadState = 'OK';
                           }
 	                  } catch {
@@ -2023,6 +2039,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                   const apiCandles = await fetchCandlesFromAPI(item.symbol);
                                   if (apiCandles && apiCandles.length > 0) {
                                       candles = apiCandles;
+                                      corporateActionLineage = null;
                                       dataSrc = 'API_FALLBACK';
                                       apiFallbackRecovered++;
                                       addLog(`API fallback recovered OHLCV: ${item.symbol.toUpperCase()} (${apiCandles.length} bars)`, "ok");
@@ -2437,6 +2454,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   results.push({
                       ...item,
                       ...techData,
+                      corporateActionLineage,
                       isTechnicalBreakout,
                       lastUpdate: new Date().toISOString()
                   });
@@ -2468,6 +2486,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       low52: item.fiftyTwoWeekLow || 0,
                       recentSwingHigh: 0,
                       recentSwingLow: 0,
+                      corporateActionLineage: null,
                       lastUpdate: new Date().toISOString(),
                       dataSource: 'FAILURE'
                   });
@@ -2685,6 +2704,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   apiFallbackCount: nonDriveApiCount,
                   heuristicCount: nonDriveHeuristicCount,
                   capAppliedCount: integrityCapAppliedCount
+              },
+              corporateActionLineage: {
+                  schemaVersion: 'corporate-action-lineage-v1',
+                  rowsWithLineage: auditReadyResults.filter((row) => row.corporateActionLineage?.lineageStatus === 'PRESENT').length,
+                  comparisonVerifiedRows: auditReadyResults.filter((row) => row.corporateActionLineage?.lineageVerifiedForComparison === true).length,
+                  comparisonUnverifiedRows: auditReadyResults.filter((row) => row.corporateActionLineage?.lineageVerifiedForComparison !== true).length
               },
               scoreBreakdownSchema: "v1.1",
               scoreBreakdownCoverage: `${auditReadyResults.filter((x) => !!x.scoreBreakdown).length}/${auditReadyResults.length}`

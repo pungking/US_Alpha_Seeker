@@ -70,22 +70,64 @@ fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_NO_LINEAGE_FIXTURE.jso
     watchlistTop: fixture.lineageInvalidSignals
   }
 }));
+
+const buildEventEvidence = (status) => ({
+  status,
+  source: 'FIXTURE_LISTING_EVENTS',
+  sourceAsOf: '2026-01-07T21:00:00.000Z'
+});
+const buildCorporateActionLineage = (symbol, verified = true) => ({
+  schemaVersion: 'corporate-action-lineage-v1',
+  lineageStatus: 'PRESENT',
+  symbol,
+  sourceSymbol: symbol,
+  vendor: 'YFINANCE_YAHOO',
+  retrievedAt: '2026-01-07T22:00:00.000Z',
+  sourceAsOf: '2026-01-07T00:00:00.000Z',
+  marketTimezone: 'America/New_York',
+  adjustmentType: 'YFINANCE_AUTO_ADJUSTED_OHLC',
+  splitAdjustmentStatus: 'VERIFIED_YFINANCE_AUTO_ADJUSTED',
+  dividendAdjustmentStatus: 'VERIFIED_YFINANCE_AUTO_ADJUSTED',
+  corporateActionStatus: 'VERIFIED_NO_SPLIT_OR_DIVIDEND_EVENT_IN_WINDOW',
+  symbolChangeStatus: verified
+    ? 'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE'
+    : 'UNVERIFIED_HISTORICAL_SYMBOL_CHANGE_SOURCE_MISSING',
+  delistingStatus: verified
+    ? 'VERIFIED_NOT_DELISTED_AS_OF_SOURCE'
+    : 'UNVERIFIED_DELISTING_EVENT_SOURCE_MISSING',
+  suspensionStatus: verified
+    ? 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE'
+    : 'UNVERIFIED_SUSPENSION_EVENT_SOURCE_MISSING',
+  symbolChangeEvidence: verified
+    ? buildEventEvidence('VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE')
+    : null,
+  delistingEvidence: verified
+    ? buildEventEvidence('VERIFIED_NOT_DELISTED_AS_OF_SOURCE')
+    : null,
+  suspensionEvidence: verified
+    ? buildEventEvidence('VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE')
+    : null,
+  sourceFreshnessStatus: 'FRESH',
+  historyCoverageStatus: 'VERIFIED_OBSERVED_HISTORY',
+  survivorshipBiasStatus: verified
+    ? 'VERIFIED_CORPORATE_ACTION_LINEAGE'
+    : 'UNVERIFIED_INCOMPLETE_CORPORATE_ACTION_COVERAGE',
+  returnBasis: 'DIVIDEND_AND_SPLIT_ADJUSTED_PRICE_RETURN',
+  lookbackStart: '2025-01-02',
+  lookbackEnd: '2026-01-07',
+  observationCount: 252,
+  splitEvents: [],
+  dividendEvents: [],
+  lineageVerifiedForComparison: verified
+});
 fs.writeFileSync(path.join(stage4Dir, 'STAGE4_TECHNICAL_FULL_FIXTURE.json'), JSON.stringify({
   manifest: { timestamp: '2026-01-07T22:00:00.000Z', marketTimezone: 'America/New_York' },
   technical_universe: Object.entries(fixture.history).map(([symbol, priceHistory]) => ({
     symbol,
     priceHistory,
     dataSource: 'FIXTURE_DRIVE',
-    quoteSource: 'FIXTURE_VENDOR',
     updated: '2026-01-07T22:00:00.000Z',
-    adjustmentType: 'split_adjusted',
-    splitAdjustmentStatus: 'SPLIT_ADJUSTED',
-    dividendAdjustmentStatus: 'NOT_DIVIDEND_ADJUSTED',
-    corporateActionStatus: 'NO_CORPORATE_ACTION_IN_WINDOW',
-    symbolChangeStatus: 'NO_SYMBOL_CHANGE_IN_WINDOW',
-    delistingStatus: 'ACTIVE_THROUGH_LOOKBACK_END',
-    survivorshipBiasStatus: 'VERIFIED_SOURCE_UNIVERSE_LINEAGE',
-    missingSessions: []
+    corporateActionLineage: buildCorporateActionLineage(symbol, symbol !== 'SPECCTRL')
   }))
 }));
 
@@ -147,6 +189,9 @@ if (ledger.blockerOutcomes?.SCHEMA_OR_LINEAGE_MISMATCH?.meanMfePct !== null) {
 if (ledger.summary.lookAheadViolationRows !== 0 || ledger.summary.survivorshipBiasViolationRows !== 0) {
   throw new Error('bias contract violation');
 }
+if (ledger.summary.comparisonLineageExcludedRows !== 1 || ledger.summary.comparisonEligibleHistoryRows !== 11) {
+  throw new Error(`corporate-action comparison eligibility summary mismatch: ${JSON.stringify(ledger.summary)}`);
+}
 if (ledger.rows.some((row) => !row.decisionSnapshotSha256 || !row.primaryBlocker || !row.historyLineage)) {
   throw new Error('immutable snapshot or lineage evidence missing');
 }
@@ -165,7 +210,7 @@ if (ledger.rows.find((row) => row.symbol === 'RTHBAR')?.fillDate !== '2026-01-05
 
 const oosPayload = JSON.parse(fs.readFileSync(oos, 'utf8'));
 if (oosPayload.schemaVersion !== 'stage3-5-oos-v2') throw new Error('unexpected OOS schema');
-if (oosPayload.rows.length !== 7) throw new Error(`expected 7 OOS rows, got ${oosPayload.rows.length}`);
+if (oosPayload.rows.length !== 6) throw new Error(`expected 6 OOS rows, got ${oosPayload.rows.length}`);
 if (oosPayload.rows.some((row) => row.split !== 'OOS' || row.costInputBasis !== 'conservative_policy_assumption_v1')) {
   throw new Error('OOS contract or cost basis mismatch');
 }
@@ -190,12 +235,20 @@ if (oosPayload.rows.find((row) => row.symbol === 'CONTROL')?.decisionCohort !== 
 }
 if (ledger.rows.find((row) => row.symbol === 'SPECCTRL')?.falseNegativeEligible !== false
   || ledger.rows.find((row) => row.symbol === 'SPECCTRL')?.primaryBlocker !== 'QUALITY_NON_ACTIONABLE_VERDICT'
-  || oosPayload.rows.find((row) => row.symbol === 'SPECCTRL')?.decisionCohort !== 'NON_ACTIONABLE_CONTROL_COHORT') {
+  || ledger.rows.find((row) => row.symbol === 'SPECCTRL')?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED'
+  || oosPayload.rows.some((row) => row.symbol === 'SPECCTRL')) {
   throw new Error('SPECULATIVE_BUY entered the false-negative cohort');
 }
 if (oosPayload.rows.some((row) => row.lineageVerifiedForComparison !== true
-  || row.symbolChangeStatus !== 'NO_SYMBOL_CHANGE_IN_WINDOW'
-  || row.delistingStatus !== 'ACTIVE_THROUGH_LOOKBACK_END')) {
+  || row.corporateActionLineageSchemaVersion !== 'corporate-action-lineage-v1'
+  || row.sourceAsOf !== '2026-01-07T00:00:00.000Z'
+  || row.marketTimezone !== 'America/New_York'
+  || row.sourceFreshnessStatus !== 'FRESH'
+  || row.historyCoverageStatus !== 'VERIFIED_OBSERVED_HISTORY'
+  || row.symbolChangeStatus !== 'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE'
+  || row.delistingStatus !== 'VERIFIED_NOT_DELISTED_AS_OF_SOURCE'
+  || row.suspensionStatus !== 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE'
+  || row.returnBasis !== 'DIVIDEND_AND_SPLIT_ADJUSTED_PRICE_RETURN')) {
   throw new Error('verified corporate-action lineage was not propagated to OOS evidence');
 }
 const symbolChangeRow = ledger.rows.find((row) => row.symbol === 'NOSOURCE');
@@ -208,6 +261,7 @@ const firstIds = ledger.rows.map((row) => `${row.ledgerId}:${row.decisionSnapsho
 const stage4FixturePath = path.join(stage4Dir, 'STAGE4_TECHNICAL_FULL_FIXTURE.json');
 const changedOutcomeEvidence = JSON.parse(fs.readFileSync(stage4FixturePath, 'utf8'));
 changedOutcomeEvidence.technical_universe.find((row) => row.symbol === 'NOFILL').priceHistory[0].close = 105.5;
+changedOutcomeEvidence.technical_universe.find((row) => row.symbol === 'NOFILL').corporateActionLineage.retrievedAt = '2026-01-08T22:00:00.000Z';
 fs.writeFileSync(stage4FixturePath, JSON.stringify(changedOutcomeEvidence));
 const secondResult = spawnSync(process.execPath, [path.join(root, 'scripts/build-stage7-outcome-ledger.mjs')], {
   cwd: root,
@@ -246,7 +300,13 @@ for (const file of fs.readdirSync(stage6Dir)) {
 }
 for (const file of fs.readdirSync(stage4Dir)) {
   const payload = JSON.parse(fs.readFileSync(path.join(stage4Dir, file), 'utf8'));
-  for (const row of payload.technical_universe || []) row.symbol = rename(row.symbol);
+  for (const row of payload.technical_universe || []) {
+    row.symbol = rename(row.symbol);
+    if (row.corporateActionLineage) {
+      row.corporateActionLineage.symbol = rename(row.corporateActionLineage.symbol);
+      row.corporateActionLineage.sourceSymbol = rename(row.corporateActionLineage.sourceSymbol);
+    }
+  }
   fs.writeFileSync(path.join(renamedStage4Dir, file), JSON.stringify(payload));
 }
 const renamedOutput = path.join(renamedTmp, 'ledger.json');
