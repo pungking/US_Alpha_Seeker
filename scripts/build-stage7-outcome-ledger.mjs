@@ -55,6 +55,77 @@ function isoTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function evidenceTimestampOrderValid(evidence, expectedStatus, sourceAsOf, retrievedAt) {
+  if (!evidence || typeof evidence !== 'object') return false;
+  if (String(evidence.status || '') !== expectedStatus || !String(evidence.source || '').trim()) return false;
+  const historyAsOfMs = Date.parse(String(sourceAsOf || ''));
+  const evidenceAsOfMs = Date.parse(String(evidence.sourceAsOf || ''));
+  const retrievedAtMs = Date.parse(String(retrievedAt || ''));
+  if (![historyAsOfMs, evidenceAsOfMs, retrievedAtMs].every(Number.isFinite)) return false;
+  if (historyAsOfMs > evidenceAsOfMs || evidenceAsOfMs > retrievedAtMs) return false;
+  if (evidence.eventEffectiveAt) {
+    const effectiveAtMs = Date.parse(String(evidence.eventEffectiveAt));
+    if (!Number.isFinite(effectiveAtMs) || effectiveAtMs > evidenceAsOfMs) return false;
+  }
+  return true;
+}
+
+function evaluateHistoryLineage(lineage) {
+  const reasons = [];
+  const sourceAsOfMs = Date.parse(String(lineage?.sourceAsOf || ''));
+  const retrievedAtMs = Date.parse(String(lineage?.retrievedAt || ''));
+  const allowedCorporateActionStatuses = new Set([
+    'VERIFIED_SPLIT_DIVIDEND_EVENTS_IN_WINDOW',
+    'VERIFIED_NO_SPLIT_OR_DIVIDEND_EVENT_IN_WINDOW'
+  ]);
+
+  if (lineage?.schemaVersion !== 'corporate-action-lineage-v1') reasons.push('lineage_schema_not_verified');
+  if (lineage?.lineageContractStatus !== 'PRESENT') reasons.push('lineage_not_present');
+  if (!lineage?.lineageKeyMatchesStage4Symbol) reasons.push('lineage_symbol_mismatch');
+  if (!lineage?.vendor) reasons.push('vendor_missing');
+  if (!Number.isFinite(sourceAsOfMs)) reasons.push('source_as_of_missing_or_invalid');
+  if (!Number.isFinite(retrievedAtMs)) reasons.push('retrieved_at_missing_or_invalid');
+  if (Number.isFinite(sourceAsOfMs) && Number.isFinite(retrievedAtMs) && sourceAsOfMs > retrievedAtMs) {
+    reasons.push('source_as_of_after_retrieval');
+  }
+  if (lineage?.marketTimezone !== 'America/New_York') reasons.push('market_timezone_unverified');
+  if (lineage?.adjustmentType !== 'YFINANCE_AUTO_ADJUSTED_OHLC') reasons.push('adjustment_type_unverified');
+  if (lineage?.splitAdjustmentStatus !== 'VERIFIED_YFINANCE_AUTO_ADJUSTED') reasons.push('split_adjustment_unverified');
+  if (lineage?.dividendAdjustmentStatus !== 'VERIFIED_YFINANCE_AUTO_ADJUSTED') reasons.push('dividend_adjustment_unverified');
+  if (!allowedCorporateActionStatuses.has(String(lineage?.corporateActionStatus || ''))) reasons.push('corporate_action_status_unverified');
+  if (lineage?.symbolChangeStatus !== 'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE') reasons.push('symbol_change_status_unverified_or_changed');
+  if (lineage?.delistingStatus !== 'VERIFIED_NOT_DELISTED_AS_OF_SOURCE') reasons.push('delisting_status_unverified_or_delisted');
+  if (lineage?.suspensionStatus !== 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE') reasons.push('suspension_status_unverified_or_suspended');
+  if (lineage?.sourceFreshnessStatus !== 'FRESH') reasons.push('source_not_fresh');
+  if (lineage?.historyCoverageStatus !== 'VERIFIED_OBSERVED_HISTORY') reasons.push('history_coverage_unverified');
+  if (lineage?.survivorshipBiasStatus !== 'VERIFIED_CORPORATE_ACTION_LINEAGE') reasons.push('survivorship_lineage_unverified');
+  if (lineage?.returnBasis !== 'DIVIDEND_AND_SPLIT_ADJUSTED_PRICE_RETURN') reasons.push('return_basis_unverified');
+  if (lineage?.lineageVerifiedByProducer !== true) reasons.push('producer_comparison_contract_not_verified');
+  if (!evidenceTimestampOrderValid(
+    lineage?.symbolChangeEvidence,
+    'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE',
+    lineage?.sourceAsOf,
+    lineage?.retrievedAt
+  )) reasons.push('symbol_change_evidence_invalid');
+  if (!evidenceTimestampOrderValid(
+    lineage?.delistingEvidence,
+    'VERIFIED_NOT_DELISTED_AS_OF_SOURCE',
+    lineage?.sourceAsOf,
+    lineage?.retrievedAt
+  )) reasons.push('delisting_evidence_invalid');
+  if (!evidenceTimestampOrderValid(
+    lineage?.suspensionEvidence,
+    'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE',
+    lineage?.sourceAsOf,
+    lineage?.retrievedAt
+  )) reasons.push('suspension_evidence_invalid');
+
+  return {
+    status: reasons.length ? 'UNVERIFIED_FOR_COMPARISON' : 'VERIFIED_FOR_COMPARISON',
+    reasons: [...new Set(reasons)]
+  };
+}
+
 function atomicWrite(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tmp = `${filePath}.${process.pid}.tmp`;
@@ -315,25 +386,65 @@ function readPriceHistory() {
         record.bars.set(date, { date, open, high, low, close });
       }
       record.sourceFiles.add(path.basename(filePath));
-      const retrievedAt = isoTimestamp(row?.updated ?? row?.lastUpdate ?? row?.quoteTimestamp ?? payload?.manifest?.timestamp);
+      const rawLineage = row?.corporateActionLineage && typeof row.corporateActionLineage === 'object'
+        ? row.corporateActionLineage
+        : row?.ohlcvLineage && typeof row.ohlcvLineage === 'object'
+          ? row.ohlcvLineage
+          : null;
+      const retrievedAt = isoTimestamp(
+        rawLineage?.retrievedAt
+        ?? row?.updated
+        ?? row?.lastUpdate
+        ?? row?.quoteTimestamp
+        ?? payload?.manifest?.timestamp
+      );
       if (!record.lineage || String(retrievedAt || '') >= String(record.lineage.retrievedAt || '')) {
-        record.lineage = {
+        const lineage = {
+          schemaVersion: rawLineage?.schemaVersion || null,
           status: 'PRESENT',
+          lineageContractStatus: rawLineage?.lineageStatus || (rawLineage ? 'PRESENT' : 'LEGACY_ROW_WITHOUT_CORPORATE_ACTION_LINEAGE'),
           stage4File: path.basename(filePath),
           sourceStage3File: payload?.manifest?.sourceStage3File || null,
           storageSource: row?.dataSource || null,
-          vendor: row?.quoteSource || row?.source || null,
+          lineageSymbol: normalized(rawLineage?.symbol),
+          sourceSymbol: normalized(rawLineage?.sourceSymbol),
+          lineageKeyMatchesStage4Symbol: Boolean(rawLineage?.symbol) && normalized(rawLineage.symbol) === symbol,
+          vendor: rawLineage?.vendor || row?.quoteSource || row?.source || null,
           retrievedAt,
-          adjustmentType: row?.adjustmentType ?? row?.adjustment_type ?? null,
-          splitAdjustmentStatus: row?.splitAdjustmentStatus || 'UNVERIFIED_SPLIT_ADJUSTMENT_LINEAGE',
-          dividendAdjustmentStatus: row?.dividendAdjustmentStatus || 'UNVERIFIED_DIVIDEND_ADJUSTMENT_LINEAGE',
-          marketTimezone: payload?.manifest?.marketTimezone || 'America/New_York',
-          missingSessions: Array.isArray(row?.missingSessions) ? row.missingSessions : null,
-          corporateActionStatus: row?.corporateActionStatus || 'UNVERIFIED_CORPORATE_ACTION_LINEAGE',
-          symbolChangeStatus: row?.symbolChangeStatus || 'UNVERIFIED_SYMBOL_CHANGE_LINEAGE',
-          delistingStatus: row?.delistingStatus || 'UNVERIFIED_DELISTING_LINEAGE',
-          survivorshipBiasStatus: row?.survivorshipBiasStatus || 'UNVERIFIED_CORPORATE_ACTION_LINEAGE',
-          returnBasis: row?.totalReturnBasis || 'PRICE_RETURN_NOT_TOTAL_RETURN'
+          sourceAsOf: isoTimestamp(rawLineage?.sourceAsOf),
+          eventEffectiveAt: isoTimestamp(rawLineage?.eventEffectiveAt),
+          marketTimezone: rawLineage?.marketTimezone || payload?.manifest?.marketTimezone || null,
+          adjustmentType: rawLineage?.adjustmentType ?? row?.adjustmentType ?? row?.adjustment_type ?? null,
+          splitAdjustmentStatus: rawLineage?.splitAdjustmentStatus ?? row?.splitAdjustmentStatus ?? 'UNVERIFIED_SPLIT_ADJUSTMENT_LINEAGE',
+          dividendAdjustmentStatus: rawLineage?.dividendAdjustmentStatus ?? row?.dividendAdjustmentStatus ?? 'UNVERIFIED_DIVIDEND_ADJUSTMENT_LINEAGE',
+          sourceFreshnessStatus: rawLineage?.sourceFreshnessStatus || 'UNVERIFIED_SOURCE_FRESHNESS',
+          historyCoverageStatus: rawLineage?.historyCoverageStatus || 'UNVERIFIED_HISTORY_COVERAGE',
+          missingSessions: Array.isArray(rawLineage?.missingSessions)
+            ? rawLineage.missingSessions
+            : Array.isArray(row?.missingSessions)
+              ? row.missingSessions
+              : null,
+          corporateActionStatus: rawLineage?.corporateActionStatus ?? row?.corporateActionStatus ?? 'UNVERIFIED_CORPORATE_ACTION_LINEAGE',
+          symbolChangeStatus: rawLineage?.symbolChangeStatus ?? row?.symbolChangeStatus ?? 'UNVERIFIED_SYMBOL_CHANGE_LINEAGE',
+          delistingStatus: rawLineage?.delistingStatus ?? row?.delistingStatus ?? 'UNVERIFIED_DELISTING_LINEAGE',
+          suspensionStatus: rawLineage?.suspensionStatus ?? row?.suspensionStatus ?? 'UNVERIFIED_SUSPENSION_LINEAGE',
+          symbolChangeEvidence: rawLineage?.symbolChangeEvidence || null,
+          delistingEvidence: rawLineage?.delistingEvidence || null,
+          suspensionEvidence: rawLineage?.suspensionEvidence || null,
+          survivorshipBiasStatus: rawLineage?.survivorshipBiasStatus ?? row?.survivorshipBiasStatus ?? 'UNVERIFIED_CORPORATE_ACTION_LINEAGE',
+          returnBasis: rawLineage?.returnBasis ?? row?.returnBasis ?? row?.totalReturnBasis ?? 'PRICE_RETURN_NOT_TOTAL_RETURN',
+          lineageVerifiedByProducer: rawLineage?.lineageVerifiedForComparison === true,
+          producerLookbackStart: rawLineage?.lookbackStart || null,
+          producerLookbackEnd: rawLineage?.lookbackEnd || null,
+          producerObservationCount: Number.isFinite(Number(rawLineage?.observationCount))
+            ? Number(rawLineage.observationCount)
+            : null
+        };
+        const eligibility = evaluateHistoryLineage(lineage);
+        record.lineage = {
+          ...lineage,
+          comparisonEligibilityStatus: eligibility.status,
+          comparisonExclusionReasons: eligibility.reasons
         };
       }
       bySymbol.set(symbol, record);
@@ -362,22 +473,32 @@ function readPriceHistory() {
 function resolveSeed(seed, historyRecord) {
   const allBars = historyRecord?.bars;
   const historyLineage = historyRecord?.lineage || {
+    schemaVersion: null,
     status: 'MISSING_SOURCE_HISTORY',
+    lineageContractStatus: 'MISSING_SOURCE_HISTORY',
     stage4File: null,
     sourceFiles: [],
     storageSource: null,
     vendor: null,
     retrievedAt: null,
+    sourceAsOf: null,
     adjustmentType: null,
     splitAdjustmentStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
     dividendAdjustmentStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
     marketTimezone: 'America/New_York',
     missingSessions: null,
+    sourceFreshnessStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
+    historyCoverageStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
     corporateActionStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
     symbolChangeStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
     delistingStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
+    suspensionStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
     survivorshipBiasStatus: 'UNVERIFIED_NO_SOURCE_HISTORY',
     returnBasis: 'PRICE_RETURN_NOT_TOTAL_RETURN',
+    lineageVerifiedByProducer: false,
+    lineageKeyMatchesStage4Symbol: false,
+    comparisonEligibilityStatus: 'UNVERIFIED_FOR_COMPARISON',
+    comparisonExclusionReasons: ['source_history_missing'],
     lookbackStart: null,
     lookbackEnd: null,
     observationCount: 0
@@ -416,6 +537,16 @@ function resolveSeed(seed, historyRecord) {
       ...base,
       outcomeLabel: 'PENDING_SOURCE_HISTORY',
       outcomeStatus: 'pending_source_history',
+      observedBars: 0,
+      fillDate: null,
+      resolvedAt: null
+    };
+  }
+  if (historyLineage.comparisonEligibilityStatus !== 'VERIFIED_FOR_COMPARISON') {
+    return {
+      ...base,
+      outcomeLabel: 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED',
+      outcomeStatus: 'excluded_corporate_action_lineage_unverified',
       observedBars: 0,
       fillDate: null,
       resolvedAt: null
@@ -563,27 +694,26 @@ const oosRows = rows
     maePct: row.maePct,
     realizedR: row.realizedR,
     decisionSnapshotSha256: row.decisionSnapshotSha256,
+    corporateActionLineageSchemaVersion: row.historyLineage?.schemaVersion || null,
     adjustmentType: row.historyLineage?.adjustmentType || null,
     splitAdjustmentStatus: row.historyLineage?.splitAdjustmentStatus || null,
     dividendAdjustmentStatus: row.historyLineage?.dividendAdjustmentStatus || null,
     vendor: row.historyLineage?.vendor || null,
     retrievedAt: row.historyLineage?.retrievedAt || null,
+    sourceAsOf: row.historyLineage?.sourceAsOf || null,
+    eventEffectiveAt: row.historyLineage?.eventEffectiveAt || null,
+    marketTimezone: row.historyLineage?.marketTimezone || null,
+    sourceFreshnessStatus: row.historyLineage?.sourceFreshnessStatus || null,
+    historyCoverageStatus: row.historyLineage?.historyCoverageStatus || null,
     corporateActionStatus: row.historyLineage?.corporateActionStatus || null,
     symbolChangeStatus: row.historyLineage?.symbolChangeStatus || null,
     delistingStatus: row.historyLineage?.delistingStatus || null,
+    suspensionStatus: row.historyLineage?.suspensionStatus || null,
     survivorshipBiasStatus: row.historyLineage?.survivorshipBiasStatus || null,
     returnBasis: row.historyLineage?.returnBasis || 'PRICE_RETURN_NOT_TOTAL_RETURN',
-    lineageVerifiedForComparison: Boolean(
-      row.historyLineage?.vendor
-      && row.historyLineage?.retrievedAt
-      && row.historyLineage?.adjustmentType
-      && !String(row.historyLineage?.splitAdjustmentStatus || '').startsWith('UNVERIFIED')
-      && !String(row.historyLineage?.dividendAdjustmentStatus || '').startsWith('UNVERIFIED')
-      && !String(row.historyLineage?.corporateActionStatus || '').startsWith('UNVERIFIED')
-      && !String(row.historyLineage?.symbolChangeStatus || '').startsWith('UNVERIFIED')
-      && !String(row.historyLineage?.delistingStatus || '').startsWith('UNVERIFIED')
-      && !String(row.historyLineage?.survivorshipBiasStatus || '').startsWith('UNVERIFIED')
-    ),
+    comparisonEligibilityStatus: row.historyLineage?.comparisonEligibilityStatus || 'UNVERIFIED_FOR_COMPARISON',
+    comparisonExclusionReasons: row.historyLineage?.comparisonExclusionReasons || [],
+    lineageVerifiedForComparison: row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON',
     spreadBps: costs.spreadBps,
     slippageBps: costs.slippageBps,
     commissionBps: costs.commissionBps,
@@ -638,7 +768,9 @@ const summary = {
   falseNegativeEligibleRows: rows.filter((row) => row.falseNegativeEligible).length,
   lookAheadViolationRows: rows.filter((row) => row.biasAudit?.lookAheadViolation).length,
   survivorshipBiasViolationRows: rows.filter((row) => row.biasAudit?.survivorshipBiasViolation).length,
-  survivorshipBiasUnverifiedRows: rows.filter((row) => String(row.biasAudit?.survivorshipBiasStatus).startsWith('UNVERIFIED')).length
+  survivorshipBiasUnverifiedRows: rows.filter((row) => String(row.biasAudit?.survivorshipBiasStatus).startsWith('UNVERIFIED')).length,
+  comparisonLineageExcludedRows: rows.filter((row) => row.outcomeLabel === 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED').length,
+  comparisonEligibleHistoryRows: rows.filter((row) => row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON').length
 };
 const ledger = {
   schemaVersion: 'stage7-outcome-ledger-v2',
