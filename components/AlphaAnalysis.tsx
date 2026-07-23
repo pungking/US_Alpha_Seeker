@@ -10282,6 +10282,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               instrumentType: normalizeInstrumentType(item?.instrumentType),
               analysisEligible: isAnalysisEligibleTicker(item),
               sector: normalizeOptionalText(item?.sectorTheme || item?.sector),
+              corporateActionLineage:
+                  item?.corporateActionLineage && typeof item.corporateActionLineage === 'object'
+                      ? item.corporateActionLineage
+                      : null,
               aiVerdict: normalizeOptionalText(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict),
               executionVerdict: normalizeOptionalText(item?.executionVerdict),
               executionActionableVerdict: Boolean(item?.executionActionableVerdict),
@@ -10794,6 +10798,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   sourceStage5Symbols: stage5SourceRef.current?.symbols || [],
                   sourceStage5Count: toNonNegativeInt(stage5SourceRef.current?.count, candidates.length),
                   sourceStage5Timestamp: stage5SourceRef.current?.timestamp || null,
+                  corporateActionLineage: {
+                      schemaVersion: 'corporate-action-lineage-v1',
+                      decisionRows: primaryPool.length,
+                      rowsWithLineage: primaryPool.filter(
+                          (row: any) => row?.corporateActionLineage?.lineageStatus === 'PRESENT'
+                      ).length,
+                      comparisonVerifiedRows: primaryPool.filter(
+                          (row: any) => row?.corporateActionLineage?.lineageVerifiedForComparison === true
+                      ).length
+                  },
                   hardGateRiskOffExcluded: hardCutBlocked.length,
                   hardGateInvalidGeometryExcluded: invalidGeometryBlocked.length,
                   decisionCountsPrimary,

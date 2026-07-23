@@ -55,19 +55,135 @@ function isoTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function evidenceTimestampOrderValid(evidence, expectedStatus, sourceAsOf, retrievedAt) {
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
+const SYMBOL_MATCH_METHOD = 'DETERMINISTIC_EXACT_NORMALIZED_SYMBOL_LOOKUP';
+
+function verifiedSymbolAliasChain(evidence, lineageSymbol, sourceSymbol, evidenceAsOfMs) {
+  if (evidence?.status !== 'VERIFIED_SYMBOL_CHANGE') return false;
+  const target = normalized(lineageSymbol);
+  const source = normalized(sourceSymbol);
+  const events = Array.isArray(evidence.events) && evidence.events.length
+    ? evidence.events
+    : [evidence];
+  const normalizedEvents = events
+    .map((event) => ({
+      oldSymbol: normalized(event?.oldSymbol),
+      newSymbol: normalized(event?.newSymbol),
+      eventEffectiveAt: isoTimestamp(event?.eventEffectiveAt)
+    }))
+    .filter((event) => event.oldSymbol && event.newSymbol && event.eventEffectiveAt)
+    .sort((a, b) => a.eventEffectiveAt.localeCompare(b.eventEffectiveAt));
+  if (!target
+    || normalizedEvents.length !== events.length
+    || normalizedEvents.some((event) => Date.parse(event.eventEffectiveAt) > evidenceAsOfMs)) {
+    return false;
+  }
+  if (normalized(evidence.newSymbol) !== target) return false;
+  let cursor = source && source !== target
+    ? source
+    : normalized(evidence.oldSymbol) || normalizedEvents[0]?.oldSymbol;
+  const visited = new Set();
+  for (let index = 0; index < normalizedEvents.length && cursor; index += 1) {
+    if (cursor === target) return true;
+    if (visited.has(cursor)) return false;
+    visited.add(cursor);
+    const next = normalizedEvents.find((event) => event.oldSymbol === cursor);
+    if (!next) return false;
+    cursor = next.newSymbol;
+  }
+  return cursor === target;
+}
+
+function evidenceContractValid(
+  evidence,
+  expectedStatuses,
+  {
+    lineageSymbol,
+    sourceSymbol,
+    historySourceAsOf,
+    lineageEvaluatedAt,
+    historyLookbackStart
+  }
+) {
   if (!evidence || typeof evidence !== 'object') return false;
-  if (String(evidence.status || '') !== expectedStatus || !String(evidence.source || '').trim()) return false;
-  const historyAsOfMs = Date.parse(String(sourceAsOf || ''));
-  const evidenceAsOfMs = Date.parse(String(evidence.sourceAsOf || ''));
-  const retrievedAtMs = Date.parse(String(retrievedAt || ''));
-  if (![historyAsOfMs, evidenceAsOfMs, retrievedAtMs].every(Number.isFinite)) return false;
-  if (historyAsOfMs > evidenceAsOfMs || evidenceAsOfMs > retrievedAtMs) return false;
+  const status = String(evidence.status || '');
+  const targetSymbol = normalized(lineageSymbol);
+  const requestedSymbol = normalized(evidence.requestedSymbol);
+  const matchedSymbol = normalized(evidence.matchedSymbol);
+  const matchStatus = normalized(evidence.symbolMatchStatus);
+  const sourceAsOfMs = Date.parse(String(evidence.sourceAsOf || ''));
+  const evidenceRetrievedAtMs = Date.parse(String(evidence.retrievedAt || ''));
+  const historyAsOfMs = Date.parse(String(historySourceAsOf || ''));
+  const lineageEvaluatedAtMs = Date.parse(String(lineageEvaluatedAt || ''));
+  const historyLookbackStartMs = Date.parse(String(historyLookbackStart || ''));
+  const coverageStartMs = Date.parse(String(evidence.coverageStart || ''));
+  const coverageEndMs = Date.parse(`${String(evidence.coverageEnd || '').slice(0, 10)}T23:59:59.999Z`);
+  if (!expectedStatuses.has(status)
+    || !String(evidence.source || '').trim()
+    || evidence.requestStatus !== 'SUCCESS'
+    || !targetSymbol
+    || requestedSymbol !== targetSymbol
+    || evidence.symbolMatchMethod !== SYMBOL_MATCH_METHOD
+    || evidence.sourceScopeComplete !== true
+    || !String(evidence.queryScope || '').trim()
+    || evidence.partialResponse !== false
+    || !SHA256_PATTERN.test(String(evidence.responseSha256 || ''))
+    || !SHA256_PATTERN.test(String(evidence.requestScopeSymbolsSha256 || ''))
+    || ![
+      sourceAsOfMs,
+      evidenceRetrievedAtMs,
+      historyAsOfMs,
+      lineageEvaluatedAtMs,
+      historyLookbackStartMs,
+      coverageStartMs,
+      coverageEndMs
+    ].every(Number.isFinite)
+    || coverageStartMs > coverageEndMs
+    || coverageStartMs > historyLookbackStartMs
+    || historyLookbackStartMs > historyAsOfMs
+    || historyAsOfMs > sourceAsOfMs
+    || sourceAsOfMs > evidenceRetrievedAtMs
+    || evidenceRetrievedAtMs > lineageEvaluatedAtMs
+    || historyAsOfMs > coverageEndMs) {
+    return false;
+  }
   if (evidence.eventEffectiveAt) {
     const effectiveAtMs = Date.parse(String(evidence.eventEffectiveAt));
-    if (!Number.isFinite(effectiveAtMs) || effectiveAtMs > evidenceAsOfMs) return false;
+    if (!Number.isFinite(effectiveAtMs) || effectiveAtMs > sourceAsOfMs) return false;
   }
-  return true;
+  if (status === 'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE'
+    || status === 'VERIFIED_NOT_DELISTED_AS_OF_SOURCE') {
+    return !matchedSymbol && matchStatus === 'NO_EXACT_EVENT_MATCH_IN_COMPLETE_RESPONSE';
+  }
+  if (status === 'VERIFIED_SYMBOL_CHANGE') {
+    return matchedSymbol === targetSymbol
+      && matchStatus === 'EXACT_EVENT_MATCH'
+      && verifiedSymbolAliasChain(evidence, targetSymbol, sourceSymbol, sourceAsOfMs);
+  }
+  if (status === 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE') {
+    return (
+      (!matchedSymbol && matchStatus === 'NO_EXACT_EVENT_MATCH_IN_COMPLETE_RESPONSE')
+      || (
+        matchedSymbol === targetSymbol
+        && [
+          'EXACT_HISTORICAL_EVENT_MATCH_CURRENTLY_RESUMED',
+          'EXACT_HISTORICAL_EVENT_MATCH_NOT_IN_CURRENT_FEED'
+        ].includes(matchStatus)
+      )
+    );
+  }
+  return false;
 }
 
 function evaluateHistoryLineage(lineage) {
@@ -78,10 +194,40 @@ function evaluateHistoryLineage(lineage) {
     'VERIFIED_SPLIT_DIVIDEND_EVENTS_IN_WINDOW',
     'VERIFIED_NO_SPLIT_OR_DIVIDEND_EVENT_IN_WINDOW'
   ]);
+  const symbolChangeStatuses = new Set([
+    'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE',
+    'VERIFIED_SYMBOL_CHANGE'
+  ]);
+  const symbolChangeEvidenceValid = evidenceContractValid(
+    lineage?.symbolChangeEvidence,
+    symbolChangeStatuses,
+    {
+      lineageSymbol: lineage?.lineageSymbol,
+      sourceSymbol: lineage?.sourceSymbol,
+      historySourceAsOf: lineage?.sourceAsOf,
+      lineageEvaluatedAt: lineage?.lineageEvaluatedAt,
+      historyLookbackStart: lineage?.producerLookbackStart
+    }
+  );
+  const aliasKeyMatch = Boolean(
+    lineage?.lineageSymbol
+    && lineage?.stage4Symbol
+    && (
+      normalized(lineage.lineageSymbol) === normalized(lineage.stage4Symbol)
+      || (
+        lineage?.symbolChangeStatus === 'VERIFIED_SYMBOL_CHANGE'
+        && symbolChangeEvidenceValid
+        && [
+          normalized(lineage?.sourceSymbol),
+          normalized(lineage?.lineageSymbol)
+        ].includes(normalized(lineage.stage4Symbol))
+      )
+    )
+  );
 
   if (lineage?.schemaVersion !== 'corporate-action-lineage-v1') reasons.push('lineage_schema_not_verified');
   if (lineage?.lineageContractStatus !== 'PRESENT') reasons.push('lineage_not_present');
-  if (!lineage?.lineageKeyMatchesStage4Symbol) reasons.push('lineage_symbol_mismatch');
+  if (!aliasKeyMatch) reasons.push('lineage_symbol_mismatch');
   if (!lineage?.vendor) reasons.push('vendor_missing');
   if (!Number.isFinite(sourceAsOfMs)) reasons.push('source_as_of_missing_or_invalid');
   if (!Number.isFinite(retrievedAtMs)) reasons.push('retrieved_at_missing_or_invalid');
@@ -93,7 +239,7 @@ function evaluateHistoryLineage(lineage) {
   if (lineage?.splitAdjustmentStatus !== 'VERIFIED_YFINANCE_AUTO_ADJUSTED') reasons.push('split_adjustment_unverified');
   if (lineage?.dividendAdjustmentStatus !== 'VERIFIED_YFINANCE_AUTO_ADJUSTED') reasons.push('dividend_adjustment_unverified');
   if (!allowedCorporateActionStatuses.has(String(lineage?.corporateActionStatus || ''))) reasons.push('corporate_action_status_unverified');
-  if (lineage?.symbolChangeStatus !== 'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE') reasons.push('symbol_change_status_unverified_or_changed');
+  if (!symbolChangeStatuses.has(String(lineage?.symbolChangeStatus || ''))) reasons.push('symbol_change_status_unverified');
   if (lineage?.delistingStatus !== 'VERIFIED_NOT_DELISTED_AS_OF_SOURCE') reasons.push('delisting_status_unverified_or_delisted');
   if (lineage?.suspensionStatus !== 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE') reasons.push('suspension_status_unverified_or_suspended');
   if (lineage?.sourceFreshnessStatus !== 'FRESH') reasons.push('source_not_fresh');
@@ -101,23 +247,28 @@ function evaluateHistoryLineage(lineage) {
   if (lineage?.survivorshipBiasStatus !== 'VERIFIED_CORPORATE_ACTION_LINEAGE') reasons.push('survivorship_lineage_unverified');
   if (lineage?.returnBasis !== 'DIVIDEND_AND_SPLIT_ADJUSTED_PRICE_RETURN') reasons.push('return_basis_unverified');
   if (lineage?.lineageVerifiedByProducer !== true) reasons.push('producer_comparison_contract_not_verified');
-  if (!evidenceTimestampOrderValid(
-    lineage?.symbolChangeEvidence,
-    'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE',
-    lineage?.sourceAsOf,
-    lineage?.retrievedAt
-  )) reasons.push('symbol_change_evidence_invalid');
-  if (!evidenceTimestampOrderValid(
+  if (!symbolChangeEvidenceValid) reasons.push('symbol_change_evidence_invalid');
+  if (!evidenceContractValid(
     lineage?.delistingEvidence,
-    'VERIFIED_NOT_DELISTED_AS_OF_SOURCE',
-    lineage?.sourceAsOf,
-    lineage?.retrievedAt
+    new Set(['VERIFIED_NOT_DELISTED_AS_OF_SOURCE']),
+    {
+      lineageSymbol: lineage?.lineageSymbol,
+      sourceSymbol: lineage?.sourceSymbol,
+      historySourceAsOf: lineage?.sourceAsOf,
+      lineageEvaluatedAt: lineage?.lineageEvaluatedAt,
+      historyLookbackStart: lineage?.producerLookbackStart
+    }
   )) reasons.push('delisting_evidence_invalid');
-  if (!evidenceTimestampOrderValid(
+  if (!evidenceContractValid(
     lineage?.suspensionEvidence,
-    'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE',
-    lineage?.sourceAsOf,
-    lineage?.retrievedAt
+    new Set(['VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE']),
+    {
+      lineageSymbol: lineage?.lineageSymbol,
+      sourceSymbol: lineage?.sourceSymbol,
+      historySourceAsOf: lineage?.sourceAsOf,
+      lineageEvaluatedAt: lineage?.lineageEvaluatedAt,
+      historyLookbackStart: lineage?.producerLookbackStart
+    }
   )) reasons.push('suspension_evidence_invalid');
 
   return {
@@ -398,7 +549,29 @@ function readPriceHistory() {
         ?? row?.quoteTimestamp
         ?? payload?.manifest?.timestamp
       );
-      if (!record.lineage || String(retrievedAt || '') >= String(record.lineage.retrievedAt || '')) {
+      const lineageEvaluatedAt = [
+        rawLineage?.lineageEvaluatedAt,
+        rawLineage?.symbolChangeEvidence?.retrievedAt,
+        rawLineage?.delistingEvidence?.retrievedAt,
+        rawLineage?.suspensionEvidence?.retrievedAt,
+        retrievedAt
+      ]
+        .map(isoTimestamp)
+        .filter(Boolean)
+        .sort()
+        .at(-1) || null;
+      const externalEvidenceSha256 = rawLineage
+        ? crypto.createHash('sha256').update(canonicalJson({
+          symbolChangeEvidence: rawLineage.symbolChangeEvidence || null,
+          delistingEvidence: rawLineage.delistingEvidence || null,
+          suspensionEvidence: rawLineage.suspensionEvidence || null
+        })).digest('hex')
+        : null;
+      if (
+        !record.lineage
+        || String(lineageEvaluatedAt || retrievedAt || '')
+          >= String(record.lineage.lineageEvaluatedAt || record.lineage.retrievedAt || '')
+      ) {
         const lineage = {
           schemaVersion: rawLineage?.schemaVersion || null,
           status: 'PRESENT',
@@ -406,11 +579,14 @@ function readPriceHistory() {
           stage4File: path.basename(filePath),
           sourceStage3File: payload?.manifest?.sourceStage3File || null,
           storageSource: row?.dataSource || null,
+          stage4Symbol: symbol,
           lineageSymbol: normalized(rawLineage?.symbol),
           sourceSymbol: normalized(rawLineage?.sourceSymbol),
           lineageKeyMatchesStage4Symbol: Boolean(rawLineage?.symbol) && normalized(rawLineage.symbol) === symbol,
           vendor: rawLineage?.vendor || row?.quoteSource || row?.source || null,
           retrievedAt,
+          lineageEvaluatedAt,
+          externalEvidenceSha256,
           sourceAsOf: isoTimestamp(rawLineage?.sourceAsOf),
           eventEffectiveAt: isoTimestamp(rawLineage?.eventEffectiveAt),
           marketTimezone: rawLineage?.marketTimezone || payload?.manifest?.marketTimezone || null,
@@ -431,6 +607,8 @@ function readPriceHistory() {
           symbolChangeEvidence: rawLineage?.symbolChangeEvidence || null,
           delistingEvidence: rawLineage?.delistingEvidence || null,
           suspensionEvidence: rawLineage?.suspensionEvidence || null,
+          splitEvents: Array.isArray(rawLineage?.splitEvents) ? rawLineage.splitEvents : [],
+          dividendEvents: Array.isArray(rawLineage?.dividendEvents) ? rawLineage.dividendEvents : [],
           survivorshipBiasStatus: rawLineage?.survivorshipBiasStatus ?? row?.survivorshipBiasStatus ?? 'UNVERIFIED_CORPORATE_ACTION_LINEAGE',
           returnBasis: rawLineage?.returnBasis ?? row?.returnBasis ?? row?.totalReturnBasis ?? 'PRICE_RETURN_NOT_TOTAL_RETURN',
           lineageVerifiedByProducer: rawLineage?.lineageVerifiedForComparison === true,
@@ -453,7 +631,7 @@ function readPriceHistory() {
   const normalizedHistory = new Map();
   for (const [symbol, record] of bySymbol) {
     const bars = [...record.bars.values()].sort((a, b) => a.date.localeCompare(b.date));
-    normalizedHistory.set(symbol, {
+    const historyRecord = {
       bars,
       lineage: {
         ...record.lineage,
@@ -462,7 +640,15 @@ function readPriceHistory() {
         lookbackEnd: bars.at(-1)?.date || null,
         observationCount: bars.length
       }
-    });
+    };
+    normalizedHistory.set(symbol, historyRecord);
+    if (record.lineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON'
+      && record.lineage?.symbolChangeStatus === 'VERIFIED_SYMBOL_CHANGE') {
+      for (const alias of [record.lineage.lineageSymbol, record.lineage.sourceSymbol].map(normalized).filter(Boolean)) {
+        const existing = normalizedHistory.get(alias);
+        if (!existing || existing === historyRecord) normalizedHistory.set(alias, historyRecord);
+      }
+    }
   }
   return {
     sourceFiles,
@@ -550,6 +736,24 @@ function resolveSeed(seed, historyRecord) {
       observedBars: 0,
       fillDate: null,
       resolvedAt: null
+    };
+  }
+  const postDecisionAdjustmentEvents = [
+    ...(Array.isArray(historyLineage.splitEvents) ? historyLineage.splitEvents : []),
+    ...(Array.isArray(historyLineage.dividendEvents) ? historyLineage.dividendEvents : [])
+  ].filter((event) => {
+    const eventDate = String(event?.eventEffectiveAt || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && eventDate > seed.signalDate;
+  });
+  if (postDecisionAdjustmentEvents.length) {
+    return {
+      ...base,
+      outcomeLabel: 'EXCLUDED_CORPORATE_ACTION_REBASE_REQUIRED',
+      outcomeStatus: 'excluded_corporate_action_rebase_required',
+      observedBars: 0,
+      fillDate: null,
+      resolvedAt: null,
+      postDecisionAdjustmentEvents
     };
   }
   const signalDateBarAllowed = seed.signalMarketPhase === 'PRE_RTH';
@@ -700,6 +904,8 @@ const oosRows = rows
     dividendAdjustmentStatus: row.historyLineage?.dividendAdjustmentStatus || null,
     vendor: row.historyLineage?.vendor || null,
     retrievedAt: row.historyLineage?.retrievedAt || null,
+    lineageEvaluatedAt: row.historyLineage?.lineageEvaluatedAt || null,
+    externalEvidenceSha256: row.historyLineage?.externalEvidenceSha256 || null,
     sourceAsOf: row.historyLineage?.sourceAsOf || null,
     eventEffectiveAt: row.historyLineage?.eventEffectiveAt || null,
     marketTimezone: row.historyLineage?.marketTimezone || null,
