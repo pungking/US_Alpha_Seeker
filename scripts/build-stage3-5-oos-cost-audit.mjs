@@ -39,6 +39,41 @@ const cohortContract = payload.schemaVersion === 'stage3-5-oos-v2';
 const supportedCohorts = new Set(['EXECUTABLE_COHORT', 'ACTIONABLE_BLOCKED_COHORT', 'NON_ACTIONABLE_CONTROL_COHORT']);
 const accepted = [];
 const rejected = [];
+const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
+
+function verifiedLineageContract(row) {
+  const sourceAsOfMs = Date.parse(String(row?.sourceAsOf || ''));
+  const retrievedAtMs = Date.parse(String(row?.retrievedAt || ''));
+  const lineageEvaluatedAtMs = Date.parse(String(row?.lineageEvaluatedAt || ''));
+  return Boolean(
+    row?.lineageVerifiedForComparison === true
+    && row?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON'
+    && Array.isArray(row?.comparisonExclusionReasons)
+    && row.comparisonExclusionReasons.length === 0
+    && row?.corporateActionLineageSchemaVersion === 'corporate-action-lineage-v1'
+    && SHA256_PATTERN.test(String(row?.externalEvidenceSha256 || ''))
+    && Number.isFinite(sourceAsOfMs)
+    && Number.isFinite(retrievedAtMs)
+    && Number.isFinite(lineageEvaluatedAtMs)
+    && sourceAsOfMs <= retrievedAtMs
+    && retrievedAtMs <= lineageEvaluatedAtMs
+    && row?.adjustmentType === 'YFINANCE_AUTO_ADJUSTED_OHLC'
+    && row?.splitAdjustmentStatus === 'VERIFIED_YFINANCE_AUTO_ADJUSTED'
+    && row?.dividendAdjustmentStatus === 'VERIFIED_YFINANCE_AUTO_ADJUSTED'
+    && [
+      'VERIFIED_SPLIT_DIVIDEND_EVENTS_IN_WINDOW',
+      'VERIFIED_NO_SPLIT_OR_DIVIDEND_EVENT_IN_WINDOW'
+    ].includes(row?.corporateActionStatus)
+    && [
+      'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE',
+      'VERIFIED_SYMBOL_CHANGE'
+    ].includes(row?.symbolChangeStatus)
+    && row?.delistingStatus === 'VERIFIED_NOT_DELISTED_AS_OF_SOURCE'
+    && row?.suspensionStatus === 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE'
+    && row?.survivorshipBiasStatus === 'VERIFIED_CORPORATE_ACTION_LINEAGE'
+    && row?.returnBasis === 'DIVIDEND_AND_SPLIT_ADJUSTED_PRICE_RETURN'
+  );
+}
 
 for (const row of rows) {
   const symbol = String(row?.symbol || '').trim().toUpperCase();
@@ -55,6 +90,20 @@ for (const row of rows) {
   const decisionCohort = cohortContract ? String(row?.decisionCohort || '').trim().toUpperCase() : 'EXECUTABLE_COHORT';
   if (!supportedCohorts.has(decisionCohort)) {
     rejected.push({ symbol: symbol || null, reason: 'unknown_decision_cohort' });
+    continue;
+  }
+  if (cohortContract && row?.lineageVerifiedForComparison !== true) {
+    rejected.push({
+      symbol: symbol || null,
+      reason: 'corporate_action_lineage_unverified'
+    });
+    continue;
+  }
+  if (cohortContract && !verifiedLineageContract(row)) {
+    rejected.push({
+      symbol: symbol || null,
+      reason: 'corporate_action_lineage_contract_invalid'
+    });
     continue;
   }
   const sameDatePreRthResolution = row?.signalMarketPhase === 'PRE_RTH'
@@ -127,7 +176,12 @@ const decisionCohorts = [...supportedCohorts].map((cohort) => {
 const executableRows = accepted.filter((row) => row.decisionCohort === 'EXECUTABLE_COHORT' && row.lineageVerifiedForComparison);
 const actionableBlockedRows = accepted.filter((row) => row.decisionCohort === 'ACTIONABLE_BLOCKED_COHORT' && row.falseNegativeEligible && row.lineageVerifiedForComparison);
 const controlRows = accepted.filter((row) => row.decisionCohort === 'NON_ACTIONABLE_CONTROL_COHORT');
-const lineageUnverifiedRows = accepted.filter((row) => !row.lineageVerifiedForComparison).length;
+const lineageUnverifiedRows = rejected.filter(
+  (row) => [
+    'corporate_action_lineage_unverified',
+    'corporate_action_lineage_contract_invalid'
+  ].includes(row.reason)
+).length;
 const comparisonReady = executableRows.length >= minimumSample && actionableBlockedRows.length >= minimumSample;
 const executableMeanNetReturnPct = executableRows.length
   ? round(mean(executableRows.map((row) => row.netReturnPct)))

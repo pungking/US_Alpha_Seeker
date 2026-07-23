@@ -71,10 +71,24 @@ fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_NO_LINEAGE_FIXTURE.jso
   }
 }));
 
-const buildEventEvidence = (status) => ({
+const buildEventEvidence = (status, symbol) => ({
   status,
   source: 'FIXTURE_LISTING_EVENTS',
-  sourceAsOf: '2026-01-07T21:00:00.000Z'
+  sourceAsOf: '2026-01-07T21:00:00.000Z',
+  sourceAsOfBasis: 'FIXTURE_VENDOR_PUBLICATION_TIME',
+  retrievedAt: '2026-01-07T21:30:00.000Z',
+  requestStatus: 'SUCCESS',
+  requestedSymbol: symbol,
+  matchedSymbol: null,
+  symbolMatchStatus: 'NO_EXACT_EVENT_MATCH_IN_COMPLETE_RESPONSE',
+  symbolMatchMethod: 'DETERMINISTIC_EXACT_NORMALIZED_SYMBOL_LOOKUP',
+  sourceScopeComplete: true,
+  coverageStart: '2025-01-01',
+  coverageEnd: '2026-01-07',
+  partialResponse: false,
+  responseSha256: 'a'.repeat(64),
+  requestScopeSymbolsSha256: 'b'.repeat(64),
+  queryScope: 'FIXTURE_COMPLETE_SOURCE_WINDOW'
 });
 const buildCorporateActionLineage = (symbol, verified = true) => ({
   schemaVersion: 'corporate-action-lineage-v1',
@@ -99,13 +113,13 @@ const buildCorporateActionLineage = (symbol, verified = true) => ({
     ? 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE'
     : 'UNVERIFIED_SUSPENSION_EVENT_SOURCE_MISSING',
   symbolChangeEvidence: verified
-    ? buildEventEvidence('VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE')
+    ? buildEventEvidence('VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE', symbol)
     : null,
   delistingEvidence: verified
-    ? buildEventEvidence('VERIFIED_NOT_DELISTED_AS_OF_SOURCE')
+    ? buildEventEvidence('VERIFIED_NOT_DELISTED_AS_OF_SOURCE', symbol)
     : null,
   suspensionEvidence: verified
-    ? buildEventEvidence('VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE')
+    ? buildEventEvidence('VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE', symbol)
     : null,
   sourceFreshnessStatus: 'FRESH',
   historyCoverageStatus: 'VERIFIED_OBSERVED_HISTORY',
@@ -241,6 +255,8 @@ if (ledger.rows.find((row) => row.symbol === 'SPECCTRL')?.falseNegativeEligible 
 }
 if (oosPayload.rows.some((row) => row.lineageVerifiedForComparison !== true
   || row.corporateActionLineageSchemaVersion !== 'corporate-action-lineage-v1'
+  || !/^[0-9a-f]{64}$/.test(String(row.externalEvidenceSha256 || ''))
+  || row.lineageEvaluatedAt !== '2026-01-07T22:00:00.000Z'
   || row.sourceAsOf !== '2026-01-07T00:00:00.000Z'
   || row.marketTimezone !== 'America/New_York'
   || row.sourceFreshnessStatus !== 'FRESH'
@@ -257,11 +273,157 @@ if (symbolChangeRow?.outcomeLabel !== 'PENDING_SOURCE_HISTORY'
   throw new Error('unmapped symbol change was treated as a successful or failed outcome');
 }
 
+const proofTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-outcome-proof-'));
+const proofStage6Dir = path.join(proofTmp, 'stage6');
+const proofStage4Dir = path.join(proofTmp, 'stage4');
+fs.mkdirSync(proofStage6Dir);
+fs.mkdirSync(proofStage4Dir);
+const proofSignal = {
+  ...fixture.signals[0],
+  symbol: 'PROOFBAD',
+  aiVerdict: 'BUY',
+  executionActionableVerdict: true,
+  finalDecision: 'EXECUTABLE_NOW',
+  decisionReason: 'fixture_missing_external_query_proof',
+  modelRank: 1,
+  executionRank: 1
+};
+const aliasSignal = {
+  ...fixture.signals[0],
+  symbol: 'NEWCO',
+  aiVerdict: 'BUY',
+  executionActionableVerdict: true,
+  finalDecision: 'EXECUTABLE_NOW',
+  decisionReason: 'fixture_verified_symbol_alias_chain',
+  modelRank: 2,
+  executionRank: 2
+};
+const rebaseSignal = {
+  ...fixture.signals[0],
+  symbol: 'REBASE',
+  aiVerdict: 'BUY',
+  executionActionableVerdict: true,
+  finalDecision: 'EXECUTABLE_NOW',
+  decisionReason: 'fixture_post_decision_split_rebase_required',
+  modelRank: 3,
+  executionRank: 3
+};
+fs.writeFileSync(path.join(proofStage6Dir, 'STAGE6_ALPHA_FINAL_PROOF_FIXTURE.json'), JSON.stringify({
+  manifest: {
+    timestamp: fixture.generatedAt,
+    sourceRunId: 'fixture-proof-run',
+    sourceSha: 'fixture-proof-sha',
+    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z'
+  },
+  execution_contract: {
+    decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
+    executablePicks: [proofSignal, aliasSignal, rebaseSignal],
+    modelTop6: [],
+    watchlistTop: []
+  }
+}));
+const proofLineage = buildCorporateActionLineage('PROOFBAD');
+proofLineage.symbolChangeEvidence.partialResponse = true;
+proofLineage.delistingStatus = 'UNVERIFIED_SOURCE_CONFLICT';
+proofLineage.delistingEvidence.status = 'UNVERIFIED_SOURCE_CONFLICT';
+delete proofLineage.suspensionEvidence.responseSha256;
+const aliasLineage = buildCorporateActionLineage('NEWCO');
+aliasLineage.sourceSymbol = 'OLDCO';
+aliasLineage.symbolChangeStatus = 'VERIFIED_SYMBOL_CHANGE';
+aliasLineage.symbolChangeEvidence = {
+  ...buildEventEvidence('VERIFIED_SYMBOL_CHANGE', 'NEWCO'),
+  matchedSymbol: 'NEWCO',
+  symbolMatchStatus: 'EXACT_EVENT_MATCH',
+  oldSymbol: 'OLDCO',
+  newSymbol: 'NEWCO',
+  eventEffectiveAt: '2025-12-15T14:30:00.000Z',
+  events: [{
+    oldSymbol: 'OLDCO',
+    newSymbol: 'NEWCO',
+    eventEffectiveAt: '2025-12-15T14:30:00.000Z'
+  }]
+};
+const rebaseLineage = buildCorporateActionLineage('REBASE');
+rebaseLineage.corporateActionStatus = 'VERIFIED_SPLIT_DIVIDEND_EVENTS_IN_WINDOW';
+rebaseLineage.splitEvents = [{
+  eventEffectiveAt: '2026-01-05',
+  ratio: 2
+}];
+fs.writeFileSync(path.join(proofStage4Dir, 'STAGE4_TECHNICAL_FULL_PROOF_FIXTURE.json'), JSON.stringify({
+  manifest: { timestamp: '2026-01-07T22:00:00.000Z', marketTimezone: 'America/New_York' },
+  technical_universe: [
+    {
+      symbol: 'PROOFBAD',
+      priceHistory: fixture.history.TPATH,
+      dataSource: 'FIXTURE_DRIVE',
+      updated: '2026-01-07T22:00:00.000Z',
+      corporateActionLineage: proofLineage
+    },
+    {
+      symbol: 'OLDCO',
+      priceHistory: fixture.history.TPATH,
+      dataSource: 'FIXTURE_DRIVE',
+      updated: '2026-01-07T22:00:00.000Z',
+      corporateActionLineage: aliasLineage
+    },
+    {
+      symbol: 'REBASE',
+      priceHistory: fixture.history.TPATH,
+      dataSource: 'FIXTURE_DRIVE',
+      updated: '2026-01-07T22:00:00.000Z',
+      corporateActionLineage: rebaseLineage
+    }
+  ]
+}));
+const proofLedgerPath = path.join(proofTmp, 'ledger.json');
+const proofOosPath = path.join(proofTmp, 'oos.json');
+const proofResult = spawnSync(process.execPath, [path.join(root, 'scripts/build-stage7-outcome-ledger.mjs')], {
+  cwd: root,
+  env: {
+    ...process.env,
+    STAGE7_STAGE6_DIR: proofStage6Dir,
+    STAGE7_STAGE4_DIR: proofStage4Dir,
+    STAGE7_OUTCOME_LEDGER_OUT: proofLedgerPath,
+    STAGE7_OOS_OUT: proofOosPath,
+    STAGE7_OUTCOME_MD_OUT: path.join(proofTmp, 'ledger.md'),
+    STAGE7_HORIZON_BARS: String(fixture.horizonBars)
+  },
+  encoding: 'utf8'
+});
+if (proofResult.status !== 0) throw new Error(`proof fixture builder failed\n${proofResult.stdout}\n${proofResult.stderr}`);
+const proofLedger = JSON.parse(fs.readFileSync(proofLedgerPath, 'utf8'));
+const proofOos = JSON.parse(fs.readFileSync(proofOosPath, 'utf8'));
+const invalidProofRow = proofLedger.rows.find((row) => row.symbol === 'PROOFBAD');
+const aliasProofRow = proofLedger.rows.find((row) => row.symbol === 'NEWCO');
+const rebaseProofRow = proofLedger.rows.find((row) => row.symbol === 'REBASE');
+if (invalidProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED'
+  || !invalidProofRow?.historyLineage?.comparisonExclusionReasons?.includes('symbol_change_evidence_invalid')
+  || !invalidProofRow?.historyLineage?.comparisonExclusionReasons?.includes('delisting_status_unverified_or_delisted')
+  || !invalidProofRow?.historyLineage?.comparisonExclusionReasons?.includes('delisting_evidence_invalid')
+  || !invalidProofRow?.historyLineage?.comparisonExclusionReasons?.includes('suspension_evidence_invalid')
+  || aliasProofRow?.outcomeLabel !== 'TP_FIRST'
+  || aliasProofRow?.historyLineage?.comparisonEligibilityStatus !== 'VERIFIED_FOR_COMPARISON'
+  || rebaseProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_REBASE_REQUIRED'
+  || rebaseProofRow?.postDecisionAdjustmentEvents?.length !== 1
+  || proofOos.rows.length !== 1
+  || proofOos.rows[0]?.symbol !== 'NEWCO') {
+  throw new Error('incomplete external query proof entered OOS comparison');
+}
+
 const firstIds = ledger.rows.map((row) => `${row.ledgerId}:${row.decisionSnapshotSha256}`);
+const firstEvidenceHash = oosPayload.rows.find((row) => row.symbol === 'TPATH')?.externalEvidenceSha256;
 const stage4FixturePath = path.join(stage4Dir, 'STAGE4_TECHNICAL_FULL_FIXTURE.json');
 const changedOutcomeEvidence = JSON.parse(fs.readFileSync(stage4FixturePath, 'utf8'));
 changedOutcomeEvidence.technical_universe.find((row) => row.symbol === 'NOFILL').priceHistory[0].close = 105.5;
 changedOutcomeEvidence.technical_universe.find((row) => row.symbol === 'NOFILL').corporateActionLineage.retrievedAt = '2026-01-08T22:00:00.000Z';
+const reorderedEvidence = changedOutcomeEvidence.technical_universe
+  .find((row) => row.symbol === 'TPATH')
+  .corporateActionLineage
+  .symbolChangeEvidence;
+changedOutcomeEvidence.technical_universe
+  .find((row) => row.symbol === 'TPATH')
+  .corporateActionLineage
+  .symbolChangeEvidence = Object.fromEntries(Object.entries(reorderedEvidence).reverse());
 fs.writeFileSync(stage4FixturePath, JSON.stringify(changedOutcomeEvidence));
 const secondResult = spawnSync(process.execPath, [path.join(root, 'scripts/build-stage7-outcome-ledger.mjs')], {
   cwd: root,
@@ -281,8 +443,12 @@ const secondResult = spawnSync(process.execPath, [path.join(root, 'scripts/build
 });
 if (secondResult.status !== 0) throw new Error(`idempotency rerun failed\n${secondResult.stdout}\n${secondResult.stderr}`);
 const secondLedger = JSON.parse(fs.readFileSync(output, 'utf8'));
+const secondOosPayload = JSON.parse(fs.readFileSync(oos, 'utf8'));
 if (JSON.stringify(firstIds) !== JSON.stringify(secondLedger.rows.map((row) => `${row.ledgerId}:${row.decisionSnapshotSha256}`))) {
   throw new Error('idempotent rerun changed ledger identity or immutable snapshots');
+}
+if (firstEvidenceHash !== secondOosPayload.rows.find((row) => row.symbol === 'TPATH')?.externalEvidenceSha256) {
+  throw new Error('external evidence hash changed when JSON object key order changed');
 }
 
 const renamedTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-outcome-ledger-renamed-'));
@@ -305,6 +471,19 @@ for (const file of fs.readdirSync(stage4Dir)) {
     if (row.corporateActionLineage) {
       row.corporateActionLineage.symbol = rename(row.corporateActionLineage.symbol);
       row.corporateActionLineage.sourceSymbol = rename(row.corporateActionLineage.sourceSymbol);
+      for (const evidenceKey of ['symbolChangeEvidence', 'delistingEvidence', 'suspensionEvidence']) {
+        const evidence = row.corporateActionLineage[evidenceKey];
+        if (!evidence) continue;
+        evidence.requestedSymbol = rename(evidence.requestedSymbol);
+        if (evidence.matchedSymbol) evidence.matchedSymbol = rename(evidence.matchedSymbol);
+        if (evidence.oldSymbol) evidence.oldSymbol = rename(evidence.oldSymbol);
+        if (evidence.newSymbol) evidence.newSymbol = rename(evidence.newSymbol);
+        for (const event of evidence.events || []) {
+          if (event.oldSymbol) event.oldSymbol = rename(event.oldSymbol);
+          if (event.newSymbol) event.newSymbol = rename(event.newSymbol);
+          if (event.symbol) event.symbol = rename(event.symbol);
+        }
+      }
     }
   }
   fs.writeFileSync(path.join(renamedStage4Dir, file), JSON.stringify(payload));
