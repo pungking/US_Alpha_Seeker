@@ -5,7 +5,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const sourcePath = 'components/IctAnalysis.tsx';
+const stage6SourcePath = 'components/AlphaAnalysis.tsx';
 const text = fs.readFileSync(sourcePath, 'utf8');
+const stage6Text = fs.readFileSync(stage6SourcePath, 'utf8');
 
 const requiredSnippets = [
   'sourceStage4File: selectedStage4Name || null',
@@ -17,6 +19,26 @@ const requiredSnippets = [
 ];
 
 const missing = requiredSnippets.filter((snippet) => !text.includes(snippet));
+const requiredCorporateActionSnippets = [
+  {
+    sourcePath,
+    snippet: "schemaVersion: 'corporate-action-lineage-v1'"
+  },
+  {
+    sourcePath: stage6SourcePath,
+    snippet: "item?.corporateActionLineage && typeof item.corporateActionLineage === 'object'"
+  },
+  {
+    sourcePath: stage6SourcePath,
+    snippet: 'comparisonVerifiedRows: primaryPool.filter'
+  }
+];
+const missingCorporateActionSnippets = requiredCorporateActionSnippets.filter(
+  ({ sourcePath: filePath, snippet }) => {
+    const sourceText = filePath === sourcePath ? text : stage6Text;
+    return !sourceText.includes(snippet);
+  }
+);
 
 function writeJson(filePath, payload) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -108,22 +130,32 @@ function verifyFullAuditLineage() {
 
 let lineageFixture;
 try {
-  lineageFixture = missing.length ? { status: 'skipped_source_contract_missing' } : verifyFullAuditLineage();
+  lineageFixture = missing.length || missingCorporateActionSnippets.length
+    ? { status: 'skipped_source_contract_missing' }
+    : verifyFullAuditLineage();
 } catch (error) {
   lineageFixture = { status: 'fail_full_stage_lineage_fixture', error: String(error?.message || error) };
 }
 
-const failed = missing.length > 0 || lineageFixture.status !== 'pass_same_run_lineage';
+const failed = missing.length > 0
+  || missingCorporateActionSnippets.length > 0
+  || lineageFixture.status !== 'pass_same_run_lineage';
 const report = {
   generatedAt: new Date().toISOString(),
   overall: failed ? 'fail_stage5_lineage_contract_missing' : 'pass_stage5_lineage_contract',
   sourcePath,
+  stage6SourcePath,
   requiredSnippets,
   missing,
+  requiredCorporateActionSnippets,
+  missingCorporateActionSnippets,
   lineageFixture
 };
 
 fs.mkdirSync('state', { recursive: true });
 fs.writeFileSync('state/stage5-lineage-contract-validation.json', `${JSON.stringify(report, null, 2)}\n`);
-console.log(`[STAGE5_LINEAGE_CONTRACT] overall=${report.overall} missing=${missing.length} fixture=${lineageFixture.status}`);
+console.log(
+  `[STAGE5_LINEAGE_CONTRACT] overall=${report.overall} `
+  + `missing=${missing.length + missingCorporateActionSnippets.length} fixture=${lineageFixture.status}`
+);
 if (failed) process.exit(1);

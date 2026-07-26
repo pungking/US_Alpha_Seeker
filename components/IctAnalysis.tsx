@@ -1300,6 +1300,16 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           sourceStage4SourceStage3File: stage4SourceStage3File || null,
           sourceStage4FactorReady: selectedStage4FactorReady,
           sourceStage4LineageStatus,
+          corporateActionLineage: {
+            schemaVersion: 'corporate-action-lineage-v1',
+            candidateRows: finalSurvivors.length,
+            rowsWithLineage: finalSurvivors.filter(
+              (row: any) => row?.corporateActionLineage?.lineageStatus === 'PRESENT'
+            ).length,
+            comparisonVerifiedRows: finalSurvivors.filter(
+              (row: any) => row?.corporateActionLineage?.lineageVerifiedForComparison === true
+            ).length
+          },
           scoringContractVersion: "stage5-e-v1",
           stage6ContractVersion: "stage5to6-e-v1"
         },

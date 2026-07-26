@@ -41,7 +41,33 @@ if (ready.walkForward.cohorts.length !== 1 || ready.walkForward.cohorts[0].cohor
 
 runCase('insufficient.fixture.json', 3, 'insufficient_oos_evidence', 1);
 runCase('invalid-contract.fixture.json', 3, 'invalid_input_contract', 0);
-const cohorts = runCase('cohorts.fixture.json', 3, 'pass_report_only', 7);
+const cohortFixture = JSON.parse(
+  fs.readFileSync(path.join(root, 'docs/fixtures/stage3_5_oos_cost/cohorts.fixture.json'), 'utf8')
+);
+const verifiedLineage = {
+  corporateActionLineageSchemaVersion: 'corporate-action-lineage-v1',
+  adjustmentType: 'YFINANCE_AUTO_ADJUSTED_OHLC',
+  splitAdjustmentStatus: 'VERIFIED_YFINANCE_AUTO_ADJUSTED',
+  dividendAdjustmentStatus: 'VERIFIED_YFINANCE_AUTO_ADJUSTED',
+  vendor: 'FIXTURE_VENDOR',
+  retrievedAt: '2026-06-20T20:30:00.000Z',
+  lineageEvaluatedAt: '2026-06-20T21:00:00.000Z',
+  externalEvidenceSha256: 'a'.repeat(64),
+  sourceAsOf: '2026-06-20T20:00:00.000Z',
+  corporateActionStatus: 'VERIFIED_NO_SPLIT_OR_DIVIDEND_EVENT_IN_WINDOW',
+  symbolChangeStatus: 'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE',
+  delistingStatus: 'VERIFIED_NOT_DELISTED_AS_OF_SOURCE',
+  suspensionStatus: 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE',
+  survivorshipBiasStatus: 'VERIFIED_CORPORATE_ACTION_LINEAGE',
+  returnBasis: 'DIVIDEND_AND_SPLIT_ADJUSTED_PRICE_RETURN',
+  comparisonEligibilityStatus: 'VERIFIED_FOR_COMPARISON',
+  comparisonExclusionReasons: [],
+  lineageVerifiedForComparison: true
+};
+cohortFixture.rows = cohortFixture.rows.map((row) => ({ ...row, ...verifiedLineage }));
+const cohortPath = path.join(os.tmpdir(), `stage3-5-oos-cohorts-${process.pid}.json`);
+fs.writeFileSync(cohortPath, JSON.stringify(cohortFixture));
+const cohorts = runCase(cohortPath, 3, 'pass_report_only', 7);
 if (cohorts.cohortComparison?.status !== 'report_only_comparison_ready_not_policy_change') {
   throw new Error(`cohort comparison was not ready: ${JSON.stringify(cohorts.cohortComparison)}`);
 }
@@ -50,22 +76,35 @@ if (cohorts.cohortComparison.executableResolvedRows !== 3 || cohorts.cohortCompa
 }
 if (cohorts.cohortComparison.nonActionableControlRows !== 1) throw new Error('control cohort count mismatch');
 if (cohorts.summary.unknownCohortRows !== 0) throw new Error('unknown cohort rows were accepted');
-const unverifiedInput = JSON.parse(fs.readFileSync(path.join(root, 'docs/fixtures/stage3_5_oos_cost/cohorts.fixture.json'), 'utf8'));
+const unverifiedInput = structuredClone(cohortFixture);
 unverifiedInput.rows.find((row) => row.decisionCohort === 'ACTIONABLE_BLOCKED_COHORT').lineageVerifiedForComparison = false;
 const unverifiedPath = path.join(os.tmpdir(), `stage3-5-oos-unverified-${process.pid}.json`);
 fs.writeFileSync(unverifiedPath, JSON.stringify(unverifiedInput));
-const unverified = runCase(unverifiedPath, 3, 'insufficient_oos_evidence', 7);
+const unverified = runCase(unverifiedPath, 3, 'insufficient_oos_evidence', 6);
 if (unverified.cohortComparison.lineageUnverifiedRows !== 1) throw new Error('unverified lineage did not block cohort comparison');
+if (!unverified.rejected.some((row) => row.reason === 'corporate_action_lineage_unverified')) {
+  throw new Error('unverified corporate-action lineage was not rejected from OOS metrics');
+}
+const invalidProofInput = structuredClone(unverifiedInput);
+const invalidProofRow = invalidProofInput.rows.find((row) => row.decisionCohort === 'EXECUTABLE_COHORT');
+invalidProofRow.lineageVerifiedForComparison = true;
+invalidProofRow.externalEvidenceSha256 = null;
+const invalidProofPath = path.join(os.tmpdir(), `stage3-5-oos-invalid-proof-${process.pid}.json`);
+fs.writeFileSync(invalidProofPath, JSON.stringify(invalidProofInput));
+const invalidProof = runCase(invalidProofPath, 3, 'insufficient_oos_evidence', 5);
+if (!invalidProof.rejected.some((row) => row.reason === 'corporate_action_lineage_contract_invalid')) {
+  throw new Error('malformed verified lineage proof was accepted into OOS metrics');
+}
 const invalidV2 = { ...unverifiedInput };
 delete invalidV2.sourceLedgerSchemaVersion;
 const invalidV2Path = path.join(os.tmpdir(), `stage3-5-oos-invalid-v2-${process.pid}.json`);
 fs.writeFileSync(invalidV2Path, JSON.stringify(invalidV2));
-runCase(invalidV2Path, 3, 'invalid_input_contract', 7);
+runCase(invalidV2Path, 3, 'invalid_input_contract', 6);
 const noComparableRows = structuredClone(unverifiedInput);
 for (const row of noComparableRows.rows) row.lineageVerifiedForComparison = false;
 const noComparablePath = path.join(os.tmpdir(), `stage3-5-oos-no-comparable-${process.pid}.json`);
 fs.writeFileSync(noComparablePath, JSON.stringify(noComparableRows));
-const noComparable = runCase(noComparablePath, 3, 'insufficient_oos_evidence', 7);
+const noComparable = runCase(noComparablePath, 3, 'insufficient_oos_evidence', 0);
 if (noComparable.cohortComparison.executableMeanNetReturnPct !== null
   || noComparable.cohortComparison.actionableBlockedMeanNetReturnPct !== null
   || noComparable.cohortComparison.blockedMinusExecutableMeanNetReturnPct !== null) {
