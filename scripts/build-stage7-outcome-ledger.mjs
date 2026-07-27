@@ -427,6 +427,12 @@ function readStage6Seeds() {
         && !sourceMarkedStale;
       const blocker = primaryBlocker(pick, actionable, sourceLineageValid);
       const finalDecision = normalized(pick?.finalDecision) || 'UNKNOWN';
+      const marketRegime = normalized(
+        pick?.marketRegime
+        ?? pick?.marketState
+        ?? payload?.manifest?.marketRegime
+        ?? payload?.manifest?.marketRegimeState
+      ) || 'UNKNOWN';
       const decisionCohort = finalDecision === 'EXECUTABLE_NOW' && actionable && sourceLineageValid
         ? COHORTS.executable
         : actionable && sourceLineageValid && blocker !== 'SCHEMA_OR_LINEAGE_MISMATCH'
@@ -449,6 +455,7 @@ function readStage6Seeds() {
         actionable,
         finalDecision,
         decisionReason: decisionReason || null,
+        marketRegime,
         primaryBlocker: blocker,
         decisionCohort,
         zeroExecutableTuningLane: pick?.zeroExecutableTuningLane || null,
@@ -493,6 +500,7 @@ function readStage6Seeds() {
         executionRank: pick?.executionRank ?? null,
         finalDecision,
         decisionReason: decisionReason || null,
+        marketRegime,
         entryPrice,
         currentPrice: decisionSnapshot.currentPrice,
         targetPrice,
@@ -891,6 +899,7 @@ const oosRows = rows
     walkForwardCohort: row.signalDate.slice(0, 7),
     resolvedAt: row.resolvedAt,
     outcomeLabel: row.outcomeLabel,
+    marketRegime: row.marketRegime || row.decisionSnapshot?.marketRegime || 'UNKNOWN',
     entryPrice: row.entryPrice,
     exitPrice: row.exitPrice,
     holdingDays: row.holdingBars,
@@ -1019,6 +1028,12 @@ const oosPayload = {
     cohort: 'signal_market_month',
     temporalRule: 'resolvedAt_after_signalDate_or_same_date_only_for_pre_rth_signal',
     ambiguousAndUnfilledRowsExcluded: true
+  },
+  sourceLedgerSummary: {
+    duplicateSeedRows: summary.duplicateSeedRows,
+    unknownCohortRows: summary.unknownCohortRows,
+    lookAheadViolationRows: summary.lookAheadViolationRows,
+    survivorshipBiasViolationRows: summary.survivorshipBiasViolationRows
   },
   rows: oosRows
 };

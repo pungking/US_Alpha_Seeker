@@ -21,8 +21,8 @@ function finite(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-function round(value) {
-  return Number(value.toFixed(2));
+function round(value, digits = 2) {
+  return Number(value.toFixed(digits));
 }
 
 const inputExists = fs.existsSync(inputPath);
@@ -142,7 +142,11 @@ for (const row of rows) {
     signalDate: row.signalDate || null,
     resolvedAt: row.resolvedAt || null,
     walkForwardCohort: row.walkForwardCohort || String(row.signalDate || '').slice(0, 7) || null,
+    marketRegime: String(row?.marketRegime || 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN',
     holdingDays,
+    mfePct: finite(row?.mfePct),
+    maePct: finite(row?.maePct),
+    realizedR: finite(row?.realizedR),
     grossReturnPct: round(grossReturnPct),
     roundTripCostBps: round(roundTripCostBps),
     netReturnPct: round(netReturnPct)
@@ -150,6 +154,92 @@ for (const row of rows) {
 }
 
 const mean = (values) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+const metricValues = (groupRows, field) => groupRows.flatMap((row) => (
+  row[field] == null || !Number.isFinite(Number(row[field])) ? [] : [Number(row[field])]
+));
+
+function summarizeRows(groupRows) {
+  const average = (field) => {
+    const values = metricValues(groupRows, field);
+    return values.length ? round(mean(values)) : null;
+  };
+  return {
+    rows: groupRows.length,
+    uniqueSymbols: new Set(groupRows.map((row) => row.symbol)).size,
+    walkForwardCohorts: new Set(groupRows.map((row) => row.walkForwardCohort).filter(Boolean)).size,
+    netWinRatePct: groupRows.length
+      ? round((groupRows.filter((row) => row.netReturnPct > 0).length / groupRows.length) * 100)
+      : null,
+    meanGrossReturnPct: average('grossReturnPct'),
+    meanNetReturnPct: average('netReturnPct'),
+    meanMfePct: average('mfePct'),
+    meanMaePct: average('maePct'),
+    meanRealizedR: average('realizedR')
+  };
+}
+
+function deterministicRandom(seedHex) {
+  let state = Number.parseInt(String(seedHex || '').slice(0, 8), 16) || 0x9e3779b9;
+  return () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return (state >>> 0) / 0x100000000;
+  };
+}
+
+function percentile(sortedValues, probability) {
+  if (!sortedValues.length) return null;
+  const index = (sortedValues.length - 1) * probability;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sortedValues[lower];
+  return sortedValues[lower] + ((sortedValues[upper] - sortedValues[lower]) * (index - lower));
+}
+
+function bootstrapDifference(executableRows, blockedRows, inputSha256) {
+  const iterations = 2000;
+  const confidenceLevel = 0.95;
+  if (!executableRows.length || !blockedRows.length) {
+    return {
+      status: 'not_run_insufficient_oos_evidence',
+      method: 'deterministic_nonparametric_percentile',
+      iterations,
+      confidenceLevel,
+      blockedMinusExecutableMeanNetReturnPct: null
+    };
+  }
+  const random = deterministicRandom(inputSha256);
+  const sampleMean = (source) => {
+    let total = 0;
+    for (let index = 0; index < source.length; index += 1) {
+      total += source[Math.floor(random() * source.length)].netReturnPct;
+    }
+    return total / source.length;
+  };
+  const differences = Array.from(
+    { length: iterations },
+    () => sampleMean(blockedRows) - sampleMean(executableRows)
+  ).sort((a, b) => a - b);
+  const tail = (1 - confidenceLevel) / 2;
+  return {
+    status: 'report_only_interval_ready',
+    method: 'deterministic_nonparametric_percentile',
+    iterations,
+    confidenceLevel,
+    seedSha256: inputSha256,
+    blockedMinusExecutableMeanNetReturnPct: {
+      estimate: round(
+        mean(blockedRows.map((row) => row.netReturnPct))
+          - mean(executableRows.map((row) => row.netReturnPct)),
+        4
+      ),
+      lower: round(percentile(differences, tail), 4),
+      upper: round(percentile(differences, 1 - tail), 4)
+    }
+  };
+}
+
 const validOosRows = accepted.length;
 const cohortMap = new Map();
 for (const row of accepted) {
@@ -206,7 +296,129 @@ const cohortComparison = {
     ? 'review_regime_stability_and_effect_size_in_a_separate_policy_goal'
     : 'collect_more_timestamped_oos_outcomes_without_relabeling'
 };
-const sampleReady = cohortContract ? comparisonReady : validOosRows >= minimumSample;
+const sourceLedgerSafetyFields = [
+  'duplicateSeedRows',
+  'unknownCohortRows',
+  'lookAheadViolationRows',
+  'survivorshipBiasViolationRows'
+];
+const sourceLedgerSummary = payload?.sourceLedgerSummary;
+const sourceLedgerSafetyVerified = Boolean(
+  sourceLedgerSummary
+  && typeof sourceLedgerSummary === 'object'
+  && sourceLedgerSafetyFields.every((field) => Number.isInteger(sourceLedgerSummary[field]) && sourceLedgerSummary[field] >= 0)
+);
+const sourceLedgerSafetyViolationRows = sourceLedgerSafetyVerified
+  ? sourceLedgerSafetyFields.reduce((sum, field) => sum + sourceLedgerSummary[field], 0)
+  : null;
+const oosUnknownCohortRows = rejected.filter((row) => row.reason === 'unknown_decision_cohort').length;
+const entryGateStatus = !cohortContract
+  ? 'not_applicable_legacy_v1'
+  : !inputContractValid
+    ? 'blocked_invalid_input_contract'
+    : !sourceLedgerSafetyVerified
+      ? 'blocked_stage7_safety_summary_missing'
+      : sourceLedgerSafetyViolationRows > 0
+        ? 'blocked_stage7_safety_violation'
+        : oosUnknownCohortRows > 0
+          ? 'blocked_oos_unknown_cohort'
+          : !comparisonReady
+            ? 'insufficient_resolved_comparable_rows'
+            : 'pass_verified_oos_entry_gate';
+const entryGatePassed = entryGateStatus === 'pass_verified_oos_entry_gate';
+const cohortMetrics = {
+  EXECUTABLE_COHORT: summarizeRows(executableRows),
+  ACTIONABLE_BLOCKED_COHORT: summarizeRows(actionableBlockedRows),
+  NON_ACTIONABLE_CONTROL_COHORT: summarizeRows(controlRows)
+};
+const executableMean = cohortMetrics.EXECUTABLE_COHORT.meanNetReturnPct;
+const blockerLaneEffects = [...new Set(actionableBlockedRows.map((row) => row.primaryBlocker || 'UNCLASSIFIED'))]
+  .sort()
+  .map((primaryBlocker) => {
+    const blockerRows = actionableBlockedRows.filter(
+      (row) => (row.primaryBlocker || 'UNCLASSIFIED') === primaryBlocker
+    );
+    const metrics = summarizeRows(blockerRows);
+    return {
+      primaryBlocker,
+      ...metrics,
+      blockedMinusExecutableMeanNetReturnPct: metrics.meanNetReturnPct != null && executableMean != null
+        ? round(metrics.meanNetReturnPct - executableMean)
+        : null
+    };
+  });
+const comparisonRows = [...executableRows, ...actionableBlockedRows];
+const unknownRegimeRows = comparisonRows.filter((row) => row.marketRegime === 'UNKNOWN').length;
+const marketRegimeRows = [...new Set(comparisonRows.map((row) => row.marketRegime).filter((regime) => regime !== 'UNKNOWN'))]
+  .sort()
+  .map((marketRegime) => {
+    const executableRegimeRows = executableRows.filter((row) => row.marketRegime === marketRegime);
+    const blockedRegimeRows = actionableBlockedRows.filter((row) => row.marketRegime === marketRegime);
+    const executableMetrics = summarizeRows(executableRegimeRows);
+    const blockedMetrics = summarizeRows(blockedRegimeRows);
+    return {
+      marketRegime,
+      executable: executableMetrics,
+      actionableBlocked: blockedMetrics,
+      blockedMinusExecutableMeanNetReturnPct:
+        executableMetrics.meanNetReturnPct != null && blockedMetrics.meanNetReturnPct != null
+          ? round(blockedMetrics.meanNetReturnPct - executableMetrics.meanNetReturnPct)
+          : null
+    };
+  });
+const comparableMarketRegimes = marketRegimeRows.filter(
+  (row) => row.executable.rows > 0 && row.actionableBlocked.rows > 0
+).length;
+const marketRegimeStability = {
+  status: entryGatePassed && unknownRegimeRows === 0 && comparableMarketRegimes >= 2
+    ? 'report_only_multi_regime_evidence'
+    : 'insufficient_regime_evidence',
+  requiredComparableRegimes: 2,
+  comparableMarketRegimes,
+  unknownRegimeRows,
+  regimes: marketRegimeRows
+};
+const inputSha256 = inputExists ? crypto.createHash('sha256').update(raw).digest('hex') : null;
+const bootstrap = entryGatePassed
+  ? bootstrapDifference(executableRows, actionableBlockedRows, inputSha256)
+  : {
+      status: 'not_run_insufficient_oos_evidence',
+      method: 'deterministic_nonparametric_percentile',
+      iterations: 2000,
+      confidenceLevel: 0.95,
+      blockedMinusExecutableMeanNetReturnPct: null
+    };
+const calibrationReady = entryGatePassed
+  && marketRegimeStability.status === 'report_only_multi_regime_evidence';
+const calibration = {
+  status: !cohortContract
+    ? 'legacy_v1_not_calibration_eligible'
+    : calibrationReady
+      ? 'report_only_calibration_ready'
+      : entryGatePassed
+        ? 'insufficient_regime_evidence'
+        : 'insufficient_oos_evidence',
+  entryGate: {
+    status: entryGateStatus,
+    minimumResolvedRowsPerCohort: minimumSample,
+    executableResolvedRows: executableRows.length,
+    actionableBlockedResolvedRows: actionableBlockedRows.length,
+    sourceLedgerSafetyVerified,
+    sourceLedgerSafetyViolationRows,
+    oosUnknownCohortRows,
+    sourceLedgerSummary: sourceLedgerSafetyVerified ? sourceLedgerSummary : null
+  },
+  cohortMetrics,
+  falseNegativeComparison: {
+    status: calibrationReady ? 'report_only_false_negative_comparison_ready' : 'insufficient_oos_evidence',
+    blockedMinusExecutableMeanNetReturnPct: cohortComparison.blockedMinusExecutableMeanNetReturnPct
+  },
+  blockerLaneEffects,
+  marketRegimeStability,
+  bootstrap,
+  policyChangeAuthorized: false
+};
+const sampleReady = cohortContract ? calibrationReady : validOosRows >= minimumSample;
 const report = {
   schemaVersion: 'stage3-5-oos-cost-audit-v2',
   generatedAt: new Date().toISOString(),
@@ -219,7 +431,7 @@ const report = {
   source: {
     inputFile: path.relative(root, inputPath),
     inputExists,
-    inputSha256: inputExists ? crypto.createHash('sha256').update(raw).digest('hex') : null,
+    inputSha256,
     schemaVersion: payload.schemaVersion || null,
     contractValid: inputContractValid
   },
@@ -237,12 +449,13 @@ const report = {
   },
   decisionCohorts,
   cohortComparison,
+  calibration,
   summary: {
     inputRows: rows.length,
     validOosRows,
     rejectedRows: rejected.length,
     rejectedNonOosRows: rejected.filter((row) => row.reason === 'non_oos_split').length,
-    unknownCohortRows: rejected.filter((row) => row.reason === 'unknown_decision_cohort').length,
+    unknownCohortRows: oosUnknownCohortRows,
     netWinRatePct: round(validOosRows ? (accepted.filter((row) => row.netReturnPct > 0).length / validOosRows) * 100 : 0),
     meanGrossReturnPct: round(mean(accepted.map((row) => row.grossReturnPct))),
     meanNetReturnPct: round(mean(accepted.map((row) => row.netReturnPct))),
@@ -254,7 +467,9 @@ const report = {
     'No result is inferred when forward outcome labels are absent.',
     'Market impact, borrow cost, taxes, and opportunity cost are not modeled.',
     'Passing validates sample and cost evidence only; it does not approve execution or prove alpha.',
-    'Corporate-action and delisting lineage that is absent from Stage4 remains unverified rather than inferred.'
+    'Corporate-action and delisting lineage that is absent from Stage4 remains unverified rather than inferred.',
+    'Calibration is report-only and never changes Stage6 thresholds or execution policy.',
+    'A single ticker, run, or market regime cannot authorize a calibration conclusion.'
   ],
   nextAction: !inputContractValid
     ? 'repair_oos_input_contract_before_analysis'
@@ -272,6 +487,12 @@ const markdown = `# Stage3-5 OOS and Cost Audit
 - Mean net return: ${report.summary.meanNetReturnPct}%
 - Mean round-trip cost: ${report.summary.meanRoundTripCostBps} bps
 - Cohort comparison: \`${cohortComparison.status}\`
+- Calibration: \`${calibration.status}\`
+- Stage7 safety gate: \`${calibration.entryGate.status}\`
+- Executable MAE/MFE: ${calibration.cohortMetrics.EXECUTABLE_COHORT.meanMaePct ?? 'N/A'}% / ${calibration.cohortMetrics.EXECUTABLE_COHORT.meanMfePct ?? 'N/A'}%
+- Actionable-blocked MAE/MFE: ${calibration.cohortMetrics.ACTIONABLE_BLOCKED_COHORT.meanMaePct ?? 'N/A'}% / ${calibration.cohortMetrics.ACTIONABLE_BLOCKED_COHORT.meanMfePct ?? 'N/A'}%
+- Market-regime evidence: \`${calibration.marketRegimeStability.status}\`
+- Bootstrap CI: \`${calibration.bootstrap.status}\`
 - Next action: \`${report.nextAction}\`
 
 This report never substitutes in-sample rows for missing OOS evidence and does not authorize broker behavior.
