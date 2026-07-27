@@ -193,6 +193,124 @@ interface MarketRegimeSnapshot {
     };
 }
 
+interface MarketRegimeLineage {
+    schemaVersion: 'market-regime-lineage-v1';
+    status: string;
+    marketRegime: MarketRegimeState;
+    score: number | null;
+    source: 'HARVESTER_MARKET_REGIME_SNAPSHOT';
+    sourceFile: 'MARKET_REGIME_SNAPSHOT.json';
+    sourceFileId: string | null;
+    sourceSha256: string | null;
+    triggerFile: string | null;
+    expectedTriggerFile: string;
+    triggerMatches: boolean;
+    sourceAsOf: string | null;
+    retrievedAt: string;
+    marketTimezone: 'America/New_York';
+    qualityStatus: string;
+    freshnessStatus: string;
+    degraded: boolean;
+    fallbackSource: null;
+}
+
+const parseMarketRegimeSourceTimestamp = (value: unknown): string | null => {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const candidate = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)
+        ? `${text.replace(' ', 'T')}+09:00`
+        : text;
+    const parsed = new Date(candidate);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
+const canonicalJson = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value as Record<string, unknown>)
+            .sort()
+            .map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`)
+            .join(',')}}`;
+    }
+    return JSON.stringify(value ?? null);
+};
+
+const sha256Json = async (value: unknown): Promise<string | null> => {
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle) return null;
+    const digest = await subtle.digest('SHA-256', new TextEncoder().encode(canonicalJson(value)));
+    return Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('');
+};
+
+const buildMarketRegimeLineage = async (
+    snapshot: MarketRegimeSnapshot | null,
+    sourceFileId: string | null,
+    expectedTriggerFile: string,
+    retrievedAt: string
+): Promise<MarketRegimeLineage> => {
+    const marketRegime = (snapshot?.regime?.state || 'UNKNOWN') as MarketRegimeState;
+    const score = Number(snapshot?.regime?.score);
+    const sourceAsOf = parseMarketRegimeSourceTimestamp(snapshot?.timestamp);
+    const triggerFile = snapshot?.trigger_file || null;
+    const triggerMatches = triggerFile === expectedTriggerFile;
+    const benchmarkCount = ['sp500', 'nasdaq', 'vix'].filter(
+        (key) => Number.isFinite(Number(snapshot?.benchmarks?.[key as keyof NonNullable<MarketRegimeSnapshot['benchmarks']>]?.close))
+    ).length;
+    const complete = benchmarkCount === 3
+        && Number(snapshot?.breadth?.valid_count || 0) > 0
+        && ['RISK_ON', 'NEUTRAL', 'RISK_OFF'].includes(marketRegime)
+        && Number.isFinite(score)
+        && score >= 0
+        && score <= 100;
+    const sourceSha256 = snapshot ? await sha256Json(snapshot) : null;
+    const sourceAsOfMs = Date.parse(String(sourceAsOf || ''));
+    const retrievedAtMs = Date.parse(retrievedAt);
+    const timestampsValid = Number.isFinite(sourceAsOfMs)
+        && Number.isFinite(retrievedAtMs)
+        && sourceAsOfMs <= retrievedAtMs;
+    const verified = Boolean(snapshot)
+        && triggerMatches
+        && complete
+        && timestampsValid
+        && Boolean(sourceSha256);
+    const status = verified
+        ? 'VERIFIED_DECISION_TIME_REGIME'
+        : !snapshot
+            ? 'SOURCE_MISSING'
+            : !triggerMatches
+                ? 'TRIGGER_MISMATCH'
+                : !sourceAsOf
+                    ? 'SOURCE_TIMESTAMP_INVALID'
+                    : sourceAsOfMs > retrievedAtMs
+                        ? 'SOURCE_TIMESTAMP_AFTER_RETRIEVAL'
+                        : !complete
+                            ? 'DEGRADED_INCOMPLETE_SNAPSHOT'
+                            : 'SOURCE_HASH_UNAVAILABLE';
+
+    return {
+        schemaVersion: 'market-regime-lineage-v1',
+        status,
+        marketRegime,
+        score: Number.isFinite(score) ? score : null,
+        source: 'HARVESTER_MARKET_REGIME_SNAPSHOT',
+        sourceFile: 'MARKET_REGIME_SNAPSHOT.json',
+        sourceFileId,
+        sourceSha256,
+        triggerFile,
+        expectedTriggerFile,
+        triggerMatches,
+        sourceAsOf,
+        retrievedAt,
+        marketTimezone: 'America/New_York',
+        qualityStatus: complete ? 'PASS_COMPLETE_SNAPSHOT' : 'DEGRADED_INCOMPLETE_SNAPSHOT',
+        freshnessStatus: triggerMatches && timestampsValid ? 'CURRENT_TRIGGER_MATCH' : status,
+        degraded: !verified,
+        fallbackSource: null
+    };
+};
+
 interface EarningsEventMap {
     trigger_file?: string;
     timestamp?: string;
@@ -1825,11 +1943,24 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       addLog(`Ready Signal Locked: ${stage3TriggerFile}`, "ok");
 
       let marketRegimeSnapshot: MarketRegimeSnapshot | null = null;
+      let marketRegimeLineage = await buildMarketRegimeLineage(
+        null,
+        null,
+        stage3TriggerFile,
+        new Date().toISOString()
+      );
       let earningsEventMap: EarningsEventMap | null = null;
       try {
         const regimeFileId = await findFileId(accessToken, MARKET_REGIME_FILE, systemMapId);
         if (regimeFileId) {
           const snapshot = await downloadFile(accessToken, regimeFileId);
+          const retrievedAt = new Date().toISOString();
+          marketRegimeLineage = await buildMarketRegimeLineage(
+            snapshot,
+            regimeFileId,
+            stage3TriggerFile,
+            retrievedAt
+          );
           if (snapshot?.trigger_file === stage3TriggerFile) {
             marketRegimeSnapshot = snapshot;
             const regimeState = snapshot?.regime?.state || 'UNKNOWN';
@@ -2455,6 +2586,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       ...item,
                       ...techData,
                       corporateActionLineage,
+                      marketRegimeLineage,
                       isTechnicalBreakout,
                       lastUpdate: new Date().toISOString()
                   });
@@ -2487,6 +2619,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       recentSwingHigh: 0,
                       recentSwingLow: 0,
                       corporateActionLineage: null,
+                      marketRegimeLineage,
                       lastUpdate: new Date().toISOString(),
                       dataSource: 'FAILURE'
                   });
@@ -2669,6 +2802,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               dataSource: GOOGLE_DRIVE_TARGET.financialOhlcvFolder,
               marketRegimeState: marketRegimeSnapshot?.regime?.state || null,
               marketRegimeScore: marketRegimeSnapshot?.regime?.score ?? null,
+              marketRegimeLineage,
               ttmSqueezeProfileMode: ttmSqueezeConfig.profileMode,
               ttmSqueezeProfile: ttmSqueezeConfig.profile,
               ttmSqueezeBbStdMult: ttmSqueezeConfig.bbStdMult,

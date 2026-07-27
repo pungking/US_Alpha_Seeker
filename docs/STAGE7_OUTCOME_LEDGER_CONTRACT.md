@@ -13,10 +13,11 @@ Every row carries a cohort-independent deterministic decision ID, an immutable d
 The downstream payload is `stage3-5-oos-v2`. The OOS cost audit accepts both v1 and v2; v2 requires the executable and eligible actionable-blocked cohorts to meet the existing minimum sample independently, with verified vendor/retrieval/source-as-of/split/dividend/corporate-action/symbol-change/delisting/suspension lineage, before comparison is report-ready. Missing or unmapped symbol-change history stays pending and never becomes an inferred win or loss.
 
 The v2 OOS payload also carries the Stage7 duplicate, unknown-cohort,
-look-ahead, and survivorship-violation counts plus the decision-time market
-regime when Stage6 supplied one. Report-only calibration opens only when both
+look-ahead, and survivorship-violation counts plus a verified decision-time
+market regime. `marketState` is the ticker's ICT state and is never treated as
+the global market regime. Report-only calibration opens only when both
 comparison cohorts meet the configured minimum, all four safety counts are
-zero, and at least two fully labeled regimes contain both cohorts. It reports
+zero, and at least two verified regimes contain both cohorts. It reports
 cost-adjusted return, MAE/MFE, blocker-lane effects, regime slices, and a
 deterministic 95% percentile-bootstrap interval. Missing regime evidence or an
 insufficient cohort keeps `overall=insufficient_oos_evidence`; every path keeps
@@ -64,5 +65,16 @@ outcome-only threshold-rebase contract exists.
 coverage counts. This is additive: no existing field is removed or renamed,
 no score semantics change, and consumers that ignore unknown fields remain
 compatible.
+
+Stage4 also attaches the additive `market-regime-lineage-v1` object sourced
+from `MARKET_REGIME_SNAPSHOT.json`. It records the source file/hash, exact
+Stage3 trigger match, source/retrieval timestamps, completeness quality,
+freshness, and the canonical `RISK_ON|NEUTRAL|RISK_OFF` value. Stage5
+preserves it and Stage6 copies it to every decision-contract row. Stage7
+independently verifies schema, SHA-256, timestamp order, trigger freshness,
+quality, and degraded status. Missing, future, or degraded regime evidence is
+kept as `UNKNOWN` for regime slicing without discarding an otherwise valid OOS
+outcome. This does not authorize calibration; `policyChangeAuthorized` remains
+false.
 
 This contract is evidence-only. It does not change Stage6 thresholds, promote candidates, or authorize broker/sidecar mutation.

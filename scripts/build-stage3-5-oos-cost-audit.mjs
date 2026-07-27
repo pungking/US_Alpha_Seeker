@@ -40,6 +40,7 @@ const supportedCohorts = new Set(['EXECUTABLE_COHORT', 'ACTIONABLE_BLOCKED_COHOR
 const accepted = [];
 const rejected = [];
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
+const MARKET_REGIMES = new Set(['RISK_ON', 'NEUTRAL', 'RISK_OFF']);
 
 function verifiedLineageContract(row) {
   const sourceAsOfMs = Date.parse(String(row?.sourceAsOf || ''));
@@ -72,6 +73,35 @@ function verifiedLineageContract(row) {
     && row?.suspensionStatus === 'VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE'
     && row?.survivorshipBiasStatus === 'VERIFIED_CORPORATE_ACTION_LINEAGE'
     && row?.returnBasis === 'DIVIDEND_AND_SPLIT_ADJUSTED_PRICE_RETURN'
+  );
+}
+
+function verifiedMarketRegimeContract(row) {
+  const score = Number(row?.marketRegimeScore);
+  const sourceAsOfMs = Date.parse(String(row?.marketRegimeSourceAsOf || ''));
+  const retrievedAtMs = Date.parse(String(row?.marketRegimeRetrievedAt || ''));
+  const decisionAtMs = Date.parse(String(row?.marketRegimeDecisionAt || ''));
+  return Boolean(
+    row?.marketRegimeLineageVerifiedForComparison === true
+    && row?.marketRegimeLineageSchemaVersion === 'market-regime-lineage-v1'
+    && row?.marketRegimeLineageStatus === 'VERIFIED_DECISION_TIME_REGIME'
+    && MARKET_REGIMES.has(String(row?.marketRegime || '').trim().toUpperCase())
+    && Number.isFinite(score)
+    && score >= 0
+    && score <= 100
+    && row?.marketRegimeSource === 'HARVESTER_MARKET_REGIME_SNAPSHOT'
+    && String(row?.marketRegimeSourceFile || '').trim()
+    && SHA256_PATTERN.test(String(row?.marketRegimeSourceSha256 || ''))
+    && String(row?.marketRegimeTriggerFile || '').trim()
+    && row?.marketRegimeTriggerFile === row?.marketRegimeExpectedTriggerFile
+    && row?.marketRegimeTriggerMatches === true
+    && [sourceAsOfMs, retrievedAtMs, decisionAtMs].every(Number.isFinite)
+    && sourceAsOfMs <= retrievedAtMs
+    && retrievedAtMs <= decisionAtMs
+    && row?.marketRegimeQualityStatus === 'PASS_COMPLETE_SNAPSHOT'
+    && row?.marketRegimeFreshnessStatus === 'CURRENT_TRIGGER_MATCH'
+    && row?.marketRegimeMarketTimezone === 'America/New_York'
+    && row?.marketRegimeDegraded === false
   );
 }
 
@@ -142,7 +172,11 @@ for (const row of rows) {
     signalDate: row.signalDate || null,
     resolvedAt: row.resolvedAt || null,
     walkForwardCohort: row.walkForwardCohort || String(row.signalDate || '').slice(0, 7) || null,
-    marketRegime: String(row?.marketRegime || 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN',
+    marketRegime: verifiedMarketRegimeContract(row)
+      ? String(row.marketRegime).trim().toUpperCase()
+      : 'UNKNOWN',
+    marketRegimeScore: verifiedMarketRegimeContract(row) ? Number(row.marketRegimeScore) : null,
+    marketRegimeLineageVerifiedForComparison: verifiedMarketRegimeContract(row),
     holdingDays,
     mfePct: finite(row?.mfePct),
     maePct: finite(row?.maePct),
@@ -348,12 +382,25 @@ const blockerLaneEffects = [...new Set(actionableBlockedRows.map((row) => row.pr
     };
   });
 const comparisonRows = [...executableRows, ...actionableBlockedRows];
-const unknownRegimeRows = comparisonRows.filter((row) => row.marketRegime === 'UNKNOWN').length;
-const marketRegimeRows = [...new Set(comparisonRows.map((row) => row.marketRegime).filter((regime) => regime !== 'UNKNOWN'))]
+const unknownRegimeRows = comparisonRows.filter((row) => row.marketRegimeLineageVerifiedForComparison !== true).length;
+const verifiedRegimeRows = comparisonRows.filter((row) => row.marketRegimeLineageVerifiedForComparison === true);
+const verifiedExecutableRegimeRows = executableRows.filter(
+  (row) => row.marketRegimeLineageVerifiedForComparison === true
+);
+const verifiedBlockedRegimeRows = actionableBlockedRows.filter(
+  (row) => row.marketRegimeLineageVerifiedForComparison === true
+);
+const verifiedRegimeSampleReady = verifiedExecutableRegimeRows.length >= minimumSample
+  && verifiedBlockedRegimeRows.length >= minimumSample;
+const marketRegimeRows = [...new Set(verifiedRegimeRows.map((row) => row.marketRegime))]
   .sort()
   .map((marketRegime) => {
-    const executableRegimeRows = executableRows.filter((row) => row.marketRegime === marketRegime);
-    const blockedRegimeRows = actionableBlockedRows.filter((row) => row.marketRegime === marketRegime);
+    const executableRegimeRows = executableRows.filter(
+      (row) => row.marketRegimeLineageVerifiedForComparison && row.marketRegime === marketRegime
+    );
+    const blockedRegimeRows = actionableBlockedRows.filter(
+      (row) => row.marketRegimeLineageVerifiedForComparison && row.marketRegime === marketRegime
+    );
     const executableMetrics = summarizeRows(executableRegimeRows);
     const blockedMetrics = summarizeRows(blockedRegimeRows);
     return {
@@ -370,12 +417,16 @@ const comparableMarketRegimes = marketRegimeRows.filter(
   (row) => row.executable.rows > 0 && row.actionableBlocked.rows > 0
 ).length;
 const marketRegimeStability = {
-  status: entryGatePassed && unknownRegimeRows === 0 && comparableMarketRegimes >= 2
+  status: entryGatePassed && verifiedRegimeSampleReady && comparableMarketRegimes >= 2
     ? 'report_only_multi_regime_evidence'
     : 'insufficient_regime_evidence',
   requiredComparableRegimes: 2,
+  minimumResolvedRowsPerCohort: minimumSample,
   comparableMarketRegimes,
   unknownRegimeRows,
+  verifiedRegimeRows: verifiedRegimeRows.length,
+  verifiedExecutableRows: verifiedExecutableRegimeRows.length,
+  verifiedActionableBlockedRows: verifiedBlockedRegimeRows.length,
   regimes: marketRegimeRows
 };
 const inputSha256 = inputExists ? crypto.createHash('sha256').update(raw).digest('hex') : null;

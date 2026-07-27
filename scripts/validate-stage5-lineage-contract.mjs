@@ -5,8 +5,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const sourcePath = 'components/IctAnalysis.tsx';
+const stage4SourcePath = 'components/TechnicalAnalysis.tsx';
 const stage6SourcePath = 'components/AlphaAnalysis.tsx';
 const text = fs.readFileSync(sourcePath, 'utf8');
+const stage4Text = fs.readFileSync(stage4SourcePath, 'utf8');
 const stage6Text = fs.readFileSync(stage6SourcePath, 'utf8');
 
 const requiredSnippets = [
@@ -38,6 +40,24 @@ const missingCorporateActionSnippets = requiredCorporateActionSnippets.filter(
     const sourceText = filePath === sourcePath ? text : stage6Text;
     return !sourceText.includes(snippet);
   }
+);
+const requiredMarketRegimeSnippets = [
+  { sourcePath: stage4SourcePath, snippet: "schemaVersion: 'market-regime-lineage-v1'" },
+  { sourcePath: stage4SourcePath, snippet: 'marketRegimeLineage,' },
+  { sourcePath, snippet: "schemaVersion: 'market-regime-lineage-v1'" },
+  {
+    sourcePath: stage6SourcePath,
+    snippet: "item?.marketRegimeLineage && typeof item.marketRegimeLineage === 'object'"
+  },
+  { sourcePath: stage6SourcePath, snippet: 'verifiedDecisionTimeRows: primaryPool.filter' }
+];
+const sourceTexts = new Map([
+  [stage4SourcePath, stage4Text],
+  [sourcePath, text],
+  [stage6SourcePath, stage6Text]
+]);
+const missingMarketRegimeSnippets = requiredMarketRegimeSnippets.filter(
+  ({ sourcePath: filePath, snippet }) => !sourceTexts.get(filePath)?.includes(snippet)
 );
 
 function writeJson(filePath, payload) {
@@ -130,7 +150,7 @@ function verifyFullAuditLineage() {
 
 let lineageFixture;
 try {
-  lineageFixture = missing.length || missingCorporateActionSnippets.length
+  lineageFixture = missing.length || missingCorporateActionSnippets.length || missingMarketRegimeSnippets.length
     ? { status: 'skipped_source_contract_missing' }
     : verifyFullAuditLineage();
 } catch (error) {
@@ -139,16 +159,20 @@ try {
 
 const failed = missing.length > 0
   || missingCorporateActionSnippets.length > 0
+  || missingMarketRegimeSnippets.length > 0
   || lineageFixture.status !== 'pass_same_run_lineage';
 const report = {
   generatedAt: new Date().toISOString(),
   overall: failed ? 'fail_stage5_lineage_contract_missing' : 'pass_stage5_lineage_contract',
   sourcePath,
+  stage4SourcePath,
   stage6SourcePath,
   requiredSnippets,
   missing,
   requiredCorporateActionSnippets,
   missingCorporateActionSnippets,
+  requiredMarketRegimeSnippets,
+  missingMarketRegimeSnippets,
   lineageFixture
 };
 
@@ -156,6 +180,7 @@ fs.mkdirSync('state', { recursive: true });
 fs.writeFileSync('state/stage5-lineage-contract-validation.json', `${JSON.stringify(report, null, 2)}\n`);
 console.log(
   `[STAGE5_LINEAGE_CONTRACT] overall=${report.overall} `
-  + `missing=${missing.length + missingCorporateActionSnippets.length} fixture=${lineageFixture.status}`
+  + `missing=${missing.length + missingCorporateActionSnippets.length + missingMarketRegimeSnippets.length} `
+  + `fixture=${lineageFixture.status}`
 );
 if (failed) process.exit(1);
