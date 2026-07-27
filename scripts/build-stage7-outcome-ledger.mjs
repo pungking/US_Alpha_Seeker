@@ -68,6 +68,78 @@ function canonicalJson(value) {
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 const SYMBOL_MATCH_METHOD = 'DETERMINISTIC_EXACT_NORMALIZED_SYMBOL_LOOKUP';
+const MARKET_REGIMES = new Set(['RISK_ON', 'NEUTRAL', 'RISK_OFF']);
+
+function evaluateMarketRegimeLineage(rawLineage, stage6GeneratedAt) {
+  const lineage = rawLineage && typeof rawLineage === 'object' ? rawLineage : null;
+  const marketRegime = normalized(lineage?.marketRegime);
+  const sourceAsOf = isoTimestamp(lineage?.sourceAsOf);
+  const retrievedAt = isoTimestamp(lineage?.retrievedAt);
+  const decisionAt = isoTimestamp(stage6GeneratedAt);
+  const score = Number(lineage?.score);
+  const sourceAsOfMs = Date.parse(String(sourceAsOf || ''));
+  const retrievedAtMs = Date.parse(String(retrievedAt || ''));
+  const decisionAtMs = Date.parse(String(decisionAt || ''));
+  const reasons = [];
+  if (!lineage) reasons.push('market_regime_lineage_missing');
+  if (lineage?.schemaVersion !== 'market-regime-lineage-v1') reasons.push('market_regime_schema_invalid');
+  if (lineage?.status !== 'VERIFIED_DECISION_TIME_REGIME') reasons.push('market_regime_status_unverified');
+  if (!MARKET_REGIMES.has(marketRegime)) reasons.push('market_regime_value_invalid');
+  if (lineage?.source !== 'HARVESTER_MARKET_REGIME_SNAPSHOT') reasons.push('market_regime_source_invalid');
+  if (!String(lineage?.sourceFile || '').trim()) reasons.push('market_regime_source_file_missing');
+  if (!SHA256_PATTERN.test(String(lineage?.sourceSha256 || ''))) reasons.push('market_regime_source_hash_invalid');
+  if (lineage?.triggerMatches !== true
+    || !String(lineage?.triggerFile || '').trim()
+    || lineage?.triggerFile !== lineage?.expectedTriggerFile) {
+    reasons.push('market_regime_trigger_mismatch');
+  }
+  if (!Number.isFinite(score) || score < 0 || score > 100) reasons.push('market_regime_score_invalid');
+  if (![sourceAsOfMs, retrievedAtMs, decisionAtMs].every(Number.isFinite)) {
+    reasons.push('market_regime_timestamp_invalid');
+  } else if (sourceAsOfMs > retrievedAtMs || retrievedAtMs > decisionAtMs) {
+    reasons.push('market_regime_timestamp_after_decision');
+  }
+  if (lineage?.marketTimezone !== 'America/New_York') reasons.push('market_regime_timezone_invalid');
+  if (lineage?.qualityStatus !== 'PASS_COMPLETE_SNAPSHOT') reasons.push('market_regime_quality_degraded');
+  if (lineage?.freshnessStatus !== 'CURRENT_TRIGGER_MATCH') reasons.push('market_regime_source_not_fresh');
+  if (lineage?.degraded !== false) reasons.push('market_regime_degraded');
+  const uniqueReasons = [...new Set(reasons)];
+  const verified = uniqueReasons.length === 0;
+  const status = verified
+    ? 'VERIFIED_DECISION_TIME_REGIME'
+    : !lineage
+      ? 'MARKET_REGIME_LINEAGE_MISSING'
+      : uniqueReasons.includes('market_regime_timestamp_after_decision')
+      ? 'SOURCE_TIMESTAMP_AFTER_DECISION'
+      : uniqueReasons.includes('market_regime_quality_degraded') || uniqueReasons.includes('market_regime_degraded')
+        ? 'DEGRADED_SOURCE'
+        : 'MARKET_REGIME_LINEAGE_INVALID';
+  return {
+    verified,
+    status,
+    reasons: uniqueReasons,
+    marketRegime: verified ? marketRegime : 'UNKNOWN',
+    lineage: {
+      schemaVersion: lineage?.schemaVersion || null,
+      status: lineage?.status || null,
+      source: lineage?.source || null,
+      sourceFile: lineage?.sourceFile || null,
+      sourceSha256: lineage?.sourceSha256 || null,
+      triggerFile: lineage?.triggerFile || null,
+      expectedTriggerFile: lineage?.expectedTriggerFile || null,
+      triggerMatches: lineage?.triggerMatches === true,
+      sourceAsOf,
+      retrievedAt,
+      marketTimezone: lineage?.marketTimezone || null,
+      qualityStatus: lineage?.qualityStatus || null,
+      freshnessStatus: lineage?.freshnessStatus || null,
+      degraded: lineage?.degraded === true,
+      fallbackSource: lineage?.fallbackSource || null,
+      marketRegime: verified ? marketRegime : 'UNKNOWN',
+      score: Number.isFinite(score) ? score : null
+    }
+  };
+}
 
 function verifiedSymbolAliasChain(evidence, lineageSymbol, sourceSymbol, evidenceAsOfMs) {
   if (evidence?.status !== 'VERIFIED_SYMBOL_CHANGE') return false;
@@ -427,12 +499,11 @@ function readStage6Seeds() {
         && !sourceMarkedStale;
       const blocker = primaryBlocker(pick, actionable, sourceLineageValid);
       const finalDecision = normalized(pick?.finalDecision) || 'UNKNOWN';
-      const marketRegime = normalized(
-        pick?.marketRegime
-        ?? pick?.marketState
-        ?? payload?.manifest?.marketRegime
-        ?? payload?.manifest?.marketRegimeState
-      ) || 'UNKNOWN';
+      const marketRegimeEvidence = evaluateMarketRegimeLineage(
+        pick?.marketRegimeLineage,
+        stage6GeneratedAt
+      );
+      const marketRegime = marketRegimeEvidence.marketRegime;
       const decisionCohort = finalDecision === 'EXECUTABLE_NOW' && actionable && sourceLineageValid
         ? COHORTS.executable
         : actionable && sourceLineageValid && blocker !== 'SCHEMA_OR_LINEAGE_MISMATCH'
@@ -456,6 +527,10 @@ function readStage6Seeds() {
         finalDecision,
         decisionReason: decisionReason || null,
         marketRegime,
+        marketRegimeLineage: marketRegimeEvidence.lineage,
+        marketRegimeLineageStatus: marketRegimeEvidence.status,
+        marketRegimeLineageReasons: marketRegimeEvidence.reasons,
+        marketRegimeLineageVerifiedForComparison: marketRegimeEvidence.verified,
         primaryBlocker: blocker,
         decisionCohort,
         zeroExecutableTuningLane: pick?.zeroExecutableTuningLane || null,
@@ -501,6 +576,8 @@ function readStage6Seeds() {
         finalDecision,
         decisionReason: decisionReason || null,
         marketRegime,
+        marketRegimeLineageStatus: marketRegimeEvidence.status,
+        marketRegimeLineageVerifiedForComparison: marketRegimeEvidence.verified,
         entryPrice,
         currentPrice: decisionSnapshot.currentPrice,
         targetPrice,
@@ -900,6 +977,24 @@ const oosRows = rows
     resolvedAt: row.resolvedAt,
     outcomeLabel: row.outcomeLabel,
     marketRegime: row.marketRegime || row.decisionSnapshot?.marketRegime || 'UNKNOWN',
+    marketRegimeScore: row.decisionSnapshot?.marketRegimeLineage?.score ?? null,
+    marketRegimeLineageSchemaVersion: row.decisionSnapshot?.marketRegimeLineage?.schemaVersion || null,
+    marketRegimeLineageStatus: row.decisionSnapshot?.marketRegimeLineageStatus || null,
+    marketRegimeLineageVerifiedForComparison: row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison === true,
+    marketRegimeSource: row.decisionSnapshot?.marketRegimeLineage?.source || null,
+    marketRegimeSourceFile: row.decisionSnapshot?.marketRegimeLineage?.sourceFile || null,
+    marketRegimeSourceSha256: row.decisionSnapshot?.marketRegimeLineage?.sourceSha256 || null,
+    marketRegimeTriggerFile: row.decisionSnapshot?.marketRegimeLineage?.triggerFile || null,
+    marketRegimeExpectedTriggerFile: row.decisionSnapshot?.marketRegimeLineage?.expectedTriggerFile || null,
+    marketRegimeTriggerMatches: row.decisionSnapshot?.marketRegimeLineage?.triggerMatches === true,
+    marketRegimeSourceAsOf: row.decisionSnapshot?.marketRegimeLineage?.sourceAsOf || null,
+    marketRegimeRetrievedAt: row.decisionSnapshot?.marketRegimeLineage?.retrievedAt || null,
+    marketRegimeDecisionAt: row.decisionSnapshot?.generatedAt || null,
+    marketRegimeMarketTimezone: row.decisionSnapshot?.marketRegimeLineage?.marketTimezone || null,
+    marketRegimeQualityStatus: row.decisionSnapshot?.marketRegimeLineage?.qualityStatus || null,
+    marketRegimeFreshnessStatus: row.decisionSnapshot?.marketRegimeLineage?.freshnessStatus || null,
+    marketRegimeDegraded: row.decisionSnapshot?.marketRegimeLineage?.degraded !== false,
+    marketRegimeFallbackSource: row.decisionSnapshot?.marketRegimeLineage?.fallbackSource || null,
     entryPrice: row.entryPrice,
     exitPrice: row.exitPrice,
     holdingDays: row.holdingBars,
@@ -985,7 +1080,9 @@ const summary = {
   survivorshipBiasViolationRows: rows.filter((row) => row.biasAudit?.survivorshipBiasViolation).length,
   survivorshipBiasUnverifiedRows: rows.filter((row) => String(row.biasAudit?.survivorshipBiasStatus).startsWith('UNVERIFIED')).length,
   comparisonLineageExcludedRows: rows.filter((row) => row.outcomeLabel === 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED').length,
-  comparisonEligibleHistoryRows: rows.filter((row) => row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON').length
+  comparisonEligibleHistoryRows: rows.filter((row) => row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON').length,
+  marketRegimeLineageVerifiedRows: rows.filter((row) => row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison === true).length,
+  marketRegimeLineageUnverifiedRows: rows.filter((row) => row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison !== true).length
 };
 const ledger = {
   schemaVersion: 'stage7-outcome-ledger-v2',
@@ -1010,7 +1107,7 @@ const ledger = {
     intrabarRule: 'exclude_when_entry_and_exit_or_target_and_stop_share_a_daily_bar',
     fillRule: 'long_limit_filled_when_daily_low_lte_entry_assume_entry_price',
     costInputs: costs,
-    biasPolicy: 'decision snapshot is immutable; outcomes use only eligible post-decision daily bars; unverified corporate-action lineage remains explicit'
+    biasPolicy: 'decision snapshot is immutable; outcomes use only eligible post-decision daily bars; unverified corporate-action or market-regime lineage remains explicit'
   },
   summary,
   cohortOutcomes,
@@ -1050,6 +1147,8 @@ const markdown = `# Stage7 Outcome Ledger\n\n` +
   `- Invalid-geometry rows excluded: ${rows.filter((row) => row.outcomeLabel === 'EXCLUDED_INVALID_GEOMETRY').length}\n` +
   `- Look-ahead violations: ${summary.lookAheadViolationRows}\n` +
   `- Survivorship lineage unverified rows: ${summary.survivorshipBiasUnverifiedRows}\n` +
+  `- Market-regime lineage verified rows: ${summary.marketRegimeLineageVerifiedRows}\n` +
+  `- Market-regime lineage unverified rows: ${summary.marketRegimeLineageUnverifiedRows}\n` +
   `- Horizon: ${horizonBars} daily bars\n` +
   `- Cost basis: \`${costs.basis}\` (${costs.spreadBps}/${costs.slippageBps}/${costs.commissionBps} bps spread/slippage/commission)\n\n` +
   `Bars after the Stage6 market date are evaluated; the signal-date bar is admitted only for a pre-RTH signal. Ambiguous daily-bar ordering is excluded and no broker behavior is authorized.\n`;

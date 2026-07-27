@@ -10286,6 +10286,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   item?.corporateActionLineage && typeof item.corporateActionLineage === 'object'
                       ? item.corporateActionLineage
                       : null,
+              marketRegimeLineage:
+                  item?.marketRegimeLineage && typeof item.marketRegimeLineage === 'object'
+                      ? item.marketRegimeLineage
+                      : null,
               aiVerdict: normalizeOptionalText(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict),
               executionVerdict: normalizeOptionalText(item?.executionVerdict),
               executionActionableVerdict: Boolean(item?.executionActionableVerdict),
@@ -10807,6 +10811,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       comparisonVerifiedRows: primaryPool.filter(
                           (row: any) => row?.corporateActionLineage?.lineageVerifiedForComparison === true
                       ).length
+                  },
+                  marketRegimeLineage: {
+                      schemaVersion: 'market-regime-lineage-v1',
+                      decisionRows: primaryPool.length,
+                      rowsWithLineage: primaryPool.filter(
+                          (row: any) => row?.marketRegimeLineage?.schemaVersion === 'market-regime-lineage-v1'
+                      ).length,
+                      verifiedDecisionTimeRows: primaryPool.filter(
+                          (row: any) => row?.marketRegimeLineage?.status === 'VERIFIED_DECISION_TIME_REGIME'
+                      ).length,
+                      sourceFiles: Array.from(new Set(
+                          primaryPool
+                              .map((row: any) => normalizeOptionalText(row?.marketRegimeLineage?.sourceFile))
+                              .filter((value): value is string => Boolean(value))
+                      )),
+                      sourceSha256: Array.from(new Set(
+                          primaryPool
+                              .map((row: any) => normalizeOptionalText(row?.marketRegimeLineage?.sourceSha256))
+                              .filter((value): value is string => Boolean(value))
+                      ))
                   },
                   hardGateRiskOffExcluded: hardCutBlocked.length,
                   hardGateInvalidGeometryExcluded: invalidGeometryBlocked.length,

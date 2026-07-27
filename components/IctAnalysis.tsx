@@ -1310,6 +1310,16 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
               (row: any) => row?.corporateActionLineage?.lineageVerifiedForComparison === true
             ).length
           },
+          marketRegimeLineage: {
+            schemaVersion: 'market-regime-lineage-v1',
+            candidateRows: finalSurvivors.length,
+            rowsWithLineage: finalSurvivors.filter(
+              (row: any) => row?.marketRegimeLineage?.schemaVersion === 'market-regime-lineage-v1'
+            ).length,
+            verifiedDecisionTimeRows: finalSurvivors.filter(
+              (row: any) => row?.marketRegimeLineage?.status === 'VERIFIED_DECISION_TIME_REGIME'
+            ).length
+          },
           scoringContractVersion: "stage5-e-v1",
           stage6ContractVersion: "stage5to6-e-v1"
         },

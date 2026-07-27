@@ -13,6 +13,31 @@ const stage4Dir = path.join(tmp, 'stage4');
 fs.mkdirSync(stage6Dir);
 fs.mkdirSync(stage4Dir);
 
+const buildMarketRegimeLineage = (
+  marketRegime,
+  sourceAsOf = '2026-01-01T21:55:00.000Z',
+  overrides = {}
+) => ({
+  schemaVersion: 'market-regime-lineage-v1',
+  status: 'VERIFIED_DECISION_TIME_REGIME',
+  marketRegime,
+  score: marketRegime === 'RISK_OFF' ? 35 : 75,
+  source: 'HARVESTER_MARKET_REGIME_SNAPSHOT',
+  sourceFile: 'MARKET_REGIME_SNAPSHOT.json',
+  sourceSha256: 'c'.repeat(64),
+  triggerFile: 'STAGE3_FUNDAMENTAL_FULL_FIXTURE.json',
+  expectedTriggerFile: 'STAGE3_FUNDAMENTAL_FULL_FIXTURE.json',
+  triggerMatches: true,
+  sourceAsOf,
+  retrievedAt: '2026-01-01T22:00:00.000Z',
+  marketTimezone: 'America/New_York',
+  qualityStatus: 'PASS_COMPLETE_SNAPSHOT',
+  freshnessStatus: 'CURRENT_TRIGGER_MATCH',
+  degraded: false,
+  fallbackSource: null,
+  ...overrides
+});
+
 const executablePicks = fixture.signals.map((row, index) => ({
   ...row,
   aiVerdict: row.aiVerdict || 'BUY',
@@ -20,21 +45,36 @@ const executablePicks = fixture.signals.map((row, index) => ({
   finalDecision: 'EXECUTABLE_NOW',
   decisionReason: 'fixture',
   modelRank: index + 1,
-  executionRank: index + 1
+  executionRank: index + 1,
+  marketRegimeLineage: row.symbol === 'NOSOURCE'
+    ? buildMarketRegimeLineage('RISK_ON', '2026-01-03T13:00:00.000Z')
+    : row.symbol === 'PENDING'
+      ? buildMarketRegimeLineage('RISK_ON', undefined, {
+          status: 'DEGRADED_INCOMPLETE_SNAPSHOT',
+          qualityStatus: 'DEGRADED_INCOMPLETE_SNAPSHOT',
+          degraded: true
+        })
+      : buildMarketRegimeLineage(index % 2 ? 'RISK_OFF' : 'RISK_ON'),
+  marketState: row.symbol === 'PENDING' ? 'MARKUP' : undefined
 }));
 fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_FIXTURE.json'), JSON.stringify({
   manifest: {
     timestamp: fixture.generatedAt,
     sourceRunId: 'fixture-run',
     sourceSha: 'fixture-sha',
-    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z',
-    marketRegime: 'BULL'
+    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z'
   },
   execution_contract: {
     decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
     executablePicks,
-    modelTop6: [...fixture.blockedSignals, ...fixture.controlSignals],
-    watchlistTop: [...fixture.blockedSignals, ...fixture.controlSignals]
+    modelTop6: [...fixture.blockedSignals, ...fixture.controlSignals].map((row, index) => ({
+      ...row,
+      marketRegimeLineage: buildMarketRegimeLineage(index % 2 ? 'RISK_OFF' : 'RISK_ON')
+    })),
+    watchlistTop: [...fixture.blockedSignals, ...fixture.controlSignals].map((row, index) => ({
+      ...row,
+      marketRegimeLineage: buildMarketRegimeLineage(index % 2 ? 'RISK_OFF' : 'RISK_ON')
+    }))
   }
 }));
 fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_RTH_FIXTURE.json'), JSON.stringify({
@@ -42,8 +82,7 @@ fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_RTH_FIXTURE.json'), JS
     timestamp: fixture.rthGeneratedAt,
     sourceRunId: 'fixture-rth-run',
     sourceSha: 'fixture-rth-sha',
-    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z',
-    marketRegime: 'BEAR'
+    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z'
   },
   execution_contract: {
     decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
@@ -52,7 +91,8 @@ fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_RTH_FIXTURE.json'), JS
       finalDecision: 'EXECUTABLE_NOW',
       decisionReason: 'fixture_rth',
       modelRank: index + 1,
-      executionRank: index + 1
+      executionRank: index + 1,
+      marketRegimeLineage: buildMarketRegimeLineage('RISK_OFF')
     })),
     modelTop6: [],
     watchlistTop: []
@@ -211,6 +251,15 @@ if (ledger.summary.comparisonLineageExcludedRows !== 1 || ledger.summary.compari
 if (ledger.rows.some((row) => !row.decisionSnapshotSha256 || !row.primaryBlocker || !row.historyLineage)) {
   throw new Error('immutable snapshot or lineage evidence missing');
 }
+if (ledger.rows.find((row) => row.symbol === 'PENDING')?.decisionSnapshot?.marketRegime !== 'UNKNOWN'
+  || ledger.rows.find((row) => row.symbol === 'PENDING')?.decisionSnapshot?.marketRegimeLineageVerifiedForComparison !== false
+  || ledger.rows.find((row) => row.symbol === 'NOSOURCE')?.decisionSnapshot?.marketRegimeLineageStatus !== 'SOURCE_TIMESTAMP_AFTER_DECISION'
+  || ledger.rows.find((row) => row.symbol === 'SOURCEBAD')?.decisionSnapshot?.marketRegimeLineageStatus !== 'MARKET_REGIME_LINEAGE_MISSING') {
+  throw new Error('future/degraded market-regime evidence entered the decision-time contract');
+}
+if (ledger.rows.some((row) => row.decisionSnapshot?.marketRegime === 'MARKUP')) {
+  throw new Error('ticker ICT marketState was misclassified as the global market regime');
+}
 if (ledger.rows.some((row) => row.sourceLineageValid && row.decisionSnapshot?.sourceFreshnessStatus !== 'SOURCE_TIMESTAMP_ORDER_VALID')) {
   throw new Error('decision-time source freshness evidence missing');
 }
@@ -230,7 +279,19 @@ if (oosPayload.rows.length !== 6) throw new Error(`expected 6 OOS rows, got ${oo
 if (oosPayload.rows.some((row) => row.split !== 'OOS' || row.costInputBasis !== 'conservative_policy_assumption_v1')) {
   throw new Error('OOS contract or cost basis mismatch');
 }
-if (oosPayload.rows.some((row) => !['BULL', 'BEAR'].includes(row.marketRegime))) {
+if (oosPayload.rows.some((row) => !['RISK_ON', 'RISK_OFF'].includes(row.marketRegime)
+  || !Number.isFinite(Number(row.marketRegimeScore))
+  || row.marketRegimeLineageVerifiedForComparison !== true
+  || row.marketRegimeLineageSchemaVersion !== 'market-regime-lineage-v1'
+  || row.marketRegimeSource !== 'HARVESTER_MARKET_REGIME_SNAPSHOT'
+  || !/^[0-9a-f]{64}$/.test(String(row.marketRegimeSourceSha256 || ''))
+  || row.marketRegimeTriggerFile !== row.marketRegimeExpectedTriggerFile
+  || row.marketRegimeTriggerMatches !== true
+  || row.marketRegimeMarketTimezone !== 'America/New_York'
+  || row.marketRegimeQualityStatus !== 'PASS_COMPLETE_SNAPSHOT'
+  || row.marketRegimeFreshnessStatus !== 'CURRENT_TRIGGER_MATCH'
+  || row.marketRegimeDegraded !== false
+  || row.marketRegimeFallbackSource !== null)) {
   throw new Error('decision-time market regime was not propagated to OOS evidence');
 }
 if (JSON.stringify(oosPayload.sourceLedgerSummary) !== JSON.stringify({
@@ -425,6 +486,7 @@ if (invalidProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIF
 
 const firstIds = ledger.rows.map((row) => `${row.ledgerId}:${row.decisionSnapshotSha256}`);
 const firstEvidenceHash = oosPayload.rows.find((row) => row.symbol === 'TPATH')?.externalEvidenceSha256;
+const firstRegimeEvidenceHash = oosPayload.rows.find((row) => row.symbol === 'TPATH')?.marketRegimeSourceSha256;
 const stage4FixturePath = path.join(stage4Dir, 'STAGE4_TECHNICAL_FULL_FIXTURE.json');
 const changedOutcomeEvidence = JSON.parse(fs.readFileSync(stage4FixturePath, 'utf8'));
 changedOutcomeEvidence.technical_universe.find((row) => row.symbol === 'NOFILL').priceHistory[0].close = 105.5;
@@ -462,6 +524,9 @@ if (JSON.stringify(firstIds) !== JSON.stringify(secondLedger.rows.map((row) => `
 }
 if (firstEvidenceHash !== secondOosPayload.rows.find((row) => row.symbol === 'TPATH')?.externalEvidenceSha256) {
   throw new Error('external evidence hash changed when JSON object key order changed');
+}
+if (firstRegimeEvidenceHash !== secondOosPayload.rows.find((row) => row.symbol === 'TPATH')?.marketRegimeSourceSha256) {
+  throw new Error('decision-time market-regime evidence changed during outcome refresh');
 }
 
 const renamedTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-outcome-ledger-renamed-'));
@@ -527,6 +592,8 @@ const invariantSummary = (value) => ({
   oosRows: value.oosRows,
   missingHistoryRows: value.missingHistoryRows,
   falseNegativeEligibleRows: value.falseNegativeEligibleRows,
+  marketRegimeLineageVerifiedRows: value.marketRegimeLineageVerifiedRows,
+  marketRegimeLineageUnverifiedRows: value.marketRegimeLineageUnverifiedRows,
   cohortCounts: value.cohortCounts,
   blockerCounts: value.blockerCounts
 });

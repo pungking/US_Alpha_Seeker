@@ -27,6 +27,9 @@ function runCase(fixture, minimumSample, expectedVerdict, expectedRows) {
   const report = JSON.parse(fs.readFileSync(output, 'utf8'));
   if (report.overall !== expectedVerdict) throw new Error(`${fixture}: unexpected verdict ${report.overall}`);
   if (report.summary.validOosRows !== expectedRows) throw new Error(`${fixture}: unexpected row count`);
+  if (report.calibration?.policyChangeAuthorized !== false) {
+    throw new Error(`${fixture}: report-only audit authorized a policy change`);
+  }
   return report;
 }
 
@@ -70,10 +73,31 @@ const verifiedLineage = {
   comparisonExclusionReasons: [],
   lineageVerifiedForComparison: true
 };
+const marketRegimeEvidence = (marketRegime, signalDate = '2026-06-20') => ({
+  marketRegime,
+  marketRegimeScore: marketRegime === 'RISK_OFF' ? 35 : 75,
+  marketRegimeLineageSchemaVersion: 'market-regime-lineage-v1',
+  marketRegimeLineageStatus: 'VERIFIED_DECISION_TIME_REGIME',
+  marketRegimeLineageVerifiedForComparison: true,
+  marketRegimeSource: 'HARVESTER_MARKET_REGIME_SNAPSHOT',
+  marketRegimeSourceFile: 'MARKET_REGIME_SNAPSHOT.json',
+  marketRegimeSourceSha256: 'c'.repeat(64),
+  marketRegimeTriggerFile: 'STAGE3_FUNDAMENTAL_FULL_FIXTURE.json',
+  marketRegimeExpectedTriggerFile: 'STAGE3_FUNDAMENTAL_FULL_FIXTURE.json',
+  marketRegimeTriggerMatches: true,
+  marketRegimeSourceAsOf: `${signalDate}T12:00:00.000Z`,
+  marketRegimeRetrievedAt: `${signalDate}T12:05:00.000Z`,
+  marketRegimeDecisionAt: `${signalDate}T12:10:00.000Z`,
+  marketRegimeMarketTimezone: 'America/New_York',
+  marketRegimeQualityStatus: 'PASS_COMPLETE_SNAPSHOT',
+  marketRegimeFreshnessStatus: 'CURRENT_TRIGGER_MATCH',
+  marketRegimeDegraded: false,
+  marketRegimeFallbackSource: null
+});
 cohortFixture.rows = cohortFixture.rows.map((row, index) => ({
   ...row,
   ...verifiedLineage,
-  marketRegime: index % 3 === 1 ? 'BEAR' : 'BULL',
+  ...marketRegimeEvidence(index % 3 === 1 ? 'RISK_OFF' : 'RISK_ON', row.signalDate),
   mfePct: 3 + index,
   maePct: -(1 + (index / 10)),
   realizedR: (Number(row.exitPrice) - Number(row.entryPrice)) / 5
@@ -120,14 +144,62 @@ if (cohorts.calibration.policyChangeAuthorized !== false) {
   throw new Error('report-only calibration authorized a policy change');
 }
 
-const safetyViolationInput = structuredClone(cohortFixture);
-safetyViolationInput.sourceLedgerSummary.lookAheadViolationRows = 1;
-const safetyViolationPath = path.join(os.tmpdir(), `stage3-5-oos-safety-violation-${process.pid}.json`);
-fs.writeFileSync(safetyViolationPath, JSON.stringify(safetyViolationInput));
-const safetyViolation = runCase(safetyViolationPath, 3, 'insufficient_oos_evidence', 7);
-if (safetyViolation.calibration?.entryGate?.status !== 'blocked_stage7_safety_violation'
-  || safetyViolation.calibration?.policyChangeAuthorized !== false) {
-  throw new Error('Stage7 safety violation did not close the calibration gate');
+const singleRegimeInput = structuredClone(cohortFixture);
+for (const row of singleRegimeInput.rows) Object.assign(row, marketRegimeEvidence('RISK_ON', row.signalDate));
+const singleRegimePath = path.join(os.tmpdir(), `stage3-5-oos-single-regime-${process.pid}.json`);
+fs.writeFileSync(singleRegimePath, JSON.stringify(singleRegimeInput));
+const singleRegime = runCase(singleRegimePath, 3, 'insufficient_oos_evidence', 7);
+if (singleRegime.calibration?.marketRegimeStability?.status !== 'insufficient_regime_evidence') {
+  throw new Error('single-regime evidence incorrectly opened calibration');
+}
+
+for (const [name, patch] of [
+  ['missing', { marketRegime: 'UNKNOWN', marketRegimeLineageVerifiedForComparison: false }],
+  ['future', { marketRegimeSourceAsOf: '2026-06-21T20:00:00.000Z' }],
+  ['degraded', { marketRegimeQualityStatus: 'DEGRADED_INCOMPLETE_SNAPSHOT', marketRegimeDegraded: true }]
+]) {
+  const invalidRegimeInput = structuredClone(cohortFixture);
+  Object.assign(invalidRegimeInput.rows[0], patch);
+  const invalidRegimePath = path.join(os.tmpdir(), `stage3-5-oos-regime-${name}-${process.pid}.json`);
+  fs.writeFileSync(invalidRegimePath, JSON.stringify(invalidRegimeInput));
+  const invalidRegime = runCase(invalidRegimePath, 3, 'insufficient_oos_evidence', 7);
+  if (invalidRegime.calibration?.marketRegimeStability?.status !== 'insufficient_regime_evidence'
+    || invalidRegime.calibration?.policyChangeAuthorized !== false) {
+    throw new Error(`${name} market-regime evidence opened calibration`);
+  }
+}
+
+const historicalUnknownInput = structuredClone(cohortFixture);
+for (const [sourceIndex, symbol] of [[0, 'HISTEX'], [3, 'HISTBL']]) {
+  historicalUnknownInput.rows.push({
+    ...structuredClone(historicalUnknownInput.rows[sourceIndex]),
+    symbol,
+    marketRegime: 'UNKNOWN',
+    marketRegimeLineageVerifiedForComparison: false
+  });
+}
+const historicalUnknownPath = path.join(os.tmpdir(), `stage3-5-oos-historical-unknown-${process.pid}.json`);
+fs.writeFileSync(historicalUnknownPath, JSON.stringify(historicalUnknownInput));
+const historicalUnknown = runCase(historicalUnknownPath, 3, 'pass_report_only', 9);
+if (historicalUnknown.calibration?.marketRegimeStability?.unknownRegimeRows !== 2
+  || historicalUnknown.calibration?.marketRegimeStability?.verifiedExecutableRows !== 3
+  || historicalUnknown.calibration?.marketRegimeStability?.verifiedActionableBlockedRows !== 3) {
+  throw new Error('historical unknown regime rows were not excluded from the verified sample');
+}
+
+for (const field of ['duplicateSeedRows', 'lookAheadViolationRows', 'survivorshipBiasViolationRows']) {
+  const safetyViolationInput = structuredClone(cohortFixture);
+  safetyViolationInput.sourceLedgerSummary[field] = 1;
+  const safetyViolationPath = path.join(
+    os.tmpdir(),
+    `stage3-5-oos-safety-${field}-${process.pid}.json`
+  );
+  fs.writeFileSync(safetyViolationPath, JSON.stringify(safetyViolationInput));
+  const safetyViolation = runCase(safetyViolationPath, 3, 'insufficient_oos_evidence', 7);
+  if (safetyViolation.calibration?.entryGate?.status !== 'blocked_stage7_safety_violation'
+    || safetyViolation.calibration?.policyChangeAuthorized !== false) {
+    throw new Error(`${field} did not close the calibration gate`);
+  }
 }
 const unknownCohortInput = structuredClone(cohortFixture);
 unknownCohortInput.rows.push({
