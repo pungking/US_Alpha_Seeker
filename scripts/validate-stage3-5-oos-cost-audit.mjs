@@ -44,6 +44,12 @@ runCase('invalid-contract.fixture.json', 3, 'invalid_input_contract', 0);
 const cohortFixture = JSON.parse(
   fs.readFileSync(path.join(root, 'docs/fixtures/stage3_5_oos_cost/cohorts.fixture.json'), 'utf8')
 );
+cohortFixture.sourceLedgerSummary = {
+  duplicateSeedRows: 0,
+  unknownCohortRows: 0,
+  lookAheadViolationRows: 0,
+  survivorshipBiasViolationRows: 0
+};
 const verifiedLineage = {
   corporateActionLineageSchemaVersion: 'corporate-action-lineage-v1',
   adjustmentType: 'YFINANCE_AUTO_ADJUSTED_OHLC',
@@ -64,7 +70,14 @@ const verifiedLineage = {
   comparisonExclusionReasons: [],
   lineageVerifiedForComparison: true
 };
-cohortFixture.rows = cohortFixture.rows.map((row) => ({ ...row, ...verifiedLineage }));
+cohortFixture.rows = cohortFixture.rows.map((row, index) => ({
+  ...row,
+  ...verifiedLineage,
+  marketRegime: index % 3 === 1 ? 'BEAR' : 'BULL',
+  mfePct: 3 + index,
+  maePct: -(1 + (index / 10)),
+  realizedR: (Number(row.exitPrice) - Number(row.entryPrice)) / 5
+}));
 const cohortPath = path.join(os.tmpdir(), `stage3-5-oos-cohorts-${process.pid}.json`);
 fs.writeFileSync(cohortPath, JSON.stringify(cohortFixture));
 const cohorts = runCase(cohortPath, 3, 'pass_report_only', 7);
@@ -76,6 +89,58 @@ if (cohorts.cohortComparison.executableResolvedRows !== 3 || cohorts.cohortCompa
 }
 if (cohorts.cohortComparison.nonActionableControlRows !== 1) throw new Error('control cohort count mismatch');
 if (cohorts.summary.unknownCohortRows !== 0) throw new Error('unknown cohort rows were accepted');
+if (cohorts.calibration?.status !== 'report_only_calibration_ready') {
+  throw new Error(`calibration gate was not ready: ${JSON.stringify(cohorts.calibration)}`);
+}
+if (cohorts.calibration.entryGate?.status !== 'pass_verified_oos_entry_gate') {
+  throw new Error('verified Stage7 safety gate was not enforced');
+}
+if (!cohorts.calibration.cohortMetrics?.EXECUTABLE_COHORT
+  || cohorts.calibration.cohortMetrics.EXECUTABLE_COHORT.meanMfePct == null
+  || cohorts.calibration.cohortMetrics.EXECUTABLE_COHORT.meanMaePct == null) {
+  throw new Error('MAE/MFE cohort metrics are missing');
+}
+if (!cohorts.calibration.blockerLaneEffects?.some((row) => row.primaryBlocker === 'STRUCTURE_PROOF')) {
+  throw new Error('blocker-lane effect evidence is missing');
+}
+if (cohorts.calibration.marketRegimeStability?.status !== 'report_only_multi_regime_evidence') {
+  throw new Error('multi-regime stability evidence is missing');
+}
+if (cohorts.calibration.bootstrap?.status !== 'report_only_interval_ready'
+  || cohorts.calibration.bootstrap?.confidenceLevel !== 0.95
+  || !Number.isFinite(cohorts.calibration.bootstrap?.blockedMinusExecutableMeanNetReturnPct?.lower)
+  || !Number.isFinite(cohorts.calibration.bootstrap?.blockedMinusExecutableMeanNetReturnPct?.upper)) {
+  throw new Error('deterministic bootstrap confidence interval is missing');
+}
+if (cohorts.calibration.falseNegativeComparison?.blockedMinusExecutableMeanNetReturnPct
+  !== cohorts.cohortComparison.blockedMinusExecutableMeanNetReturnPct) {
+  throw new Error('false-negative cohort difference is inconsistent');
+}
+if (cohorts.calibration.policyChangeAuthorized !== false) {
+  throw new Error('report-only calibration authorized a policy change');
+}
+
+const safetyViolationInput = structuredClone(cohortFixture);
+safetyViolationInput.sourceLedgerSummary.lookAheadViolationRows = 1;
+const safetyViolationPath = path.join(os.tmpdir(), `stage3-5-oos-safety-violation-${process.pid}.json`);
+fs.writeFileSync(safetyViolationPath, JSON.stringify(safetyViolationInput));
+const safetyViolation = runCase(safetyViolationPath, 3, 'insufficient_oos_evidence', 7);
+if (safetyViolation.calibration?.entryGate?.status !== 'blocked_stage7_safety_violation'
+  || safetyViolation.calibration?.policyChangeAuthorized !== false) {
+  throw new Error('Stage7 safety violation did not close the calibration gate');
+}
+const unknownCohortInput = structuredClone(cohortFixture);
+unknownCohortInput.rows.push({
+  ...unknownCohortInput.rows[0],
+  symbol: 'UNKNOWNCOHORT',
+  decisionCohort: 'UNKNOWN_COHORT'
+});
+const unknownCohortPath = path.join(os.tmpdir(), `stage3-5-oos-unknown-cohort-${process.pid}.json`);
+fs.writeFileSync(unknownCohortPath, JSON.stringify(unknownCohortInput));
+const unknownCohort = runCase(unknownCohortPath, 3, 'insufficient_oos_evidence', 7);
+if (unknownCohort.calibration?.entryGate?.status !== 'blocked_oos_unknown_cohort') {
+  throw new Error('unknown OOS cohort did not close the calibration gate');
+}
 const unverifiedInput = structuredClone(cohortFixture);
 unverifiedInput.rows.find((row) => row.decisionCohort === 'ACTIONABLE_BLOCKED_COHORT').lineageVerifiedForComparison = false;
 const unverifiedPath = path.join(os.tmpdir(), `stage3-5-oos-unverified-${process.pid}.json`);

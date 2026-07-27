@@ -12,6 +12,16 @@ Every row carries a cohort-independent deterministic decision ID, an immutable d
 
 The downstream payload is `stage3-5-oos-v2`. The OOS cost audit accepts both v1 and v2; v2 requires the executable and eligible actionable-blocked cohorts to meet the existing minimum sample independently, with verified vendor/retrieval/source-as-of/split/dividend/corporate-action/symbol-change/delisting/suspension lineage, before comparison is report-ready. Missing or unmapped symbol-change history stays pending and never becomes an inferred win or loss.
 
+The v2 OOS payload also carries the Stage7 duplicate, unknown-cohort,
+look-ahead, and survivorship-violation counts plus the decision-time market
+regime when Stage6 supplied one. Report-only calibration opens only when both
+comparison cohorts meet the configured minimum, all four safety counts are
+zero, and at least two fully labeled regimes contain both cohorts. It reports
+cost-adjusted return, MAE/MFE, blocker-lane effects, regime slices, and a
+deterministic 95% percentile-bootstrap interval. Missing regime evidence or an
+insufficient cohort keeps `overall=insufficient_oos_evidence`; every path keeps
+`policyChangeAuthorized=false`.
+
 Stage4 preserves the Harvester `corporate-action-lineage-v1` object without
 inventing verified values. Stage5 keeps the complete object on each surviving
 row, and Stage6 carries it into every decision-contract row as additive

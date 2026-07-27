@@ -27,7 +27,8 @@ fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_FIXTURE.json'), JSON.s
     timestamp: fixture.generatedAt,
     sourceRunId: 'fixture-run',
     sourceSha: 'fixture-sha',
-    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z'
+    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z',
+    marketRegime: 'BULL'
   },
   execution_contract: {
     decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
@@ -41,7 +42,8 @@ fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_RTH_FIXTURE.json'), JS
     timestamp: fixture.rthGeneratedAt,
     sourceRunId: 'fixture-rth-run',
     sourceSha: 'fixture-rth-sha',
-    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z'
+    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z',
+    marketRegime: 'BEAR'
   },
   execution_contract: {
     decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
@@ -227,6 +229,17 @@ if (oosPayload.schemaVersion !== 'stage3-5-oos-v2') throw new Error('unexpected 
 if (oosPayload.rows.length !== 6) throw new Error(`expected 6 OOS rows, got ${oosPayload.rows.length}`);
 if (oosPayload.rows.some((row) => row.split !== 'OOS' || row.costInputBasis !== 'conservative_policy_assumption_v1')) {
   throw new Error('OOS contract or cost basis mismatch');
+}
+if (oosPayload.rows.some((row) => !['BULL', 'BEAR'].includes(row.marketRegime))) {
+  throw new Error('decision-time market regime was not propagated to OOS evidence');
+}
+if (JSON.stringify(oosPayload.sourceLedgerSummary) !== JSON.stringify({
+  duplicateSeedRows: 0,
+  unknownCohortRows: 0,
+  lookAheadViolationRows: 0,
+  survivorshipBiasViolationRows: 0
+})) {
+  throw new Error(`Stage7 safety summary was not propagated: ${JSON.stringify(oosPayload.sourceLedgerSummary)}`);
 }
 if (oosPayload.rows.some((row) => row.signalMarketPhase !== 'PRE_RTH')) {
   const rthRows = oosPayload.rows.filter((row) => row.signalMarketPhase === 'RTH');
