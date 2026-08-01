@@ -77,6 +77,26 @@ progress at `N/2`, and `policyChangeAuthorized=false` on every path.
 This is an additive v2 reporting change. Existing IDs, decision snapshots,
 outcome labels, thresholds, and downstream comparison rules are unchanged.
 
+### Zero-growth root-cause audit
+
+`accumulationLifecycle.pipelineRootCause` records the first failed Stage7
+boundary, while `outcomeWindowEvidenceAudit` separately tests whether each
+external event proof covers the decision-to-current-history window even when
+it does not cover the producer's complete OHLCV lookback. This bounded audit is
+diagnostic only: it does not set `lineageVerifiedForComparison=true` or relax
+the existing comparison gate.
+
+The fixed natural-run replay for run `30643197620` proves multiple independent
+blockers. All 168 rows with history lack symbol-change and delisting source
+proof; 155 also have suspension proof that covers the outcome window but not
+the full producer lookback. Counterfactually, 149 rows still need additional
+market sessions, 19 have no post-decision bar yet, and 18 lack matching Stage4
+history. The primary liveness verdict therefore remains
+`ZERO_GROWTH_EXTERNAL_SOURCE_BLOCKED`, with
+`contractAuditVerdict=MULTIPLE_INDEPENDENT_BLOCKERS`. Merely waiting for another
+natural run cannot create comparison rows until the external source contract is
+verified; shortening the coverage gate alone is not a safe fix.
+
 ## Stage6 additive migration note
 
 `execution_contract` rows now retain the existing
