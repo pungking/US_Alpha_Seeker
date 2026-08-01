@@ -1308,6 +1308,9 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             ).length,
             comparisonVerifiedRows: finalSurvivors.filter(
               (row: any) => row?.corporateActionLineage?.lineageVerifiedForComparison === true
+            ).length,
+            prospectiveSurveillanceRows: finalSurvivors.filter(
+              (row: any) => row?.corporateActionLineage?.prospectiveSurveillance?.schemaVersion === 'prospective-corporate-action-surveillance-v1'
             ).length
           },
           marketRegimeLineage: {

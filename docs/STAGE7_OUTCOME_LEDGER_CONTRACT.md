@@ -97,6 +97,40 @@ history. The primary liveness verdict therefore remains
 natural run cannot create comparison rows until the external source contract is
 verified; shortening the coverage gate alone is not a safe fix.
 
+## Free-source prospective comparison
+
+Paid historical corporate-action coverage is no longer a prerequisite for all
+future growth. The historical mode remains unchanged as
+`HISTORICAL_FULL_LOOKBACK_VERIFIED`; pre-activation decisions are never
+re-labeled. An activation-aware second mode,
+`PROSPECTIVE_DECISION_TO_HORIZON_VERIFIED`, accepts only decisions created after
+the immutable Harvester activation artifact and only after every observed bar
+in the configured horizon has a matching complete free-source surveillance
+session.
+
+Each required session must have exact symbol continuity, no unresolved removal
+or active suspension, complete source scope and pagination, valid source and
+retrieval time order, deterministic request/response hashes, and no
+partial/stale/conflicting source state. Stage4 OHLCV must remain Yahoo
+auto-adjusted with verified split/dividend lineage, and the Stage6
+decision-time market-regime contract must pass. A missing session remains
+pending/excluded; it is never inferred as a no-event result. TP/SL/TIMEOUT does
+not enter comparison before the configured horizon has matured.
+
+`driveStage4Stage7Utilization` records the bounded handoff audit. The Stage4
+manifest counts the Drive OHLCV inventory and classifies attempted inputs as
+lineage envelope, legacy array, fresh/stale, approximate five-year full/partial,
+or invalid. Stage7 then reports unique price-history and lineage rows, missing
+history rows, and one deterministic loss reason per missing decision. The
+classification scope is explicit: Stage4 does not download thousands of files
+again merely to audit files that were not inputs to that run.
+
+Prospective progress remains report-only (`N/30` per cohort and `N/2` regimes),
+uses the existing spread/slippage/commission assumptions, and always keeps
+`policyChangeAuthorized=false`. Runtime liveness separates source gaps, horizon
+waiting, and a Stage6 executable-seed drought instead of reporting all zero
+growth as the same blocker.
+
 ## Stage6 additive migration note
 
 `execution_contract` rows now retain the existing
