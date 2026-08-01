@@ -34,6 +34,18 @@ const ACCUMULATION_CLASSES = {
   sourceContractBlocked: 'EXCLUDED_SOURCE_CONTRACT_BLOCKED',
   invalidLineage: 'INVALID_DECISION_OR_HISTORY_LINEAGE'
 };
+const PIPELINE_ROOT_CAUSES = {
+  seed: 'SEED_INGESTION_MISSING_OR_DUPLICATE',
+  decisionLineage: 'DECISION_LINEAGE_INVALID',
+  historyRetryable: 'HISTORY_SOURCE_MISSING_RETRYABLE',
+  horizon: 'HORIZON_NOT_MATURED',
+  sourceContract: 'CORPORATE_ACTION_SOURCE_CONTRACT_BLOCKED',
+  consumerOverbroad: 'CORPORATE_ACTION_CONSUMER_CONTRACT_OVERBROAD',
+  marketRegime: 'MARKET_REGIME_LINEAGE_INVALID',
+  outcomeResolution: 'OUTCOME_RESOLUTION_DEFECT',
+  resolvedNonReturn: 'RESOLVED_NON_RETURN_OUTCOME',
+  comparableResolved: 'COMPARISON_ELIGIBLE_RESOLVED'
+};
 
 function positiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -956,6 +968,68 @@ function resolveSeed(seed, historyRecord) {
   };
 }
 
+function outcomeWindowEvidenceAudit(row) {
+  const lineage = row.historyLineage || {};
+  const evidenceTypes = [
+    ['symbol_change', lineage.symbolChangeEvidence, new Set([
+      'VERIFIED_NO_SYMBOL_CHANGE_AS_OF_SOURCE',
+      'VERIFIED_SYMBOL_CHANGE'
+    ])],
+    ['delisting', lineage.delistingEvidence, new Set(['VERIFIED_NOT_DELISTED_AS_OF_SOURCE'])],
+    ['suspension', lineage.suspensionEvidence, new Set(['VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE'])]
+  ];
+  const shared = {
+    lineageSymbol: lineage.lineageSymbol,
+    sourceSymbol: lineage.sourceSymbol,
+    historySourceAsOf: lineage.sourceAsOf,
+    lineageEvaluatedAt: lineage.lineageEvaluatedAt
+  };
+  const validity = Object.fromEntries(evidenceTypes.map(([type, evidence, statuses]) => [type, {
+    fullLookback: evidenceContractValid(evidence, statuses, {
+      ...shared,
+      historyLookbackStart: lineage.producerLookbackStart
+    }),
+    outcomeWindow: evidenceContractValid(evidence, statuses, {
+      ...shared,
+      historyLookbackStart: row.signalDate
+    })
+  }]));
+  const fullLookbackOverbroadEvidenceTypes = evidenceTypes
+    .filter(([type]) => validity[type].outcomeWindow && !validity[type].fullLookback)
+    .map(([type]) => type);
+  const externalSourceBlockedTypes = evidenceTypes
+    .filter(([type]) => !validity[type].outcomeWindow)
+    .map(([type]) => type);
+  const eventOutcomeHandlingRequired = [];
+  if (lineage.delistingStatus === 'VERIFIED_DELISTED') {
+    eventOutcomeHandlingRequired.push('delisting');
+  }
+  if (lineage.suspensionStatus === 'VERIFIED_SUSPENDED') {
+    eventOutcomeHandlingRequired.push('suspension');
+  }
+  const boundedOutcomeEvidenceComplete = evidenceTypes.every(([type]) => validity[type].outcomeWindow);
+  const contractAuditVerdict = eventOutcomeHandlingRequired.length
+    ? 'OUTCOME_RESOLUTION_DEFECT'
+    : externalSourceBlockedTypes.length && fullLookbackOverbroadEvidenceTypes.length
+      ? 'MULTIPLE_INDEPENDENT_BLOCKERS'
+      : externalSourceBlockedTypes.length
+        ? 'CONTRACT_CORRECT_EXTERNAL_SOURCE_REQUIRED'
+        : fullLookbackOverbroadEvidenceTypes.length
+          ? 'CONTRACT_OVERBROAD_WINDOW'
+          : 'CURRENT_CONTRACT_VALID';
+  return {
+    requiredCoverageStart: row.signalDate,
+    requiredCoverageEnd: String(lineage.sourceAsOf || '').slice(0, 10) || null,
+    producerLookbackStart: lineage.producerLookbackStart || null,
+    evidenceValidity: validity,
+    boundedOutcomeEvidenceComplete,
+    fullLookbackOverbroadEvidenceTypes,
+    externalSourceBlockedTypes,
+    eventOutcomeHandlingRequired,
+    contractAuditVerdict
+  };
+}
+
 function accumulationLifecycle(row, historyRecord) {
   const allBars = Array.isArray(historyRecord?.bars) ? historyRecord.bars : [];
   const signalDateBarAllowed = row.signalMarketPhase === 'PRE_RTH';
@@ -968,6 +1042,7 @@ function accumulationLifecycle(row, historyRecord) {
     : [];
   const legacy = historyLineage.lineageContractStatus === 'LEGACY_ROW_WITHOUT_CORPORATE_ACTION_LINEAGE'
     || historyLineage.schemaVersion == null;
+  const outcomeWindowAudit = outcomeWindowEvidenceAudit(row);
   const sourceContractReason = [
     'symbol_change_status_unverified',
     'delisting_status_unverified_or_delisted',
@@ -983,39 +1058,55 @@ function accumulationLifecycle(row, historyRecord) {
   let blockedReason = row.outcomeLabel || 'unclassified_outcome_contract';
   let nextNaturalRunCanTransition = false;
   let nextEvaluationCondition = 'after_accumulation_contract_review';
+  let pipelineRootCause = PIPELINE_ROOT_CAUSES.outcomeResolution;
 
   if (row.outcomeStatus === 'resolved' && ['TP_FIRST', 'SL_FIRST', 'TIMEOUT'].includes(row.outcomeLabel)) {
     classification = ACCUMULATION_CLASSES.comparableResolved;
     blockedReason = null;
     nextEvaluationCondition = 'none_terminal_comparable_outcome';
+    pipelineRootCause = row.marketRegimeLineageVerifiedForComparison === true
+      ? PIPELINE_ROOT_CAUSES.comparableResolved
+      : PIPELINE_ROOT_CAUSES.marketRegime;
   } else if (row.outcomeStatus === 'resolved' && row.outcomeLabel === 'NO_FILL') {
     classification = ACCUMULATION_CLASSES.resolvedNonReturn;
     blockedReason = 'resolved_no_fill_has_no_return_comparison';
     nextEvaluationCondition = 'none_terminal_non_return_outcome';
+    pipelineRootCause = PIPELINE_ROOT_CAUSES.resolvedNonReturn;
   } else if (row.outcomeStatus === 'pending_source_history') {
     classification = ACCUMULATION_CLASSES.pendingHistory;
     blockedReason = 'source_history_missing';
     nextNaturalRunCanTransition = true;
     nextEvaluationCondition = 'after_matching_stage4_history_is_recollected';
+    pipelineRootCause = PIPELINE_ROOT_CAUSES.historyRetryable;
   } else if (String(row.outcomeStatus).startsWith('pending')) {
     classification = ACCUMULATION_CLASSES.pendingHorizon;
     blockedReason = 'horizon_market_sessions_remaining';
     nextNaturalRunCanTransition = true;
     nextEvaluationCondition = `after_${Math.max(1, horizonBars - eligibleBars.length)}_additional_eligible_market_sessions`;
+    pipelineRootCause = PIPELINE_ROOT_CAUSES.horizon;
   } else if (row.outcomeStatus === 'excluded_corporate_action_lineage_unverified' && legacy) {
     classification = ACCUMULATION_CLASSES.legacyImmutable;
     blockedReason = 'legacy_row_without_corporate_action_contract';
     nextEvaluationCondition = 'no_automatic_relabel_new_decision_seed_required';
+    pipelineRootCause = PIPELINE_ROOT_CAUSES.sourceContract;
   } else if (row.outcomeStatus === 'excluded_corporate_action_lineage_unverified' && sourceContractReason) {
     classification = ACCUMULATION_CLASSES.sourceContractBlocked;
     blockedReason = sourceContractReason;
     nextEvaluationCondition = 'after_external_corporate_action_source_contract_verified';
+    pipelineRootCause = outcomeWindowAudit.eventOutcomeHandlingRequired.length
+      ? PIPELINE_ROOT_CAUSES.outcomeResolution
+      : outcomeWindowAudit.boundedOutcomeEvidenceComplete
+        && outcomeWindowAudit.fullLookbackOverbroadEvidenceTypes.length
+        ? PIPELINE_ROOT_CAUSES.consumerOverbroad
+        : PIPELINE_ROOT_CAUSES.sourceContract;
   } else if (row.outcomeStatus === 'excluded_corporate_action_lineage_unverified') {
     classification = ACCUMULATION_CLASSES.corporateActionUnverified;
     blockedReason = exclusionReasons[0] || 'corporate_action_lineage_unverified';
     nextNaturalRunCanTransition = true;
     nextEvaluationCondition = 'after_fresh_verified_history_lineage_is_recollected';
+    pipelineRootCause = PIPELINE_ROOT_CAUSES.sourceContract;
   }
+  if (!row.sourceLineageValid || !row.geometryValid) pipelineRootCause = PIPELINE_ROOT_CAUSES.decisionLineage;
 
   const remainingMarketSessions = classification === ACCUMULATION_CLASSES.pendingHorizon
     ? Math.max(0, horizonBars - eligibleBars.length)
@@ -1033,7 +1124,19 @@ function accumulationLifecycle(row, historyRecord) {
     historyLatestSession: allBars.at(-1)?.date || null,
     missingSessions: Array.isArray(historyLineage.missingSessions) ? historyLineage.missingSessions : [],
     earliestPendingMaturityAt: null,
-    nextEvaluationCondition
+    nextEvaluationCondition,
+    pipelineRootCause,
+    counterfactualHorizon: {
+      status: eligibleBars.length >= horizonBars
+        ? 'HORIZON_MATURED'
+        : eligibleBars.length
+          ? 'HORIZON_NOT_MATURED'
+          : 'NO_POST_DECISION_BARS',
+      observedMarketSessions: eligibleBars.length,
+      requiredMarketSessions: horizonBars,
+      remainingMarketSessions: Math.max(0, horizonBars - eligibleBars.length)
+    },
+    outcomeWindowEvidenceAudit: outcomeWindowAudit
   };
 }
 
@@ -1061,6 +1164,30 @@ function buildAccumulationLiveness(rows, oosRows, summary) {
   const pendingRows = rows.filter(
     (row) => row.accumulationLifecycle?.classification === ACCUMULATION_CLASSES.pendingHorizon
   );
+  const rootCauseCounts = Object.fromEntries(
+    Object.values(PIPELINE_ROOT_CAUSES).map((rootCause) => [
+      rootCause,
+      rows.filter((row) => row.accumulationLifecycle?.pipelineRootCause === rootCause).length
+    ])
+  );
+  rootCauseCounts[PIPELINE_ROOT_CAUSES.seed] = summary.duplicateSeedRows;
+  const unknownRootCauseRows = rows.filter(
+    (row) => !Object.values(PIPELINE_ROOT_CAUSES).includes(row.accumulationLifecycle?.pipelineRootCause)
+  ).length;
+  const overbroadContractSuspectRows = rows.filter(
+    (row) => row.accumulationLifecycle?.outcomeWindowEvidenceAudit?.fullLookbackOverbroadEvidenceTypes?.length
+  ).length;
+  const sourceContractBlockedRows = rootCauseCounts[PIPELINE_ROOT_CAUSES.sourceContract];
+  const outcomeResolutionDefectRows = rootCauseCounts[PIPELINE_ROOT_CAUSES.outcomeResolution];
+  const contractAuditVerdict = sourceContractBlockedRows > 0 && overbroadContractSuspectRows > 0
+    ? 'MULTIPLE_INDEPENDENT_BLOCKERS'
+    : sourceContractBlockedRows > 0
+      ? 'CONTRACT_CORRECT_EXTERNAL_SOURCE_REQUIRED'
+      : overbroadContractSuspectRows > 0
+        ? 'CONTRACT_OVERBROAD_WINDOW'
+        : outcomeResolutionDefectRows > 0
+          ? 'OUTCOME_RESOLUTION_DEFECT'
+          : 'ACCUMULATION_PATH_VERIFIED';
   const accumulationSummary = {
     totalSeedRows: rows.length,
     resolvedRows: summary.resolvedRows,
@@ -1140,7 +1267,42 @@ function buildAccumulationLiveness(rows, oosRows, summary) {
     nextMeaningfulEvaluationCondition,
     policyChangeAuthorized: false,
     summary: accumulationSummary,
-    progress
+    progress,
+    rootCauseAudit: {
+      contractAuditVerdict,
+      rootCauseCounts,
+      totalSeedRows: rows.length,
+      validSeedRows: rows.filter((row) => row.sourceLineageValid && row.geometryValid).length,
+      duplicateSeedRows: summary.duplicateSeedRows,
+      retryableHistoryRows: rootCauseCounts[PIPELINE_ROOT_CAUSES.historyRetryable],
+      pendingHorizonRows: rootCauseCounts[PIPELINE_ROOT_CAUSES.horizon],
+      sourceContractBlockedRows,
+      unknownRootCauseRows,
+      overbroadContractSuspectRows,
+      regimeBlockedRows: rootCauseCounts[PIPELINE_ROOT_CAUSES.marketRegime],
+      outcomeResolutionDefectRows,
+      comparisonEligibleRows: rootCauseCounts[PIPELINE_ROOT_CAUSES.comparableResolved],
+      secondaryRegimeEvidenceBlockedRows: rows.filter(
+        (row) => row.marketRegimeLineageVerifiedForComparison !== true
+      ).length,
+      counterfactualHorizonMaturedRows: rows.filter(
+        (row) => row.accumulationLifecycle?.counterfactualHorizon?.status === 'HORIZON_MATURED'
+      ).length,
+      counterfactualHorizonPendingRows: rows.filter(
+        (row) => row.accumulationLifecycle?.counterfactualHorizon?.status === 'HORIZON_NOT_MATURED'
+      ).length,
+      counterfactualNoPostDecisionBars: rows.filter(
+        (row) => row.accumulationLifecycle?.counterfactualHorizon?.status === 'NO_POST_DECISION_BARS'
+          && row.accumulationLifecycle?.pipelineRootCause !== PIPELINE_ROOT_CAUSES.historyRetryable
+      ).length,
+      counterfactualHistoryMissingRows: rootCauseCounts[PIPELINE_ROOT_CAUSES.historyRetryable],
+      currentContractFutureGrowthPossible: rootCauseCounts[PIPELINE_ROOT_CAUSES.comparableResolved] > 0
+        || rows.some((row) => row.accumulationLifecycle?.pipelineRootCause === PIPELINE_ROOT_CAUSES.horizon
+          && row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON'),
+      boundedOutcomeContractCouldGrowWithoutExternalSources: rows.some(
+        (row) => row.accumulationLifecycle?.outcomeWindowEvidenceAudit?.boundedOutcomeEvidenceComplete === true
+      )
+    }
   };
 }
 
@@ -1359,6 +1521,9 @@ const markdown = `# Stage7 Outcome Ledger\n\n` +
   `- Market-regime lineage verified rows: ${summary.marketRegimeLineageVerifiedRows}\n` +
   `- Market-regime lineage unverified rows: ${summary.marketRegimeLineageUnverifiedRows}\n` +
   `- Accumulation liveness: \`${accumulationLiveness.status}\`\n` +
+  `- Root-cause contract audit: \`${accumulationLiveness.rootCauseAudit.contractAuditVerdict}\`\n` +
+  `- First-failure counts: ${JSON.stringify(accumulationLiveness.rootCauseAudit.rootCauseCounts)}\n` +
+  `- Counterfactual horizon: matured=${accumulationLiveness.rootCauseAudit.counterfactualHorizonMaturedRows}, pending=${accumulationLiveness.rootCauseAudit.counterfactualHorizonPendingRows}, no-post-decision-bars=${accumulationLiveness.rootCauseAudit.counterfactualNoPostDecisionBars}, history-missing=${accumulationLiveness.rootCauseAudit.counterfactualHistoryMissingRows}\n` +
   `- Comparable progress: executable=${accumulationLiveness.progress.executableComparable.current}/${accumulationLiveness.progress.executableComparable.required}, actionable-blocked=${accumulationLiveness.progress.actionableBlockedComparable.current}/${accumulationLiveness.progress.actionableBlockedComparable.required}, regimes=${accumulationLiveness.progress.comparableRegimes.current}/${accumulationLiveness.progress.comparableRegimes.required}\n` +
   `- Next meaningful evaluation: \`${accumulationLiveness.nextMeaningfulEvaluationCondition}\`\n` +
   `- Horizon: ${horizonBars} daily bars\n` +

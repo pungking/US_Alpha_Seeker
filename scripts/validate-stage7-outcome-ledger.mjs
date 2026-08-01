@@ -259,6 +259,16 @@ if (accumulationClassBySymbol.TPATH !== 'COMPARISON_ELIGIBLE_RESOLVED'
   || accumulationClassBySymbol.SOURCEBAD !== 'INVALID_DECISION_OR_HISTORY_LINEAGE') {
   throw new Error(`Stage7 accumulation lifecycle classification mismatch: ${JSON.stringify(accumulationClassBySymbol)}`);
 }
+const pipelineRootCauseBySymbol = Object.fromEntries(
+  ledger.rows.map((row) => [row.symbol, row.accumulationLifecycle?.pipelineRootCause])
+);
+if (pipelineRootCauseBySymbol.TPATH !== 'COMPARISON_ELIGIBLE_RESOLVED'
+  || pipelineRootCauseBySymbol.PENDING !== 'HORIZON_NOT_MATURED'
+  || pipelineRootCauseBySymbol.NOSOURCE !== 'HISTORY_SOURCE_MISSING_RETRYABLE'
+  || pipelineRootCauseBySymbol.SPECCTRL !== 'CORPORATE_ACTION_SOURCE_CONTRACT_BLOCKED'
+  || pipelineRootCauseBySymbol.SOURCEBAD !== 'DECISION_LINEAGE_INVALID') {
+  throw new Error(`Stage7 pipeline root-cause mismatch: ${JSON.stringify(pipelineRootCauseBySymbol)}`);
+}
 const pendingLifecycle = ledger.rows.find((row) => row.symbol === 'PENDING')?.accumulationLifecycle;
 if (pendingLifecycle?.requiredMarketSessions !== fixture.horizonBars
   || pendingLifecycle?.observedMarketSessions !== 1
@@ -270,6 +280,19 @@ if (pendingLifecycle?.requiredMarketSessions !== fixture.horizonBars
 }
 if (ledger.accumulationLiveness?.status !== 'PROGRESSING_NATURALLY'
   || ledger.accumulationLiveness?.summary?.unknownOrUnclassifiedRows !== 0
+  || ledger.accumulationLiveness?.rootCauseAudit?.unknownRootCauseRows !== 0
+  || ledger.accumulationLiveness?.rootCauseAudit?.rootCauseCounts?.COMPARISON_ELIGIBLE_RESOLVED !== 6
+  || ledger.accumulationLiveness?.rootCauseAudit?.rootCauseCounts?.HISTORY_SOURCE_MISSING_RETRYABLE !== 1
+  || ledger.accumulationLiveness?.rootCauseAudit?.rootCauseCounts?.HORIZON_NOT_MATURED !== 1
+  || ledger.accumulationLiveness?.rootCauseAudit?.rootCauseCounts?.CORPORATE_ACTION_SOURCE_CONTRACT_BLOCKED !== 1
+  || ledger.accumulationLiveness?.rootCauseAudit?.rootCauseCounts?.DECISION_LINEAGE_INVALID !== 2
+  || ledger.accumulationLiveness?.rootCauseAudit?.rootCauseCounts?.OUTCOME_RESOLUTION_DEFECT !== 1
+  || ledger.accumulationLiveness?.rootCauseAudit?.currentContractFutureGrowthPossible !== true
+  || ledger.accumulationLiveness?.rootCauseAudit?.totalSeedRows !== ledger.summary.seedRows
+  || ledger.accumulationLiveness?.rootCauseAudit?.comparisonEligibleRows !== 6
+  || ledger.accumulationLiveness?.rootCauseAudit?.retryableHistoryRows !== 1
+  || ledger.accumulationLiveness?.rootCauseAudit?.pendingHorizonRows !== 1
+  || ledger.accumulationLiveness?.rootCauseAudit?.regimeBlockedRows !== 0
   || ledger.accumulationLiveness?.progress?.executableComparable?.required !== 30
   || ledger.accumulationLiveness?.progress?.actionableBlockedComparable?.required !== 30
   || ledger.accumulationLiveness?.progress?.comparableRegimes?.required !== 2
@@ -420,6 +443,19 @@ const legacySignal = {
   modelRank: 4,
   executionRank: 4
 };
+const boundedWindowSignal = {
+  ...fixture.signals[0],
+  symbol: 'BOUNDED',
+  aiVerdict: 'BUY',
+  executionActionableVerdict: true,
+  finalDecision: 'EXECUTABLE_NOW',
+  decisionReason: 'fixture_outcome_window_covered_full_lookback_not_covered',
+  modelRank: 5,
+  executionRank: 5
+};
+const delistedSignal = { ...boundedWindowSignal, symbol: 'DELISTED', modelRank: 6, executionRank: 6 };
+const suspendedSignal = { ...boundedWindowSignal, symbol: 'SUSPENDED', modelRank: 7, executionRank: 7 };
+const resumedSignal = { ...boundedWindowSignal, symbol: 'RESUMED', modelRank: 8, executionRank: 8 };
 fs.writeFileSync(path.join(proofStage6Dir, 'STAGE6_ALPHA_FINAL_PROOF_FIXTURE.json'), JSON.stringify({
   manifest: {
     timestamp: fixture.generatedAt,
@@ -429,7 +465,16 @@ fs.writeFileSync(path.join(proofStage6Dir, 'STAGE6_ALPHA_FINAL_PROOF_FIXTURE.jso
   },
   execution_contract: {
     decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
-    executablePicks: [proofSignal, aliasSignal, rebaseSignal, legacySignal],
+    executablePicks: [
+      proofSignal,
+      aliasSignal,
+      rebaseSignal,
+      legacySignal,
+      boundedWindowSignal,
+      delistedSignal,
+      suspendedSignal,
+      resumedSignal
+    ],
     modelTop6: [],
     watchlistTop: []
   }
@@ -461,6 +506,37 @@ rebaseLineage.splitEvents = [{
   eventEffectiveAt: '2026-01-05',
   ratio: 2
 }];
+const boundedWindowLineage = buildCorporateActionLineage('BOUNDED');
+boundedWindowLineage.suspensionEvidence.coverageStart = '2026-01-01';
+boundedWindowLineage.lineageVerifiedForComparison = false;
+boundedWindowLineage.survivorshipBiasStatus = 'UNVERIFIED_INCOMPLETE_CORPORATE_ACTION_COVERAGE';
+const delistedLineage = buildCorporateActionLineage('DELISTED');
+delistedLineage.delistingStatus = 'VERIFIED_DELISTED';
+delistedLineage.delistingEvidence = {
+  ...buildEventEvidence('VERIFIED_DELISTED', 'DELISTED'),
+  matchedSymbol: 'DELISTED',
+  symbolMatchStatus: 'EXACT_EVENT_MATCH',
+  eventEffectiveAt: '2026-01-05T14:30:00.000Z'
+};
+delistedLineage.lineageVerifiedForComparison = false;
+delistedLineage.survivorshipBiasStatus = 'UNVERIFIED_INCOMPLETE_CORPORATE_ACTION_COVERAGE';
+const suspendedLineage = buildCorporateActionLineage('SUSPENDED');
+suspendedLineage.suspensionStatus = 'VERIFIED_SUSPENDED';
+suspendedLineage.suspensionEvidence = {
+  ...buildEventEvidence('VERIFIED_SUSPENDED', 'SUSPENDED'),
+  matchedSymbol: 'SUSPENDED',
+  symbolMatchStatus: 'EXACT_EVENT_MATCH',
+  eventEffectiveAt: '2026-01-05T14:30:00.000Z'
+};
+suspendedLineage.lineageVerifiedForComparison = false;
+suspendedLineage.survivorshipBiasStatus = 'UNVERIFIED_INCOMPLETE_CORPORATE_ACTION_COVERAGE';
+const resumedLineage = buildCorporateActionLineage('RESUMED');
+resumedLineage.suspensionEvidence = {
+  ...buildEventEvidence('VERIFIED_NOT_SUSPENDED_AS_OF_SOURCE', 'RESUMED'),
+  matchedSymbol: 'RESUMED',
+  symbolMatchStatus: 'EXACT_HISTORICAL_EVENT_MATCH_CURRENTLY_RESUMED',
+  eventEffectiveAt: '2025-12-15T14:30:00.000Z'
+};
 fs.writeFileSync(path.join(proofStage4Dir, 'STAGE4_TECHNICAL_FULL_PROOF_FIXTURE.json'), JSON.stringify({
   manifest: { timestamp: '2026-01-07T22:00:00.000Z', marketTimezone: 'America/New_York' },
   technical_universe: [
@@ -490,6 +566,34 @@ fs.writeFileSync(path.join(proofStage4Dir, 'STAGE4_TECHNICAL_FULL_PROOF_FIXTURE.
       priceHistory: fixture.history.TPATH,
       dataSource: 'FIXTURE_DRIVE',
       updated: '2026-01-07T22:00:00.000Z'
+    },
+    {
+      symbol: 'BOUNDED',
+      priceHistory: fixture.history.TPATH,
+      dataSource: 'FIXTURE_DRIVE',
+      updated: '2026-01-07T22:00:00.000Z',
+      corporateActionLineage: boundedWindowLineage
+    },
+    {
+      symbol: 'DELISTED',
+      priceHistory: fixture.history.TPATH,
+      dataSource: 'FIXTURE_DRIVE',
+      updated: '2026-01-07T22:00:00.000Z',
+      corporateActionLineage: delistedLineage
+    },
+    {
+      symbol: 'SUSPENDED',
+      priceHistory: fixture.history.TPATH,
+      dataSource: 'FIXTURE_DRIVE',
+      updated: '2026-01-07T22:00:00.000Z',
+      corporateActionLineage: suspendedLineage
+    },
+    {
+      symbol: 'RESUMED',
+      priceHistory: fixture.history.TPATH,
+      dataSource: 'FIXTURE_DRIVE',
+      updated: '2026-01-07T22:00:00.000Z',
+      corporateActionLineage: resumedLineage
     }
   ]
 }));
@@ -515,6 +619,10 @@ const invalidProofRow = proofLedger.rows.find((row) => row.symbol === 'PROOFBAD'
 const aliasProofRow = proofLedger.rows.find((row) => row.symbol === 'NEWCO');
 const rebaseProofRow = proofLedger.rows.find((row) => row.symbol === 'REBASE');
 const legacyProofRow = proofLedger.rows.find((row) => row.symbol === 'LEGACY');
+const boundedWindowProofRow = proofLedger.rows.find((row) => row.symbol === 'BOUNDED');
+const delistedProofRow = proofLedger.rows.find((row) => row.symbol === 'DELISTED');
+const suspendedProofRow = proofLedger.rows.find((row) => row.symbol === 'SUSPENDED');
+const resumedProofRow = proofLedger.rows.find((row) => row.symbol === 'RESUMED');
 if (invalidProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED'
   || !invalidProofRow?.historyLineage?.comparisonExclusionReasons?.includes('symbol_change_evidence_invalid')
   || !invalidProofRow?.historyLineage?.comparisonExclusionReasons?.includes('delisting_status_unverified_or_delisted')
@@ -525,8 +633,14 @@ if (invalidProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIF
   || rebaseProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_REBASE_REQUIRED'
   || rebaseProofRow?.postDecisionAdjustmentEvents?.length !== 1
   || legacyProofRow?.accumulationLifecycle?.classification !== 'EXCLUDED_LEGACY_IMMUTABLE'
-  || proofOos.rows.length !== 1
-  || proofOos.rows[0]?.symbol !== 'NEWCO') {
+  || boundedWindowProofRow?.accumulationLifecycle?.pipelineRootCause !== 'CORPORATE_ACTION_CONSUMER_CONTRACT_OVERBROAD'
+  || boundedWindowProofRow?.accumulationLifecycle?.outcomeWindowEvidenceAudit?.fullLookbackOverbroadEvidenceTypes?.join(',') !== 'suspension'
+  || delistedProofRow?.outcomeStatus !== 'excluded_corporate_action_lineage_unverified'
+  || suspendedProofRow?.outcomeStatus !== 'excluded_corporate_action_lineage_unverified'
+  || resumedProofRow?.outcomeLabel !== 'TP_FIRST'
+  || proofOos.rows.length !== 2
+  || !proofOos.rows.some((row) => row.symbol === 'NEWCO')
+  || !proofOos.rows.some((row) => row.symbol === 'RESUMED')) {
   throw new Error('incomplete external query proof entered OOS comparison');
 }
 
