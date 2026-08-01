@@ -248,6 +248,34 @@ if (ledger.summary.lookAheadViolationRows !== 0 || ledger.summary.survivorshipBi
 if (ledger.summary.comparisonLineageExcludedRows !== 1 || ledger.summary.comparisonEligibleHistoryRows !== 11) {
   throw new Error(`corporate-action comparison eligibility summary mismatch: ${JSON.stringify(ledger.summary)}`);
 }
+const accumulationClassBySymbol = Object.fromEntries(
+  ledger.rows.map((row) => [row.symbol, row.accumulationLifecycle?.classification])
+);
+if (accumulationClassBySymbol.TPATH !== 'COMPARISON_ELIGIBLE_RESOLVED'
+  || accumulationClassBySymbol.NOFILL !== 'RESOLVED_NON_RETURN_OUTCOME'
+  || accumulationClassBySymbol.PENDING !== 'PENDING_HORIZON_NOT_MATURED'
+  || accumulationClassBySymbol.NOSOURCE !== 'PENDING_HISTORY_RETRYABLE'
+  || accumulationClassBySymbol.SPECCTRL !== 'EXCLUDED_SOURCE_CONTRACT_BLOCKED'
+  || accumulationClassBySymbol.SOURCEBAD !== 'INVALID_DECISION_OR_HISTORY_LINEAGE') {
+  throw new Error(`Stage7 accumulation lifecycle classification mismatch: ${JSON.stringify(accumulationClassBySymbol)}`);
+}
+const pendingLifecycle = ledger.rows.find((row) => row.symbol === 'PENDING')?.accumulationLifecycle;
+if (pendingLifecycle?.requiredMarketSessions !== fixture.horizonBars
+  || pendingLifecycle?.observedMarketSessions !== 1
+  || pendingLifecycle?.remainingMarketSessions !== 2
+  || pendingLifecycle?.historyLatestSession !== '2026-01-05'
+  || pendingLifecycle?.earliestPendingMaturityAt !== null
+  || pendingLifecycle?.nextNaturalRunCanTransition !== true) {
+  throw new Error(`pending maturity evidence mismatch: ${JSON.stringify(pendingLifecycle)}`);
+}
+if (ledger.accumulationLiveness?.status !== 'PROGRESSING_NATURALLY'
+  || ledger.accumulationLiveness?.summary?.unknownOrUnclassifiedRows !== 0
+  || ledger.accumulationLiveness?.progress?.executableComparable?.required !== 30
+  || ledger.accumulationLiveness?.progress?.actionableBlockedComparable?.required !== 30
+  || ledger.accumulationLiveness?.progress?.comparableRegimes?.required !== 2
+  || ledger.accumulationLiveness?.policyChangeAuthorized !== false) {
+  throw new Error(`Stage7 accumulation liveness summary mismatch: ${JSON.stringify(ledger.accumulationLiveness)}`);
+}
 if (ledger.rows.some((row) => !row.decisionSnapshotSha256 || !row.primaryBlocker || !row.historyLineage)) {
   throw new Error('immutable snapshot or lineage evidence missing');
 }
@@ -382,6 +410,16 @@ const rebaseSignal = {
   modelRank: 3,
   executionRank: 3
 };
+const legacySignal = {
+  ...fixture.signals[0],
+  symbol: 'LEGACY',
+  aiVerdict: 'BUY',
+  executionActionableVerdict: true,
+  finalDecision: 'EXECUTABLE_NOW',
+  decisionReason: 'fixture_legacy_lineage',
+  modelRank: 4,
+  executionRank: 4
+};
 fs.writeFileSync(path.join(proofStage6Dir, 'STAGE6_ALPHA_FINAL_PROOF_FIXTURE.json'), JSON.stringify({
   manifest: {
     timestamp: fixture.generatedAt,
@@ -391,7 +429,7 @@ fs.writeFileSync(path.join(proofStage6Dir, 'STAGE6_ALPHA_FINAL_PROOF_FIXTURE.jso
   },
   execution_contract: {
     decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
-    executablePicks: [proofSignal, aliasSignal, rebaseSignal],
+    executablePicks: [proofSignal, aliasSignal, rebaseSignal, legacySignal],
     modelTop6: [],
     watchlistTop: []
   }
@@ -446,6 +484,12 @@ fs.writeFileSync(path.join(proofStage4Dir, 'STAGE4_TECHNICAL_FULL_PROOF_FIXTURE.
       dataSource: 'FIXTURE_DRIVE',
       updated: '2026-01-07T22:00:00.000Z',
       corporateActionLineage: rebaseLineage
+    },
+    {
+      symbol: 'LEGACY',
+      priceHistory: fixture.history.TPATH,
+      dataSource: 'FIXTURE_DRIVE',
+      updated: '2026-01-07T22:00:00.000Z'
     }
   ]
 }));
@@ -470,6 +514,7 @@ const proofOos = JSON.parse(fs.readFileSync(proofOosPath, 'utf8'));
 const invalidProofRow = proofLedger.rows.find((row) => row.symbol === 'PROOFBAD');
 const aliasProofRow = proofLedger.rows.find((row) => row.symbol === 'NEWCO');
 const rebaseProofRow = proofLedger.rows.find((row) => row.symbol === 'REBASE');
+const legacyProofRow = proofLedger.rows.find((row) => row.symbol === 'LEGACY');
 if (invalidProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED'
   || !invalidProofRow?.historyLineage?.comparisonExclusionReasons?.includes('symbol_change_evidence_invalid')
   || !invalidProofRow?.historyLineage?.comparisonExclusionReasons?.includes('delisting_status_unverified_or_delisted')
@@ -479,9 +524,90 @@ if (invalidProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIF
   || aliasProofRow?.historyLineage?.comparisonEligibilityStatus !== 'VERIFIED_FOR_COMPARISON'
   || rebaseProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_REBASE_REQUIRED'
   || rebaseProofRow?.postDecisionAdjustmentEvents?.length !== 1
+  || legacyProofRow?.accumulationLifecycle?.classification !== 'EXCLUDED_LEGACY_IMMUTABLE'
   || proofOos.rows.length !== 1
   || proofOos.rows[0]?.symbol !== 'NEWCO') {
   throw new Error('incomplete external query proof entered OOS comparison');
+}
+
+const freeTierTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-outcome-free-tier-'));
+const freeTierStage6Dir = path.join(freeTierTmp, 'stage6');
+const freeTierStage4Dir = path.join(freeTierTmp, 'stage4');
+fs.mkdirSync(freeTierStage6Dir);
+fs.mkdirSync(freeTierStage4Dir);
+fs.writeFileSync(path.join(freeTierStage6Dir, 'STAGE6_ALPHA_FINAL_FREE_TIER.json'), JSON.stringify({
+  manifest: {
+    timestamp: fixture.generatedAt,
+    sourceRunId: 'fixture-free-tier-run',
+    sourceSha: 'fixture-free-tier-sha',
+    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z'
+  },
+  execution_contract: {
+    decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
+    executablePicks: [{ ...fixture.signals[0], symbol: 'FREEBLOCK' }],
+    modelTop6: [],
+    watchlistTop: []
+  }
+}));
+fs.writeFileSync(path.join(freeTierStage4Dir, 'STAGE4_TECHNICAL_FULL_FREE_TIER.json'), JSON.stringify({
+  manifest: { timestamp: '2026-01-07T22:00:00.000Z', marketTimezone: 'America/New_York' },
+  technical_universe: [{
+    symbol: 'FREEBLOCK',
+    priceHistory: fixture.history.TPATH,
+    dataSource: 'FIXTURE_DRIVE',
+    updated: '2026-01-07T22:00:00.000Z',
+    corporateActionLineage: buildCorporateActionLineage('FREEBLOCK', false)
+  }]
+}));
+const freeTierLedgerPath = path.join(freeTierTmp, 'ledger.json');
+const freeTierResult = spawnSync(process.execPath, [path.join(root, 'scripts/build-stage7-outcome-ledger.mjs')], {
+  cwd: root,
+  env: {
+    ...process.env,
+    STAGE7_STAGE6_DIR: freeTierStage6Dir,
+    STAGE7_STAGE4_DIR: freeTierStage4Dir,
+    STAGE7_OUTCOME_LEDGER_OUT: freeTierLedgerPath,
+    STAGE7_OOS_OUT: path.join(freeTierTmp, 'oos.json'),
+    STAGE7_OUTCOME_MD_OUT: path.join(freeTierTmp, 'ledger.md'),
+    STAGE7_HORIZON_BARS: String(fixture.horizonBars)
+  },
+  encoding: 'utf8'
+});
+if (freeTierResult.status !== 0) throw new Error(`free-tier fixture builder failed\n${freeTierResult.stdout}\n${freeTierResult.stderr}`);
+const freeTierLedger = JSON.parse(fs.readFileSync(freeTierLedgerPath, 'utf8'));
+if (freeTierLedger.accumulationLiveness?.status !== 'ZERO_GROWTH_EXTERNAL_SOURCE_BLOCKED'
+  || freeTierLedger.accumulationLiveness?.summary?.sourceContractBlockedRows !== 1
+  || freeTierLedger.accumulationLiveness?.summary?.unknownOrUnclassifiedRows !== 0
+  || freeTierLedger.accumulationLiveness?.nextMeaningfulEvaluationCondition !== 'after_external_corporate_action_source_contract_verified'
+  || freeTierLedger.accumulationLiveness?.policyChangeAuthorized !== false) {
+  throw new Error(`free-tier zero-growth contract mismatch: ${JSON.stringify(freeTierLedger.accumulationLiveness)}`);
+}
+
+const duplicateTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-outcome-duplicate-'));
+const duplicateStage6Dir = path.join(duplicateTmp, 'stage6');
+fs.mkdirSync(duplicateStage6Dir);
+const duplicateSource = fs.readFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_FIXTURE.json'));
+fs.writeFileSync(path.join(duplicateStage6Dir, 'STAGE6_ALPHA_FINAL_DUPLICATE_A.json'), duplicateSource);
+fs.writeFileSync(path.join(duplicateStage6Dir, 'STAGE6_ALPHA_FINAL_DUPLICATE_B.json'), duplicateSource);
+const duplicateLedgerPath = path.join(duplicateTmp, 'ledger.json');
+const duplicateResult = spawnSync(process.execPath, [path.join(root, 'scripts/build-stage7-outcome-ledger.mjs')], {
+  cwd: root,
+  env: {
+    ...process.env,
+    STAGE7_STAGE6_DIR: duplicateStage6Dir,
+    STAGE7_STAGE4_DIR: stage4Dir,
+    STAGE7_OUTCOME_LEDGER_OUT: duplicateLedgerPath,
+    STAGE7_OOS_OUT: path.join(duplicateTmp, 'oos.json'),
+    STAGE7_OUTCOME_MD_OUT: path.join(duplicateTmp, 'ledger.md'),
+    STAGE7_HORIZON_BARS: String(fixture.horizonBars)
+  },
+  encoding: 'utf8'
+});
+if (duplicateResult.status !== 0) throw new Error(`duplicate fixture builder failed\n${duplicateResult.stdout}\n${duplicateResult.stderr}`);
+const duplicateLedger = JSON.parse(fs.readFileSync(duplicateLedgerPath, 'utf8'));
+if (duplicateLedger.summary.duplicateSeedRows < 1
+  || duplicateLedger.accumulationLiveness?.status !== 'INVALID_ACCUMULATION_CONTRACT') {
+  throw new Error('duplicate Stage6 decisions were not rejected by the accumulation contract');
 }
 
 const firstIds = ledger.rows.map((row) => `${row.ledgerId}:${row.decisionSnapshotSha256}`);
@@ -594,6 +720,8 @@ const invariantSummary = (value) => ({
   falseNegativeEligibleRows: value.falseNegativeEligibleRows,
   marketRegimeLineageVerifiedRows: value.marketRegimeLineageVerifiedRows,
   marketRegimeLineageUnverifiedRows: value.marketRegimeLineageUnverifiedRows,
+  accumulationLivenessStatus: value.accumulationLivenessStatus,
+  accumulationLifecycleCounts: value.accumulationLifecycleCounts,
   cohortCounts: value.cohortCounts,
   blockerCounts: value.blockerCounts
 });

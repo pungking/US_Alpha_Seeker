@@ -10,6 +10,8 @@ const ledgerOut = path.resolve(root, process.env.STAGE7_OUTCOME_LEDGER_OUT || 's
 const oosOut = path.resolve(root, process.env.STAGE7_OOS_OUT || 'state/stage3-5-oos-outcomes.json');
 const markdownOut = path.resolve(root, process.env.STAGE7_OUTCOME_MD_OUT || 'docs/STAGE7_OUTCOME_LEDGER.md');
 const horizonBars = positiveInt(process.env.STAGE7_HORIZON_BARS, 20);
+const minimumResolvedRowsPerCohort = positiveInt(process.env.STAGE35_OOS_MIN_SAMPLE, 30);
+const requiredComparableRegimes = 2;
 const costs = {
   spreadBps: nonNegativeNumber(process.env.STAGE7_SPREAD_BPS, 10),
   slippageBps: nonNegativeNumber(process.env.STAGE7_SLIPPAGE_BPS, 5),
@@ -22,6 +24,16 @@ const COHORTS = {
   control: 'NON_ACTIONABLE_CONTROL_COHORT'
 };
 const DEFAULT_ACTIONABLE_VERDICTS = ['BUY', 'STRONG_BUY', 'STRONGBUY'];
+const ACCUMULATION_CLASSES = {
+  pendingHorizon: 'PENDING_HORIZON_NOT_MATURED',
+  pendingHistory: 'PENDING_HISTORY_RETRYABLE',
+  comparableResolved: 'COMPARISON_ELIGIBLE_RESOLVED',
+  resolvedNonReturn: 'RESOLVED_NON_RETURN_OUTCOME',
+  corporateActionUnverified: 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED',
+  legacyImmutable: 'EXCLUDED_LEGACY_IMMUTABLE',
+  sourceContractBlocked: 'EXCLUDED_SOURCE_CONTRACT_BLOCKED',
+  invalidLineage: 'INVALID_DECISION_OR_HISTORY_LINEAGE'
+};
 
 function positiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -944,6 +956,194 @@ function resolveSeed(seed, historyRecord) {
   };
 }
 
+function accumulationLifecycle(row, historyRecord) {
+  const allBars = Array.isArray(historyRecord?.bars) ? historyRecord.bars : [];
+  const signalDateBarAllowed = row.signalMarketPhase === 'PRE_RTH';
+  const eligibleBars = allBars.filter(
+    (bar) => bar.date > row.signalDate || (signalDateBarAllowed && bar.date === row.signalDate)
+  );
+  const historyLineage = row.historyLineage || {};
+  const exclusionReasons = Array.isArray(historyLineage.comparisonExclusionReasons)
+    ? historyLineage.comparisonExclusionReasons
+    : [];
+  const legacy = historyLineage.lineageContractStatus === 'LEGACY_ROW_WITHOUT_CORPORATE_ACTION_LINEAGE'
+    || historyLineage.schemaVersion == null;
+  const sourceContractReason = [
+    'symbol_change_status_unverified',
+    'delisting_status_unverified_or_delisted',
+    'suspension_status_unverified_or_suspended',
+    'survivorship_lineage_unverified',
+    'producer_comparison_contract_not_verified',
+    'symbol_change_evidence_invalid',
+    'delisting_evidence_invalid',
+    'suspension_evidence_invalid'
+  ].find((reason) => exclusionReasons.includes(reason)) || null;
+
+  let classification = ACCUMULATION_CLASSES.invalidLineage;
+  let blockedReason = row.outcomeLabel || 'unclassified_outcome_contract';
+  let nextNaturalRunCanTransition = false;
+  let nextEvaluationCondition = 'after_accumulation_contract_review';
+
+  if (row.outcomeStatus === 'resolved' && ['TP_FIRST', 'SL_FIRST', 'TIMEOUT'].includes(row.outcomeLabel)) {
+    classification = ACCUMULATION_CLASSES.comparableResolved;
+    blockedReason = null;
+    nextEvaluationCondition = 'none_terminal_comparable_outcome';
+  } else if (row.outcomeStatus === 'resolved' && row.outcomeLabel === 'NO_FILL') {
+    classification = ACCUMULATION_CLASSES.resolvedNonReturn;
+    blockedReason = 'resolved_no_fill_has_no_return_comparison';
+    nextEvaluationCondition = 'none_terminal_non_return_outcome';
+  } else if (row.outcomeStatus === 'pending_source_history') {
+    classification = ACCUMULATION_CLASSES.pendingHistory;
+    blockedReason = 'source_history_missing';
+    nextNaturalRunCanTransition = true;
+    nextEvaluationCondition = 'after_matching_stage4_history_is_recollected';
+  } else if (String(row.outcomeStatus).startsWith('pending')) {
+    classification = ACCUMULATION_CLASSES.pendingHorizon;
+    blockedReason = 'horizon_market_sessions_remaining';
+    nextNaturalRunCanTransition = true;
+    nextEvaluationCondition = `after_${Math.max(1, horizonBars - eligibleBars.length)}_additional_eligible_market_sessions`;
+  } else if (row.outcomeStatus === 'excluded_corporate_action_lineage_unverified' && legacy) {
+    classification = ACCUMULATION_CLASSES.legacyImmutable;
+    blockedReason = 'legacy_row_without_corporate_action_contract';
+    nextEvaluationCondition = 'no_automatic_relabel_new_decision_seed_required';
+  } else if (row.outcomeStatus === 'excluded_corporate_action_lineage_unverified' && sourceContractReason) {
+    classification = ACCUMULATION_CLASSES.sourceContractBlocked;
+    blockedReason = sourceContractReason;
+    nextEvaluationCondition = 'after_external_corporate_action_source_contract_verified';
+  } else if (row.outcomeStatus === 'excluded_corporate_action_lineage_unverified') {
+    classification = ACCUMULATION_CLASSES.corporateActionUnverified;
+    blockedReason = exclusionReasons[0] || 'corporate_action_lineage_unverified';
+    nextNaturalRunCanTransition = true;
+    nextEvaluationCondition = 'after_fresh_verified_history_lineage_is_recollected';
+  }
+
+  const remainingMarketSessions = classification === ACCUMULATION_CLASSES.pendingHorizon
+    ? Math.max(0, horizonBars - eligibleBars.length)
+    : classification === ACCUMULATION_CLASSES.pendingHistory
+      ? horizonBars
+      : 0;
+  return {
+    classification,
+    transitionPossible: nextNaturalRunCanTransition,
+    nextNaturalRunCanTransition,
+    blockedReason,
+    requiredMarketSessions: horizonBars,
+    observedMarketSessions: Math.min(eligibleBars.length, horizonBars),
+    remainingMarketSessions,
+    historyLatestSession: allBars.at(-1)?.date || null,
+    missingSessions: Array.isArray(historyLineage.missingSessions) ? historyLineage.missingSessions : [],
+    earliestPendingMaturityAt: null,
+    nextEvaluationCondition
+  };
+}
+
+function buildAccumulationLiveness(rows, oosRows, summary) {
+  const lifecycleCounts = Object.fromEntries(
+    Object.values(ACCUMULATION_CLASSES).map((classification) => [
+      classification,
+      rows.filter((row) => row.accumulationLifecycle?.classification === classification).length
+    ])
+  );
+  const comparableRows = oosRows.filter((row) => row.lineageVerifiedForComparison === true);
+  const executableRows = comparableRows.filter((row) => row.decisionCohort === COHORTS.executable);
+  const actionableBlockedRows = comparableRows.filter(
+    (row) => row.decisionCohort === COHORTS.blocked && row.falseNegativeEligible === true
+  );
+  const comparableRegimes = [...new Set(comparableRows
+    .filter((row) => row.marketRegimeLineageVerifiedForComparison === true)
+    .map((row) => row.marketRegime))]
+    .filter((marketRegime) => executableRows.some(
+      (row) => row.marketRegimeLineageVerifiedForComparison === true && row.marketRegime === marketRegime
+    ) && actionableBlockedRows.some(
+      (row) => row.marketRegimeLineageVerifiedForComparison === true && row.marketRegime === marketRegime
+    ))
+    .sort();
+  const pendingRows = rows.filter(
+    (row) => row.accumulationLifecycle?.classification === ACCUMULATION_CLASSES.pendingHorizon
+  );
+  const accumulationSummary = {
+    totalSeedRows: rows.length,
+    resolvedRows: summary.resolvedRows,
+    pendingHorizonRows: lifecycleCounts[ACCUMULATION_CLASSES.pendingHorizon],
+    retryableHistoryRows: lifecycleCounts[ACCUMULATION_CLASSES.pendingHistory],
+    comparisonEligibleRows: lifecycleCounts[ACCUMULATION_CLASSES.comparableResolved],
+    nonComparableResolvedRows: lifecycleCounts[ACCUMULATION_CLASSES.resolvedNonReturn],
+    permanentlyExcludedLegacyRows: lifecycleCounts[ACCUMULATION_CLASSES.legacyImmutable],
+    sourceContractBlockedRows: lifecycleCounts[ACCUMULATION_CLASSES.sourceContractBlocked],
+    corporateActionRecollectionRows: lifecycleCounts[ACCUMULATION_CLASSES.corporateActionUnverified],
+    invalidLineageRows: lifecycleCounts[ACCUMULATION_CLASSES.invalidLineage],
+    duplicateSeedRows: summary.duplicateSeedRows,
+    unknownOrUnclassifiedRows: rows.filter(
+      (row) => !Object.values(ACCUMULATION_CLASSES).includes(row.accumulationLifecycle?.classification)
+    ).length,
+    earliestPendingMaturityAt: null,
+    minimumAdditionalMarketSessions: pendingRows.length
+      ? Math.min(...pendingRows.map((row) => row.accumulationLifecycle.remainingMarketSessions))
+      : null,
+    lifecycleCounts
+  };
+  const invalidContract = accumulationSummary.duplicateSeedRows > 0
+    || accumulationSummary.unknownOrUnclassifiedRows > 0
+    || summary.unknownCohortRows > 0
+    || summary.lookAheadViolationRows > 0
+    || summary.survivorshipBiasViolationRows > 0;
+  const status = invalidContract
+    ? 'INVALID_ACCUMULATION_CONTRACT'
+    : accumulationSummary.comparisonEligibleRows > 0
+      ? 'PROGRESSING_NATURALLY'
+      : accumulationSummary.pendingHorizonRows > 0
+        ? 'WAITING_FOR_HORIZON_MATURITY'
+        : accumulationSummary.sourceContractBlockedRows > 0
+          ? 'ZERO_GROWTH_EXTERNAL_SOURCE_BLOCKED'
+          : accumulationSummary.retryableHistoryRows > 0
+            ? 'RETRYABLE_HISTORY_GAP'
+            : 'INVALID_ACCUMULATION_CONTRACT';
+  const primaryBlocker = status === 'ZERO_GROWTH_EXTERNAL_SOURCE_BLOCKED'
+    ? 'external_corporate_action_source_contract'
+    : status === 'WAITING_FOR_HORIZON_MATURITY'
+      ? 'horizon_market_sessions_not_matured'
+      : status === 'RETRYABLE_HISTORY_GAP'
+        ? 'matching_stage4_history_missing'
+        : status === 'INVALID_ACCUMULATION_CONTRACT'
+          ? 'stage7_accumulation_contract_invalid'
+          : null;
+  const nextMeaningfulEvaluationCondition = status === 'ZERO_GROWTH_EXTERNAL_SOURCE_BLOCKED'
+    ? 'after_external_corporate_action_source_contract_verified'
+    : status === 'WAITING_FOR_HORIZON_MATURITY'
+      ? `after_${accumulationSummary.minimumAdditionalMarketSessions}_additional_eligible_market_sessions`
+      : status === 'RETRYABLE_HISTORY_GAP'
+        ? 'after_matching_stage4_history_is_recollected'
+        : status === 'INVALID_ACCUMULATION_CONTRACT'
+          ? 'after_stage7_accumulation_contract_defect_is_resolved'
+          : 'after_additional_verified_oos_rows_resolve';
+  const progress = {
+    executableComparable: {
+      current: executableRows.length,
+      required: minimumResolvedRowsPerCohort,
+      remaining: Math.max(0, minimumResolvedRowsPerCohort - executableRows.length)
+    },
+    actionableBlockedComparable: {
+      current: actionableBlockedRows.length,
+      required: minimumResolvedRowsPerCohort,
+      remaining: Math.max(0, minimumResolvedRowsPerCohort - actionableBlockedRows.length)
+    },
+    comparableRegimes: {
+      current: comparableRegimes.length,
+      required: requiredComparableRegimes,
+      remaining: Math.max(0, requiredComparableRegimes - comparableRegimes.length),
+      regimes: comparableRegimes
+    }
+  };
+  return {
+    status,
+    primaryBlocker,
+    nextMeaningfulEvaluationCondition,
+    policyChangeAuthorized: false,
+    summary: accumulationSummary,
+    progress
+  };
+}
+
 const {
   seeds,
   rejected,
@@ -953,7 +1153,11 @@ const {
 } = readStage6Seeds();
 const history = readPriceHistory();
 const rows = seeds
-  .map((seed) => resolveSeed(seed, history.bySymbol.get(seed.symbol)))
+  .map((seed) => {
+    const historyRecord = history.bySymbol.get(seed.symbol);
+    const row = resolveSeed(seed, historyRecord);
+    return { ...row, accumulationLifecycle: accumulationLifecycle(row, historyRecord) };
+  })
   .sort((a, b) => a.generatedAt.localeCompare(b.generatedAt) || a.symbol.localeCompare(b.symbol));
 const oosRows = rows
   .filter((row) => ['TP_FIRST', 'SL_FIRST', 'TIMEOUT'].includes(row.outcomeLabel))
@@ -1084,6 +1288,9 @@ const summary = {
   marketRegimeLineageVerifiedRows: rows.filter((row) => row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison === true).length,
   marketRegimeLineageUnverifiedRows: rows.filter((row) => row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison !== true).length
 };
+const accumulationLiveness = buildAccumulationLiveness(rows, oosRows, summary);
+summary.accumulationLivenessStatus = accumulationLiveness.status;
+summary.accumulationLifecycleCounts = accumulationLiveness.summary.lifecycleCounts;
 const ledger = {
   schemaVersion: 'stage7-outcome-ledger-v2',
   generatedAt: new Date().toISOString(),
@@ -1110,6 +1317,7 @@ const ledger = {
     biasPolicy: 'decision snapshot is immutable; outcomes use only eligible post-decision daily bars; unverified corporate-action or market-regime lineage remains explicit'
   },
   summary,
+  accumulationLiveness,
   cohortOutcomes,
   blockerOutcomes,
   rows,
@@ -1132,6 +1340,7 @@ const oosPayload = {
     lookAheadViolationRows: summary.lookAheadViolationRows,
     survivorshipBiasViolationRows: summary.survivorshipBiasViolationRows
   },
+  accumulationLiveness,
   rows: oosRows
 };
 const markdown = `# Stage7 Outcome Ledger\n\n` +
@@ -1149,6 +1358,9 @@ const markdown = `# Stage7 Outcome Ledger\n\n` +
   `- Survivorship lineage unverified rows: ${summary.survivorshipBiasUnverifiedRows}\n` +
   `- Market-regime lineage verified rows: ${summary.marketRegimeLineageVerifiedRows}\n` +
   `- Market-regime lineage unverified rows: ${summary.marketRegimeLineageUnverifiedRows}\n` +
+  `- Accumulation liveness: \`${accumulationLiveness.status}\`\n` +
+  `- Comparable progress: executable=${accumulationLiveness.progress.executableComparable.current}/${accumulationLiveness.progress.executableComparable.required}, actionable-blocked=${accumulationLiveness.progress.actionableBlockedComparable.current}/${accumulationLiveness.progress.actionableBlockedComparable.required}, regimes=${accumulationLiveness.progress.comparableRegimes.current}/${accumulationLiveness.progress.comparableRegimes.required}\n` +
+  `- Next meaningful evaluation: \`${accumulationLiveness.nextMeaningfulEvaluationCondition}\`\n` +
   `- Horizon: ${horizonBars} daily bars\n` +
   `- Cost basis: \`${costs.basis}\` (${costs.spreadBps}/${costs.slippageBps}/${costs.commissionBps} bps spread/slippage/commission)\n\n` +
   `Bars after the Stage6 market date are evaluated; the signal-date bar is admitted only for a pre-RTH signal. Ambiguous daily-bar ordering is excluded and no broker behavior is authorized.\n`;
