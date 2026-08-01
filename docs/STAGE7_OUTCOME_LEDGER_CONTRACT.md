@@ -58,6 +58,25 @@ history may have rebased prices while the stored decision thresholds must not
 be rewritten, so the row stays out of TP/SL/TIMEOUT comparison until a separate
 outcome-only threshold-rebase contract exists.
 
+## Accumulation liveness
+
+The additive `accumulationLifecycle` row evidence and top-level
+`accumulationLiveness` summary distinguish horizon waiting, retryable history,
+immutable legacy evidence, and external-source contract blockers. A resolved
+`NO_FILL` remains a terminal non-return outcome rather than being mislabeled as
+an invalid row or a zero-return comparison sample.
+
+`ZERO_GROWTH_EXTERNAL_SOURCE_BLOCKED` means natural reruns cannot produce a
+comparable sample under the current evidence contract. It is not reported as
+normal accumulation, and its next meaningful evaluation is a verified external
+corporate-action source contract. Pending maturity is expressed as additional
+eligible market sessions; the report does not invent a calendar date without an
+exchange-session calendar. Cohort progress remains report-only at `N/30`, regime
+progress at `N/2`, and `policyChangeAuthorized=false` on every path.
+
+This is an additive v2 reporting change. Existing IDs, decision snapshots,
+outcome labels, thresholds, and downstream comparison rules are unchanged.
+
 ## Stage6 additive migration note
 
 `execution_contract` rows now retain the existing
