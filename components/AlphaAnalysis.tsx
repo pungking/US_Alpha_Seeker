@@ -10810,6 +10810,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       ).length,
                       comparisonVerifiedRows: primaryPool.filter(
                           (row: any) => row?.corporateActionLineage?.lineageVerifiedForComparison === true
+                      ).length,
+                      prospectiveSurveillanceRows: primaryPool.filter(
+                          (row: any) => row?.corporateActionLineage?.prospectiveSurveillance?.schemaVersion === 'prospective-corporate-action-surveillance-v1'
                       ).length
                   },
                   marketRegimeLineage: {

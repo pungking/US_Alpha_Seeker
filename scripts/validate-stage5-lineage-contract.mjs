@@ -33,6 +33,18 @@ const requiredCorporateActionSnippets = [
   {
     sourcePath: stage6SourcePath,
     snippet: 'comparisonVerifiedRows: primaryPool.filter'
+  },
+  {
+    sourcePath: stage4SourcePath,
+    snippet: 'prospectiveSurveillanceRows:'
+  },
+  {
+    sourcePath,
+    snippet: 'prospectiveSurveillanceRows: finalSurvivors.filter'
+  },
+  {
+    sourcePath: stage6SourcePath,
+    snippet: 'prospectiveSurveillanceRows: primaryPool.filter'
   }
 ];
 const missingCorporateActionSnippets = requiredCorporateActionSnippets.filter(

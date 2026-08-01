@@ -1485,6 +1485,25 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return data.files?.[0]?.id || null;
   };
 
+  const countOhlcvFiles = async (token: string, parentId: string) => {
+      let pageToken = '';
+      let count = 0;
+      do {
+          const q = encodeURIComponent(`'${parentId}' in parents and trashed = false`);
+          const tokenQuery = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
+          const res = await fetch(
+              `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=nextPageToken,files(name)&includeItemsFromAllDrives=true&supportsAllDrives=true${tokenQuery}`,
+              { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          await assertDriveOk(res, 'countOhlcvFiles');
+          const data = await res.json();
+          count += (Array.isArray(data.files) ? data.files : [])
+              .filter((file: any) => String(file?.name || '').endsWith('_OHLCV.json')).length;
+          pageToken = String(data.nextPageToken || '');
+      } while (pageToken);
+      return count;
+  };
+
   const findLatestFileParentId = async (token: string, fileName: string) => {
       const q = encodeURIComponent(`name = '${fileName}' and trashed = false`);
       const res = await fetch(
@@ -1583,7 +1602,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
       return {
           candles: normalizeDriveOhlcv(rawData),
-          corporateActionLineage: lineage
+          corporateActionLineage: lineage,
+          fileFormat: isLineageEnvelope ? 'LINEAGE_ENVELOPE' : 'LEGACY_ARRAY'
       };
   };
 
@@ -2037,6 +2057,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         return;
       }
       addLog("Drive OHLCV Vault Connected. Ticker-linked chart loading active.", "ok");
+      let totalDriveOhlcvFiles: number | null = null;
+      try {
+          totalDriveOhlcvFiles = await countOhlcvFiles(accessToken, ohlcvFolderId);
+      } catch (error) {
+          addLog(`Drive OHLCV inventory count unavailable: ${error instanceof Error ? error.message : 'unknown_error'}`, "warn");
+      }
 
       setProgress({ current: 0, total: candidates.length, status: 'Fetching Benchmark...' });
 
@@ -2109,6 +2135,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           let apiFallbackFailed = 0;
           let driveMissingCount = 0;
           let driveCorruptCount = 0;
+          let driveConsumedRows = 0;
+          let driveLineageEnvelopeFiles = 0;
+          let driveLegacyArrayFiles = 0;
+          let driveFreshFiles = 0;
+          let driveStaleFiles = 0;
+          let driveFullHistoryFiles = 0;
+          let drivePartialHistoryFiles = 0;
+          const approximateFiveYearMinimumBars = 1100;
+          const approximateFiveYearMinimumSpanDays = 1730;
           let heuristicRecoveredFromMissingCount = 0;
           let nonDriveSourceCount = 0;
           let nonDriveApiCount = 0;
@@ -2150,6 +2185,20 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               candles = driveOhlcv.candles;
                               corporateActionLineage = driveOhlcv.corporateActionLineage;
                               driveLoadState = 'OK';
+                              driveConsumedRows++;
+                              if (driveOhlcv.fileFormat === 'LINEAGE_ENVELOPE') driveLineageEnvelopeFiles++;
+                              else driveLegacyArrayFiles++;
+                              if (corporateActionLineage?.sourceFreshnessStatus === 'FRESH') driveFreshFiles++;
+                              else if (driveOhlcv.fileFormat === 'LINEAGE_ENVELOPE') driveStaleFiles++;
+                              const historySpanDays = candles.length > 1
+                                  ? Math.floor((candles[candles.length - 1].t - candles[0].t) / (24 * 60 * 60 * 1000))
+                                  : 0;
+                              if (candles.length >= approximateFiveYearMinimumBars
+                                  && historySpanDays >= approximateFiveYearMinimumSpanDays) {
+                                  driveFullHistoryFiles++;
+                              } else {
+                                  drivePartialHistoryFiles++;
+                              }
                           }
 	                  } catch {
                           driveLoadState = 'CORRUPT';
@@ -2839,11 +2888,33 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   heuristicCount: nonDriveHeuristicCount,
                   capAppliedCount: integrityCapAppliedCount
               },
+              driveOhlcvUtilization: {
+                  schemaVersion: 'drive-stage4-utilization-v1',
+                  classificationScope: 'STAGE4_ATTEMPTED_INPUT_ROWS',
+                  totalDriveOhlcvFiles,
+                  attemptedInputRows: scannedCount,
+                  lineageEnvelopeFiles: driveLineageEnvelopeFiles,
+                  legacyArrayFiles: driveLegacyArrayFiles,
+                  freshFiles: driveFreshFiles,
+                  staleFiles: driveStaleFiles,
+                  fullHistoryFiles: driveFullHistoryFiles,
+                  partialHistoryFiles: drivePartialHistoryFiles,
+                  invalidFiles: driveCorruptCount,
+                  Stage4ConsumedRows: driveConsumedRows,
+                  DriveToStage4LossRows: Math.max(0, candidates.length - driveConsumedRows),
+                  unclassifiedFolderFiles: totalDriveOhlcvFiles == null
+                      ? null
+                      : Math.max(0, totalDriveOhlcvFiles - driveLineageEnvelopeFiles - driveLegacyArrayFiles - driveCorruptCount),
+                  fullHistoryDefinition: `validBars>=${approximateFiveYearMinimumBars} and calendarSpanDays>=${approximateFiveYearMinimumSpanDays}`
+              },
               corporateActionLineage: {
                   schemaVersion: 'corporate-action-lineage-v1',
                   rowsWithLineage: auditReadyResults.filter((row) => row.corporateActionLineage?.lineageStatus === 'PRESENT').length,
                   comparisonVerifiedRows: auditReadyResults.filter((row) => row.corporateActionLineage?.lineageVerifiedForComparison === true).length,
-                  comparisonUnverifiedRows: auditReadyResults.filter((row) => row.corporateActionLineage?.lineageVerifiedForComparison !== true).length
+                  comparisonUnverifiedRows: auditReadyResults.filter((row) => row.corporateActionLineage?.lineageVerifiedForComparison !== true).length,
+                  prospectiveSurveillanceRows: auditReadyResults.filter(
+                      (row) => row.corporateActionLineage?.prospectiveSurveillance?.schemaVersion === 'prospective-corporate-action-surveillance-v1'
+                  ).length
               },
               scoreBreakdownSchema: "v1.1",
               scoreBreakdownCoverage: `${auditReadyResults.filter((x) => !!x.scoreBreakdown).length}/${auditReadyResults.length}`

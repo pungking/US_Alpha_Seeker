@@ -176,6 +176,50 @@ const buildCorporateActionLineage = (symbol, verified = true) => ({
   dividendEvents: [],
   lineageVerifiedForComparison: verified
 });
+
+const buildProspectiveSurveillance = (symbol, sessions, overrides = {}) => ({
+  schemaVersion: 'prospective-corporate-action-surveillance-v1',
+  status: 'PROSPECTIVE_ACCUMULATION_PATH_VERIFIED',
+  activationAt: '2026-01-01T21:00:00.000Z',
+  activationCommit: 'fixture-prospective-commit',
+  activationArtifact: 'ticker-mapping-refresh-audit.json',
+  activationArtifactSha256: 'd'.repeat(64),
+  freeSourceCapabilityMatrix: {
+    symbolChange: { prospectiveDecisionToHorizon: 'FREE_READY' },
+    delisting: { prospectiveDecisionToHorizon: 'FREE_READY' },
+    suspension: { prospectiveDecisionToHorizon: 'FREE_READY' }
+  },
+  sessionCount: sessions.length,
+  completeSessionCount: sessions.filter((row) => row.sourceScopeComplete === true).length,
+  sourceGapSessionCount: sessions.filter((row) => row.sourceScopeComplete !== true).length,
+  latestSessionComplete: sessions.at(-1)?.sourceScopeComplete === true,
+  symbol,
+  sessions,
+  ...overrides
+});
+
+const buildProspectiveSession = (sessionDate, overrides = {}) => ({
+  sessionDate,
+  marketTimezone: 'America/New_York',
+  universeSnapshotSha256: '1'.repeat(64),
+  tickerMappingSha256: '2'.repeat(64),
+  source: 'FREE_SOURCE_PROSPECTIVE_SURVEILLANCE',
+  sourceAsOf: sessionDate,
+  retrievedAt: `${sessionDate}T22:00:00.000Z`,
+  requestStatus: 'SUCCESS',
+  sourceScopeComplete: true,
+  paginationComplete: true,
+  responseSha256: '3'.repeat(64),
+  positiveEventsSha256: '4'.repeat(64),
+  partial: false,
+  stale: false,
+  conflict: false,
+  sourceCapabilitySnapshotSha256: '5'.repeat(64),
+  symbolObserved: true,
+  identityStatus: 'ACTIVE_LISTING_CONTINUITY_OBSERVED',
+  suspensionStatus: 'NO_ACTIVE_SUSPENSION_IN_COMPLETE_SESSION',
+  ...overrides
+});
 fs.writeFileSync(path.join(stage4Dir, 'STAGE4_TECHNICAL_FULL_FIXTURE.json'), JSON.stringify({
   manifest: { timestamp: '2026-01-07T22:00:00.000Z', marketTimezone: 'America/New_York' },
   technical_universe: Object.entries(fixture.history).map(([symbol, priceHistory]) => ({
@@ -224,6 +268,13 @@ if (ledger.rows.find((row) => row.symbol === 'SOURCEBAD')?.decisionSnapshot?.sou
 if (ledger.summary.preSignalBarsExcluded < 1) throw new Error('RTH signal-date bar was not excluded');
 if (ledger.summary.missingHistoryRows !== 1 || ledger.summary.historyCoverageRows !== 12) {
   throw new Error(`source-history coverage was not classified: ${JSON.stringify(ledger.summary)}`);
+}
+if (ledger.driveStage4Stage7Utilization?.Stage7HistoryCoverageRows !== 12
+  || ledger.driveStage4Stage7Utilization?.Stage7MissingHistoryRows !== 1
+  || ledger.driveStage4Stage7Utilization?.Stage4ToStage7LossRows !== 1
+  || ledger.driveStage4Stage7Utilization?.missingHistoryReasonCounts?.STAGE7_SYMBOL_OR_ALIAS_MISMATCH !== 1
+  || ledger.driveStage4Stage7Utilization?.unknownOrUnclassifiedRows !== 0) {
+  throw new Error(`Drive→Stage4→Stage7 utilization audit mismatch: ${JSON.stringify(ledger.driveStage4Stage7Utilization)}`);
 }
 if (ledger.summary.duplicateSeedRows !== 0 || ledger.summary.unknownCohortRows !== 0) {
   throw new Error('seed idempotency or cohort classification failed');
@@ -642,6 +693,108 @@ if (invalidProofRow?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIF
   || !proofOos.rows.some((row) => row.symbol === 'NEWCO')
   || !proofOos.rows.some((row) => row.symbol === 'RESUMED')) {
   throw new Error('incomplete external query proof entered OOS comparison');
+}
+
+const prospectiveTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-outcome-prospective-'));
+const prospectiveStage6Dir = path.join(prospectiveTmp, 'stage6');
+const prospectiveStage4Dir = path.join(prospectiveTmp, 'stage4');
+fs.mkdirSync(prospectiveStage6Dir);
+fs.mkdirSync(prospectiveStage4Dir);
+const prospectiveDecisionSessions = [buildProspectiveSession('2026-01-01')];
+const prospectiveHistorySessions = ['2026-01-02', '2026-01-05', '2026-01-06', '2026-01-07']
+  .map((sessionDate) => buildProspectiveSession(sessionDate));
+const prospectiveSignals = ['PROSPECTIVE', 'PROSPECTIVE_PENDING', 'PROSPECTIVE_GAP', 'PROSPECTIVE_REMOVED']
+  .map((symbol, index) => ({
+    ...fixture.signals[0],
+    symbol,
+    finalDecision: 'EXECUTABLE_NOW',
+    decisionReason: 'fixture_prospective_free_source_oos',
+    modelRank: index + 1,
+    executionRank: index + 1,
+    marketRegimeLineage: buildMarketRegimeLineage('RISK_ON'),
+    corporateActionLineage: {
+      ...buildCorporateActionLineage(symbol, false),
+      prospectiveSurveillance: buildProspectiveSurveillance(symbol, prospectiveDecisionSessions)
+    }
+  }));
+fs.writeFileSync(path.join(prospectiveStage6Dir, 'STAGE6_ALPHA_FINAL_PROSPECTIVE.json'), JSON.stringify({
+  manifest: {
+    timestamp: fixture.generatedAt,
+    sourceRunId: 'fixture-prospective-run',
+    sourceSha: 'fixture-prospective-sha',
+    sourceStage5Timestamp: '2026-01-01T22:00:00.000Z'
+  },
+  execution_contract: {
+    decisionGate: { actionableVerdicts: ['BUY', 'STRONG_BUY', 'STRONGBUY'] },
+    executablePicks: prospectiveSignals,
+    modelTop6: [],
+    watchlistTop: []
+  }
+}));
+const prospectiveRows = [
+  ['PROSPECTIVE', fixture.history.TIMEO, prospectiveHistorySessions],
+  ['PROSPECTIVE_PENDING', fixture.history.PENDING, prospectiveHistorySessions.slice(0, 2)],
+  ['PROSPECTIVE_GAP', fixture.history.TIMEO, prospectiveHistorySessions.map((row) => (
+    row.sessionDate === '2026-01-06'
+      ? { ...row, requestStatus: 'PARTIAL_OR_UNAVAILABLE', sourceScopeComplete: false, paginationComplete: false, partial: true, symbolObserved: false, suspensionStatus: 'UNVERIFIED_SESSION_SOURCE_GAP' }
+      : row
+  ))],
+  ['PROSPECTIVE_REMOVED', fixture.history.TIMEO, prospectiveHistorySessions.map((row) => (
+    row.sessionDate === '2026-01-06'
+      ? { ...row, symbolObserved: false, identityStatus: 'REMOVED_FROM_ACTIVE_LISTING_REQUIRES_EVENT_EVIDENCE' }
+      : row
+  ))]
+].map(([symbol, priceHistory, sessions]) => ({
+  symbol,
+  priceHistory,
+  dataSource: 'FIXTURE_DRIVE',
+  updated: '2026-01-07T22:00:00.000Z',
+  corporateActionLineage: {
+    ...buildCorporateActionLineage(symbol, false),
+    prospectiveSurveillance: buildProspectiveSurveillance(symbol, sessions)
+  }
+}));
+fs.writeFileSync(path.join(prospectiveStage4Dir, 'STAGE4_TECHNICAL_FULL_PROSPECTIVE.json'), JSON.stringify({
+  manifest: { timestamp: '2026-01-07T22:00:00.000Z', marketTimezone: 'America/New_York' },
+  technical_universe: prospectiveRows
+}));
+const prospectiveLedgerPath = path.join(prospectiveTmp, 'ledger.json');
+const prospectiveOosPath = path.join(prospectiveTmp, 'oos.json');
+const prospectiveResult = spawnSync(process.execPath, [path.join(root, 'scripts/build-stage7-outcome-ledger.mjs')], {
+  cwd: root,
+  env: {
+    ...process.env,
+    STAGE7_STAGE6_DIR: prospectiveStage6Dir,
+    STAGE7_STAGE4_DIR: prospectiveStage4Dir,
+    STAGE7_OUTCOME_LEDGER_OUT: prospectiveLedgerPath,
+    STAGE7_OOS_OUT: prospectiveOosPath,
+    STAGE7_OUTCOME_MD_OUT: path.join(prospectiveTmp, 'ledger.md'),
+    STAGE7_HORIZON_BARS: String(fixture.horizonBars)
+  },
+  encoding: 'utf8'
+});
+if (prospectiveResult.status !== 0) throw new Error(`prospective fixture builder failed\n${prospectiveResult.stdout}\n${prospectiveResult.stderr}`);
+const prospectiveLedger = JSON.parse(fs.readFileSync(prospectiveLedgerPath, 'utf8'));
+const prospectiveOos = JSON.parse(fs.readFileSync(prospectiveOosPath, 'utf8'));
+const prospectiveBySymbol = Object.fromEntries(prospectiveLedger.rows.map((row) => [row.symbol, row]));
+if (prospectiveBySymbol.PROSPECTIVE?.outcomeLabel !== 'TIMEOUT'
+  || prospectiveBySymbol.PROSPECTIVE?.historyLineage?.comparisonEvidenceMode !== 'PROSPECTIVE_DECISION_TO_HORIZON_VERIFIED'
+  || prospectiveBySymbol.PROSPECTIVE?.decisionSnapshot?.prospectiveSurveillance?.activationArtifactSha256 !== 'd'.repeat(64)
+  || prospectiveBySymbol.PROSPECTIVE_PENDING?.outcomeLabel !== 'PENDING_MARKET_DATA'
+  || prospectiveBySymbol.PROSPECTIVE_PENDING?.historyLineage?.comparisonEvidenceStatus !== 'PROSPECTIVE_SOURCE_COMPLETE_HORIZON_PENDING'
+  || prospectiveBySymbol.PROSPECTIVE_GAP?.historyLineage?.comparisonEvidenceStatus !== 'FREE_SOURCE_PROSPECTIVE_COVERAGE_INCOMPLETE'
+  || prospectiveBySymbol.PROSPECTIVE_REMOVED?.historyLineage?.comparisonEvidenceStatus !== 'PROSPECTIVE_SYMBOL_IDENTITY_EVENT_REVIEW_REQUIRED'
+  || prospectiveOos.rows.length !== 1
+  || prospectiveOos.rows[0]?.symbol !== 'PROSPECTIVE'
+  || prospectiveOos.rows[0]?.comparisonEvidenceMode !== 'PROSPECTIVE_DECISION_TO_HORIZON_VERIFIED'
+  || prospectiveLedger.accumulationLiveness?.prospective?.status !== 'PROSPECTIVE_ACCUMULATION_PATH_VERIFIED'
+  || prospectiveLedger.accumulationLiveness?.prospective?.postActivationDecisionRows !== 4
+  || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveSourceCompleteRows !== 2
+  || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveSourceGapRows !== 2
+  || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveHorizonMaturedRows !== 3
+  || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveComparisonEligibleRows !== 1
+  || prospectiveLedger.accumulationLiveness?.policyChangeAuthorized !== false) {
+  throw new Error(`prospective decision-to-horizon contract mismatch: ${JSON.stringify(prospectiveLedger.accumulationLiveness?.prospective)}`);
 }
 
 const freeTierTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-outcome-free-tier-'));
