@@ -1,6 +1,7 @@
 
 import fs from 'node:fs';
 import puppeteer from 'puppeteer';
+import { classifyTelegramNotification } from './services/telegramDeliveryContract.mjs';
 
 /**
  * US_Alpha_Seeker Headless Automation Protocol v2.6 (Debug Mode)
@@ -94,6 +95,20 @@ const RUNTIME_ENV_KEYS = [
     'VITE_BUILD_SOURCE_REF',
     'VITE_BUILD_SOURCE_EVENT_NAME'
 ];
+
+const mergeAutoSchedulerEvidence = (telegram, stage6) => {
+    const file = 'state/auto-scheduler-run-status.json';
+    let previous = {};
+    try {
+        previous = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+        // The workflow normally creates this file before automation.
+    }
+    fs.mkdirSync('state', { recursive: true });
+    const temp = `${file}.tmp`;
+    fs.writeFileSync(temp, `${JSON.stringify({ ...previous, telegram, stage6 }, null, 2)}\n`, 'utf8');
+    fs.renameSync(temp, file);
+};
 
 function buildRuntimeEnvPayload() {
     return RUNTIME_ENV_KEYS.reduce((acc, key) => {
@@ -436,6 +451,41 @@ async function getAccessTokenBundle() {
         `[DISPATCH_PAYLOAD] stage6File=${dispatchPayload.stage6File || 'N/A'} stage6Hash=${(dispatchPayload.stage6Hash || 'N/A').slice(0, 12)} algo=${dispatchPayload.stage6HashAlgo || 'unknown'} sourceRun=${dispatchPayload.sourceRunId || 'N/A'}`
     );
 
+    const telegramRuntime = await page.evaluate(() => {
+        const raw = window.__AUTO_TELEGRAM_STATUS;
+        const warnings = Array.isArray(window.__AUTO_WARNINGS) ? window.__AUTO_WARNINGS : [];
+        return {
+            statusPresent: Boolean(raw && typeof raw === 'object'),
+            reportGenerated: raw?.reportGenerated === true,
+            contractIntegrityStatus: raw?.contractIntegrityStatus,
+            suppressionReason: raw?.suppressionReason || (
+                warnings.some((warning) => warning?.code === 'TELEGRAM_CONTRACT_MISMATCH')
+                    ? 'TELEGRAM_CONTRACT_MISMATCH'
+                    : null
+            ),
+            configPresent: typeof raw?.configPresent === 'boolean' ? raw.configPresent : null,
+            sendAttempted: raw?.sendAttempted === true,
+            deliverySucceeded: raw?.deliverySucceeded === true,
+            chunkCount: Number(raw?.chunkCount || 0),
+            deliveryPath: raw?.deliveryPath,
+            errorCategory: raw?.errorCategory
+        };
+    });
+    const telegramEvidence = classifyTelegramNotification({
+        ...telegramRuntime,
+        reportGenerated: telegramRuntime.statusPresent
+            ? telegramRuntime.reportGenerated
+            : Boolean(dispatchPayload.stage6File)
+    });
+    const stage6Evidence = {
+        file: dispatchPayload.stage6File || null,
+        hash: dispatchPayload.stage6Hash || null,
+        sourceRunId: dispatchPayload.sourceRunId || null,
+        sourceSha: dispatchPayload.sourceSha || null,
+        generatedAt: dispatchPayload.generatedAt || null
+    };
+    mergeAutoSchedulerEvidence(telegramEvidence, stage6Evidence);
+
     const notionPayload = await page.evaluate(() => {
         const payload = window.__NOTION_SYNC_PAYLOAD;
         if (!payload || typeof payload !== 'object') return null;
@@ -460,7 +510,15 @@ async function getAccessTokenBundle() {
     await captureIndividualAnalysisDashboard();
     
     if (finalState.includes(SUCCESS_STATUS)) {
-        console.log("✅ SUCCESS: Alpha Report Generated & Telegram Triggered.");
+        console.log("✅ SUCCESS: Alpha Report Generated.");
+        if (telegramEvidence.deliverySucceeded) {
+            console.log(`✅ Telegram Delivered: path=${telegramEvidence.deliveryPath} chunks=${telegramEvidence.chunkCount}`);
+        } else {
+            console.warn(
+                `[TELEGRAM_STATUS] status=${telegramEvidence.status} ` +
+                `attempted=${telegramEvidence.sendAttempted} delivered=${telegramEvidence.deliverySucceeded}`
+            );
+        }
         await page.evaluate(async () => {
             window.scrollTo(0, 0);
             const fonts = document?.fonts;

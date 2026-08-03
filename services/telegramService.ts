@@ -1,5 +1,13 @@
 
 import { TELEGRAM_CONFIG, STRATEGY_CONFIG } from "../constants";
+import {
+  classifyTelegramNotification,
+  evaluateTelegramApiReceipt,
+  resolveDeliveryAttempts,
+  summarizeChunkDeliveries
+} from "./telegramDeliveryContract.mjs";
+
+export type TelegramDeliveryResult = ReturnType<typeof classifyTelegramNotification>;
 
 const parseBooleanEnv = (value: unknown): boolean | null => {
   const normalized = String(value ?? "").trim().toLowerCase();
@@ -7,13 +15,6 @@ const parseBooleanEnv = (value: unknown): boolean | null => {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return null;
-};
-
-const maskChatId = (chatId: string): string => {
-  const raw = String(chatId || "").trim();
-  if (!raw) return "MISSING";
-  if (raw.length <= 6) return "***";
-  return `${raw.slice(0, 4)}...${raw.slice(-4)}`;
 };
 
 const shouldPreferTelegramDirect = (): boolean => {
@@ -38,6 +39,10 @@ const shouldPreferTelegramDirect = (): boolean => {
  * Includes Fallback for CI/Preview environments where /api proxy is unavailable.
  */
 export async function sendTelegramReport(reportContent: string): Promise<boolean> {
+  return (await sendTelegramReportWithReceipt(reportContent)).deliverySucceeded;
+}
+
+export async function sendTelegramReportWithReceipt(reportContent: string): Promise<TelegramDeliveryResult> {
   return sendTelegramReportToChat(reportContent, TELEGRAM_CONFIG.CHAT_ID, "PRIMARY");
 }
 
@@ -46,7 +51,7 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
  */
 export async function sendSimulationTelegramReport(reportContent: string): Promise<boolean> {
   const target = TELEGRAM_CONFIG.SIMULATION_CHAT_ID;
-  return sendTelegramReportToChat(reportContent, target, "SIMULATION");
+  return (await sendTelegramReportToChat(reportContent, target, "SIMULATION")).deliverySucceeded;
 }
 
 /**
@@ -55,18 +60,21 @@ export async function sendSimulationTelegramReport(reportContent: string): Promi
  */
 export async function sendAlertTelegramReport(reportContent: string): Promise<boolean> {
   const target = TELEGRAM_CONFIG.ALERT_CHAT_ID || TELEGRAM_CONFIG.SIMULATION_CHAT_ID;
-  return sendTelegramReportToChat(reportContent, target, "ALERT");
+  return (await sendTelegramReportToChat(reportContent, target, "ALERT")).deliverySucceeded;
 }
 
-async function sendTelegramReportToChat(reportContent: string, chatId: string, channelTag: string): Promise<boolean> {
+async function sendTelegramReportToChat(reportContent: string, chatId: string, channelTag: string): Promise<TelegramDeliveryResult> {
   const { TOKEN } = TELEGRAM_CONFIG;
-  // Mask token for log safety
-  const maskedToken = TOKEN ? `${TOKEN.substring(0, 5)}...` : 'MISSING';
-  console.log(`[Telegram:${channelTag}] Initializing transmission to Chat ID: ${maskChatId(chatId)}. Token Status: ${maskedToken}`);
+  console.log(`[Telegram:${channelTag}] Initializing transmission. credentialsPresent=${Boolean(TOKEN && chatId)}`);
 
   if (!TOKEN || !chatId) {
     console.error(`Telegram Credentials Missing (${channelTag}). Check .env or constants.ts.`);
-    return false;
+    return classifyTelegramNotification({
+      reportGenerated: true,
+      contractIntegrityStatus: 'PASS',
+      configPresent: false,
+      routeTag: channelTag
+    });
   }
   const fullMessage = buildTelegramMessage(reportContent);
   const MAX_LENGTH = 4000;
@@ -171,7 +179,7 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
     ]);
   };
 
-  const sendViaProxy = async (payload: any): Promise<{ ok: boolean; parseError?: boolean; error?: string }> => {
+  const sendViaProxy = async (payload: any) => {
     try {
       const proxyUrl = `/api/telegram`;
       const res = await fetchWithTimeout(proxyUrl, {
@@ -180,23 +188,21 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
         body: JSON.stringify({ token: TOKEN, method: "sendMessage", body: payload })
       });
 
-      if (res.status === 404) {
-        return { ok: false, error: "Proxy 404" };
-      }
-
-      const json = await res.json();
-      if (!res.ok) {
-        const description = String(json?.description || "Proxy request failed");
-        return { ok: false, parseError: /parse/i.test(description), error: description };
-      }
-
-      return { ok: true };
+      const json = await res.json().catch(() => null);
+      const receipt = evaluateTelegramApiReceipt(res.ok, res.status, json);
+      return res.status === 404 && !res.ok
+        ? { ...receipt, errorCategory: 'PROXY_UNAVAILABLE' }
+        : receipt;
     } catch (error: any) {
-      return { ok: false, error: String(error?.message || error || "Proxy error") };
+      return {
+        ok: false,
+        parseError: false,
+        errorCategory: String(error?.message || '').includes('TIMEOUT') ? 'TIMEOUT' : 'NETWORK_ERROR'
+      };
     }
   };
 
-  const sendViaDirect = async (payload: any): Promise<{ ok: boolean; parseError?: boolean; error?: string }> => {
+  const sendViaDirect = async (payload: any) => {
     try {
       const directUrl = `https://api.telegram.org/bot${TOKEN}/sendMessage`;
       const res = await fetchWithTimeout(directUrl, {
@@ -205,42 +211,43 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
         body: JSON.stringify(payload)
       });
 
-      const json = await res.json();
-      if (!res.ok) {
-        const description = String(json?.description || "Direct request failed");
-        return { ok: false, parseError: /parse/i.test(description), error: description };
-      }
-
-      return { ok: true };
+      const json = await res.json().catch(() => null);
+      return evaluateTelegramApiReceipt(res.ok, res.status, json);
     } catch (error: any) {
-      return { ok: false, error: String(error?.message || error || "Direct error") };
+      return {
+        ok: false,
+        parseError: false,
+        errorCategory: String(error?.message || '').includes('TIMEOUT') ? 'TIMEOUT' : 'NETWORK_ERROR'
+      };
     }
   };
 
   // 2. Helper to send chunks with RETRY LOGIC
-  const sendMessageChunk = async (text: string, useMarkdown = true, attempt = 1): Promise<boolean> => {
+  const sendMessageChunk = async (text: string, useMarkdown = true, attempt = 1): Promise<{ ok: boolean; deliveryPath: string | null; errorCategory: string | null }> => {
     const payload: any = { chat_id: chatId, text };
     if (useMarkdown) payload.parse_mode = "Markdown";
 
     const order: Array<"direct" | "proxy"> = preferDirect ? ["direct", "proxy"] : ["proxy", "direct"];
-    let lastError = "unknown";
+    const deliveryAttempts = [];
+    let lastErrorCategory = "DELIVERY_RESULT_MISSING";
 
     for (const channel of order) {
       const result = channel === "direct" ? await sendViaDirect(payload) : await sendViaProxy(payload);
-      if (result.ok) return true;
+      deliveryAttempts.push({ ...result, deliveryPath: channel });
+      if (result.ok) return resolveDeliveryAttempts(deliveryAttempts);
 
       if (result.parseError && useMarkdown) {
         return sendMessageChunk(text, false, attempt);
       }
 
-      lastError = result.error || lastError;
-      if (channel === "proxy" && preferDirect && lastError === "Proxy 404") {
+      lastErrorCategory = result.errorCategory || lastErrorCategory;
+      if (channel === "proxy" && preferDirect && lastErrorCategory === "PROXY_UNAVAILABLE") {
         // Expected in automation mode when Vite dev server does not expose /api routes.
         console.info(`[Telegram:${channelTag}] Proxy unavailable (404). Direct path already attempted.`);
       } else if (channel === "proxy") {
-        console.warn(`[Telegram Proxy:${channelTag}] Failed: ${lastError}`);
+        console.warn(`[Telegram Proxy:${channelTag}] Failed: ${lastErrorCategory}`);
       } else {
-        console.warn(`[Telegram Direct:${channelTag}] Failed: ${lastError}`);
+        console.warn(`[Telegram Direct:${channelTag}] Failed: ${lastErrorCategory}`);
       }
     }
 
@@ -248,22 +255,32 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
       await new Promise(r => setTimeout(r, 2000));
       return sendMessageChunk(text, useMarkdown, attempt + 1);
     }
-    return false;
+    return resolveDeliveryAttempts(deliveryAttempts.length > 0
+      ? deliveryAttempts
+      : [{ ok: false, deliveryPath: null, errorCategory: lastErrorCategory }]);
   };
 
   // 3. Split message by logical sections first (then safe fallback splits)
   const chunks = splitMessageBySections(fullMessage, MAX_LENGTH);
 
   // 4. Send all chunks with delay
-  let success = true;
+  const chunkResults = [];
   for (const chunk of chunks) {
     const result = await sendMessageChunk(chunk);
-    if (!result) success = false;
+    chunkResults.push(result);
     // Increased delay to 1.5s to prevent rate limiting & race conditions
     await new Promise(r => setTimeout(r, 1500));
   }
 
-  return success;
+  const summary = summarizeChunkDeliveries(chunkResults);
+  return classifyTelegramNotification({
+    reportGenerated: true,
+    contractIntegrityStatus: 'PASS',
+    configPresent: true,
+    sendAttempted: true,
+    routeTag: channelTag,
+    ...summary
+  });
 }
 
 /**
