@@ -33,6 +33,8 @@ It prevents the system from treating a ticker list as a trade decision.
 | Risk geometry verdict | Stage6 row and formula backlog |
 | Breakout proof status | Stage6 row and runtime proof |
 | Earnings/data freshness | Stage6/Stage4/Harvester lineage reports |
+| Decision ticket completeness | Institutional applicability audit |
+| Independent contrarian review | Institutional applicability audit |
 
 ## Required Sidecar Package Evidence
 
@@ -88,6 +90,8 @@ Before moving beyond research:
 - [ ] Weak-pillar gate is not silently bypassed.
 - [ ] Breakout review-ready is not promoted without proof-confirmed evidence.
 - [ ] Target already reached is handled by Stage6 recalibration/no-trade, not sidecar chase.
+- [ ] Contrarian claims cite source artifact fields and remain report-only.
+- [ ] Modeled outcome is not used as verified process quality.
 - [ ] Sidecar consumed the same hash.
 - [ ] Sidecar mutation flags are false unless a scoped approval package exists.
 

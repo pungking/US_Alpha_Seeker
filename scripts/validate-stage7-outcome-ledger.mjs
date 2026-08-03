@@ -353,6 +353,28 @@ if (ledger.accumulationLiveness?.status !== 'PROGRESSING_NATURALLY'
 if (ledger.rows.some((row) => !row.decisionSnapshotSha256 || !row.primaryBlocker || !row.historyLineage)) {
   throw new Error('immutable snapshot or lineage evidence missing');
 }
+if (ledger.rows.some((row) => row.processOutcomeReview?.schemaVersion !== 'stage7-process-outcome-review-v1')) {
+  throw new Error('process-vs-outcome review contract missing');
+}
+if (ledger.rows.some((row) => row.processOutcomeReview?.processReviewStatus !== 'PENDING_TERMINAL_EVIDENCE')) {
+  throw new Error('modeled OOS outcome was incorrectly promoted to verified process evidence');
+}
+if (ledger.rows.some((row) => row.processOutcomeReview?.processScore !== null)) {
+  throw new Error('win/loss outcome inferred process quality without broker terminal evidence');
+}
+const positiveOutcomeReview = ledger.rows.find((row) => row.outcomeLabel === 'TP_FIRST')?.processOutcomeReview;
+const negativeOutcomeReview = ledger.rows.find((row) => row.outcomeLabel === 'SL_FIRST')?.processOutcomeReview;
+if (!(positiveOutcomeReview?.outcomeScore > 0) || !(negativeOutcomeReview?.outcomeScore < 0)) {
+  throw new Error('modeled financial outcome was not kept separate from process quality');
+}
+if (ledger.rows.some((row) => row.realizedR == null && row.processOutcomeReview?.outcomeScore !== null)) {
+  throw new Error('missing modeled outcome was coerced into a zero outcome score');
+}
+if (ledger.summary.processReviewUnknownRows !== 0
+  || ledger.summary.verifiedProcessReviewRows !== 0
+  || ledger.summary.pendingProcessReviewRows !== ledger.summary.seedRows) {
+  throw new Error(`process review summary mismatch: ${JSON.stringify(ledger.summary)}`);
+}
 if (ledger.rows.find((row) => row.symbol === 'PENDING')?.decisionSnapshot?.marketRegime !== 'UNKNOWN'
   || ledger.rows.find((row) => row.symbol === 'PENDING')?.decisionSnapshot?.marketRegimeLineageVerifiedForComparison !== false
   || ledger.rows.find((row) => row.symbol === 'NOSOURCE')?.decisionSnapshot?.marketRegimeLineageStatus !== 'SOURCE_TIMESTAMP_AFTER_DECISION'

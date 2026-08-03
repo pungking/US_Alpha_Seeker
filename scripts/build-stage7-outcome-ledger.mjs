@@ -1201,6 +1201,31 @@ function resolveSeed(seed, historyRecord) {
   };
 }
 
+function buildProcessOutcomeReview(row) {
+  const modeledOutcomeScore = row.realizedR != null && Number.isFinite(Number(row.realizedR))
+    ? round(Number(row.realizedR))
+    : null;
+  return {
+    schemaVersion: 'stage7-process-outcome-review-v1',
+    processReviewStatus: 'PENDING_TERMINAL_EVIDENCE',
+    evidenceBasis: 'BROKER_VERIFIED_TERMINAL_PAPER_LIFECYCLE_REQUIRED',
+    terminalPaperLifecycleEvidencePresent: false,
+    planAdherence: null,
+    thesisOutcome: null,
+    invalidationObserved: null,
+    entryRuleAdherence: null,
+    exitRuleAdherence: null,
+    regimeContribution: null,
+    processScore: null,
+    outcomeScore: modeledOutcomeScore,
+    outcomeScoreBasis: modeledOutcomeScore == null
+      ? 'NO_RESOLVED_FINANCIAL_OUTCOME'
+      : 'MODELED_OOS_REALIZED_R_NOT_BROKER_PNL',
+    nextRuleOrLesson: null,
+    automaticPolicyChangeAuthorized: false
+  };
+}
+
 function outcomeWindowEvidenceAudit(row) {
   const lineage = row.historyLineage || {};
   const evidenceTypes = [
@@ -1639,7 +1664,11 @@ const rows = seeds
   .map((seed) => {
     const historyRecord = history.bySymbol.get(seed.symbol);
     const row = resolveSeed(seed, historyRecord);
-    return { ...row, accumulationLifecycle: accumulationLifecycle(row, historyRecord) };
+    return {
+      ...row,
+      processOutcomeReview: buildProcessOutcomeReview(row),
+      accumulationLifecycle: accumulationLifecycle(row, historyRecord)
+    };
   })
   .sort((a, b) => a.generatedAt.localeCompare(b.generatedAt) || a.symbol.localeCompare(b.symbol));
 const stage4Stage7LossReasons = [
@@ -1717,6 +1746,10 @@ const oosRows = rows
     mfePct: row.mfePct,
     maePct: row.maePct,
     realizedR: row.realizedR,
+    processReviewStatus: row.processOutcomeReview.processReviewStatus,
+    processScore: row.processOutcomeReview.processScore,
+    outcomeScore: row.processOutcomeReview.outcomeScore,
+    outcomeScoreBasis: row.processOutcomeReview.outcomeScoreBasis,
     decisionSnapshotSha256: row.decisionSnapshotSha256,
     corporateActionLineageSchemaVersion: row.historyLineage?.schemaVersion || null,
     adjustmentType: row.historyLineage?.adjustmentType || null,
@@ -1800,7 +1833,10 @@ const summary = {
   comparisonLineageExcludedRows: rows.filter((row) => row.outcomeLabel === 'EXCLUDED_CORPORATE_ACTION_LINEAGE_UNVERIFIED').length,
   comparisonEligibleHistoryRows: rows.filter((row) => row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON').length,
   marketRegimeLineageVerifiedRows: rows.filter((row) => row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison === true).length,
-  marketRegimeLineageUnverifiedRows: rows.filter((row) => row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison !== true).length
+  marketRegimeLineageUnverifiedRows: rows.filter((row) => row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison !== true).length,
+  pendingProcessReviewRows: rows.filter((row) => row.processOutcomeReview?.processReviewStatus === 'PENDING_TERMINAL_EVIDENCE').length,
+  verifiedProcessReviewRows: rows.filter((row) => row.processOutcomeReview?.processReviewStatus === 'VERIFIED_PROCESS_REVIEW').length,
+  processReviewUnknownRows: rows.filter((row) => !['PENDING_TERMINAL_EVIDENCE', 'VERIFIED_PROCESS_REVIEW'].includes(row.processOutcomeReview?.processReviewStatus)).length
 };
 const accumulationLiveness = buildAccumulationLiveness(rows, oosRows, summary);
 summary.accumulationLivenessStatus = accumulationLiveness.status;
@@ -1830,7 +1866,8 @@ const ledger = {
     comparisonEvidenceModes: COMPARISON_EVIDENCE_MODES,
     prospectiveRule: 'only post-activation decisions with complete free-source decision-to-horizon sessions may become comparison eligible; historical rows are immutable',
     costInputs: costs,
-    biasPolicy: 'decision snapshot is immutable; outcomes use only eligible post-decision daily bars; unverified corporate-action or market-regime lineage remains explicit'
+    biasPolicy: 'decision snapshot is immutable; outcomes use only eligible post-decision daily bars; unverified corporate-action or market-regime lineage remains explicit',
+    processReviewPolicy: 'modeled OOS outcome never implies process quality; verified process scoring requires broker-confirmed terminal PAPER lifecycle evidence'
   },
   summary,
   accumulationLiveness,
@@ -1876,6 +1913,7 @@ const markdown = `# Stage7 Outcome Ledger\n\n` +
   `- Survivorship lineage unverified rows: ${summary.survivorshipBiasUnverifiedRows}\n` +
   `- Market-regime lineage verified rows: ${summary.marketRegimeLineageVerifiedRows}\n` +
   `- Market-regime lineage unverified rows: ${summary.marketRegimeLineageUnverifiedRows}\n` +
+  `- Process review: pending=${summary.pendingProcessReviewRows}, verified=${summary.verifiedProcessReviewRows}, unknown=${summary.processReviewUnknownRows}\n` +
   `- Accumulation liveness: \`${accumulationLiveness.status}\`\n` +
   `- Root-cause contract audit: \`${accumulationLiveness.rootCauseAudit.contractAuditVerdict}\`\n` +
   `- First-failure counts: ${JSON.stringify(accumulationLiveness.rootCauseAudit.rootCauseCounts)}\n` +
