@@ -17,7 +17,8 @@ import PerformanceDashboard from './components/PerformanceDashboard';
 import LegalDocs from './components/LegalDocs';
 import RenderGuard from './components/RenderGuard';
 import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
-import { sendTelegramReport } from './services/telegramService';
+import { sendTelegramReportWithReceipt } from './services/telegramService';
+import { classifyTelegramNotification } from './services/telegramDeliveryContract.mjs';
 
 const AUTO_CONTROL_PREFIX = "__AUTO_CONTROL__:";
 const AUTO_TERMINAL_MESSAGES = new Set([
@@ -168,9 +169,14 @@ const App: React.FC = () => {
                   }
               } else if (reportPayload) {
                   setAutoStatusMessage("TRANSMITTING TO TELEGRAM...");
-                  const sent = await sendTelegramReport(reportPayload);
-                  setAutoStatusMessage(sent ? "ALL PIPELINES EXECUTED." : "TELEGRAM SEND FAILED.");
+                  const delivery = await sendTelegramReportWithReceipt(reportPayload);
+                  (window as any).__AUTO_TELEGRAM_STATUS = delivery;
+                  setAutoStatusMessage("ALL PIPELINES EXECUTED.");
               } else {
+                  const existingStatus = (window as any).__AUTO_TELEGRAM_STATUS;
+                  if (!existingStatus) {
+                      (window as any).__AUTO_TELEGRAM_STATUS = classifyTelegramNotification({ reportGenerated: false });
+                  }
                   setAutoStatusMessage("ALL PIPELINES EXECUTED.");
               }
               
@@ -199,6 +205,8 @@ const App: React.FC = () => {
           setAutoStatusMessage("AUTO PILOT ENGAGED");
           (window as any).__AUTO_DONE = "";
           (window as any).__STAGE6_DISPATCH_INFO = null;
+          (window as any).__AUTO_TELEGRAM_STATUS = null;
+          (window as any).__AUTO_WARNINGS = [];
           
       } else {
           setViewMode('MANUAL');

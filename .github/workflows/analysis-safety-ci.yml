@@ -25,6 +25,8 @@ jobs:
         run: npm run ops:safety:analysis-boundary
       - name: Telegram routing policy audit
         run: npm run ops:safety:telegram-routing
+      - name: Telegram delivery evidence contract
+        run: npm run ops:test:telegram-delivery-contract
       - name: Client secret exposure audit
         run: npm run ops:safety:client-secret-exposure
       - name: Stage6 fillability contract fixture

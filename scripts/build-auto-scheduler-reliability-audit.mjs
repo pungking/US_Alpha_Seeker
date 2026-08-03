@@ -42,6 +42,10 @@ for (const file of files) {
 }
 const alphaFile='components/AlphaAnalysis.tsx';
 const autoText=fs.existsSync(alphaFile)?fs.readFileSync(alphaFile,'utf8'):'';
+const appText=fs.existsSync('App.tsx')?fs.readFileSync('App.tsx','utf8'):'';
+const automateText=fs.existsSync('automate.js')?fs.readFileSync('automate.js','utf8'):'';
+const telegramServiceText=fs.existsSync('services/telegramService.ts')?fs.readFileSync('services/telegramService.ts','utf8'):'';
+const runStatusWriterText=fs.existsSync('scripts/write-auto-scheduler-run-status.mjs')?fs.readFileSync('scripts/write-auto-scheduler-run-status.mjs','utf8'):'';
 const autoMismatchPattern=/code:\s*['"]TELEGRAM_CONTRACT_MISMATCH['"][\s\S]{0,800}?telegram_transmission_suppressed_stage6_dispatch_allowed/;
 checks.push({
   id:'auto:telegram_contract_mismatch_non_blocking',
@@ -58,6 +62,21 @@ checks.push({
   id:'auto:telegram_integrity_failure_archived',
   status:/archiveTelegramIntegrityFailure\(\s*['"]AUTO['"][\s\S]{0,900}?TELEGRAM_CONTRACT_MISMATCH/.test(autoText)?'PASS':'WARN',
   detail:'non-blocking contract mismatch still leaves Drive/audit evidence'
+});
+checks.push({
+  id:'auto:telegram_api_receipt_required',
+  status:/evaluateTelegramApiReceipt/.test(telegramServiceText)?'PASS':'FAIL',
+  detail:'HTTP success alone is insufficient; Telegram response ok=true is required'
+});
+checks.push({
+  id:'auto:telegram_false_success_log_removed',
+  status:!/Alpha Report Generated & Telegram Triggered/.test(automateText)&&/Telegram Delivered/.test(automateText)?'PASS':'FAIL',
+  detail:'delivery success is logged only from captured delivery evidence'
+});
+checks.push({
+  id:'auto:telegram_delivery_status_persisted',
+  status:/__AUTO_TELEGRAM_STATUS/.test(autoText)&&/__AUTO_TELEGRAM_STATUS/.test(appText)&&/telegram:\s*previous\?\.telegram/.test(runStatusWriterText)?'PASS':'FAIL',
+  detail:'contract suppression, send attempt, and delivery receipt survive into run status evidence'
 });
 const fail=checks.filter(c=>c.status==='FAIL').length;
 const warn=checks.filter(c=>c.status==='WARN').length;

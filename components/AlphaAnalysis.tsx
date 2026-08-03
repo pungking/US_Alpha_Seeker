@@ -7,6 +7,7 @@ import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from '../constants';
 import { generateAlphaSynthesis, generateTop6NeuralOutlook, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, type TelegramBriefContractContext } from '../services/intelligenceService';
 import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage } from '../services/telegramService';
+import { classifyTelegramNotification } from '../services/telegramDeliveryContract.mjs';
 import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { enforceStageDriveRetention } from '../services/driveRetentionService';
@@ -4714,10 +4715,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               action: 'telegram_transmission_suppressed_stage6_dispatch_allowed'
                           }
                       ];
+                      (window as any).__AUTO_TELEGRAM_STATUS = classifyTelegramNotification({
+                          reportGenerated: true,
+                          contractIntegrityStatus: 'MISMATCH',
+                          suppressionReason: 'TELEGRAM_CONTRACT_MISMATCH'
+                      });
                       telegramPayload = '';
                       addLog('Telegram Integrity Gate suppressed AUTO Telegram only; Stage6 dispatch remains allowed.', "warn");
                   } else {
                       telegramPayload = brief;
+                      (window as any).__AUTO_TELEGRAM_STATUS = classifyTelegramNotification({
+                          reportGenerated: true,
+                          contractIntegrityStatus: 'PASS'
+                      });
                       addLog("Brief Generated. Relaying...", "ok");
 
                       // [FIXED] Dump Telegram Brief to Google Drive (Report Folder)
@@ -4735,6 +4745,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
               } catch (e: any) {
                   addLog(`Brief Gen Failed: ${e.message}. AUTO telegram aborted.`, "err");
+                  (window as any).__AUTO_TELEGRAM_STATUS = classifyTelegramNotification({
+                      reportGenerated: false,
+                      errorCategory: 'BRIEF_GENERATION_FAILED'
+                  });
                   setAutoPhase('DONE');
                   if (onComplete) onComplete(toAutoControlPayload("BRIEF_GENERATION_FAILED"));
                   return;
@@ -11094,10 +11108,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                           action: 'telegram_transmission_suppressed_stage6_dispatch_allowed'
                       }
                   ];
+                  (window as any).__AUTO_TELEGRAM_STATUS = classifyTelegramNotification({
+                      reportGenerated: true,
+                      contractIntegrityStatus: 'MISMATCH',
+                      suppressionReason: 'TELEGRAM_CONTRACT_MISMATCH'
+                  });
                   telegramPayload = '';
                   addLog('Telegram Integrity Gate suppressed AUTO Telegram only; Stage6 dispatch remains allowed.', "warn");
               } else {
                   telegramPayload = brief;
+                  (window as any).__AUTO_TELEGRAM_STATUS = classifyTelegramNotification({
+                      reportGenerated: true,
+                      contractIntegrityStatus: 'PASS'
+                  });
                   addLog("Brief Generated. Relaying...", "ok");
 
                   if (accessToken) {

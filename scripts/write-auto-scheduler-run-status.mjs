@@ -47,6 +47,8 @@ const payload = {
     exitCode,
     completedSuccessfully
   },
+  telegram: previous?.telegram || null,
+  stage6: previous?.stage6 || null,
   safety: {
     brokerMutationAllowed: false,
     sidecarMutationAllowed: false,
@@ -67,6 +69,11 @@ writeAtomic(outMd, [
   `- AutomationConclusion: ${payload.automation.conclusion}`,
   `- AutomationExitCode: ${payload.automation.exitCode}`,
   `- CompletedSuccessfully: ${payload.automation.completedSuccessfully}`,
+  `- TelegramStatus: ${payload.telegram?.status || 'not_recorded'}`,
+  `- TelegramSendAttempted: ${payload.telegram?.sendAttempted ?? false}`,
+  `- TelegramDeliverySucceeded: ${payload.telegram?.deliverySucceeded ?? false}`,
+  `- Stage6File: ${payload.stage6?.file || 'not_recorded'}`,
+  `- Stage6Hash: ${payload.stage6?.hash || 'not_recorded'}`,
   '',
   'Safety: report-only status evidence; brokerMutationAllowed=false; sidecarMutationAllowed=false.'
 ].join('\n') + '\n');
