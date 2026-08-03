@@ -168,6 +168,10 @@ Mutation requires:
 4. fresh Auto-Scheduler runtime proof,
 5. RTH sidecar read-only or dry-run proof when relevant.
 
+Feedback must distinguish process quality from outcome. A profitable modeled
+outcome cannot validate a broken process, and a losing modeled outcome cannot
+invalidate a compliant process without terminal lifecycle evidence.
+
 ## Integration With Existing Documents
 
 | Document | Relationship |

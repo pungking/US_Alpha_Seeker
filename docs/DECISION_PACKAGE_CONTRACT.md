@@ -60,6 +60,8 @@ Required evidence:
 | Target recalibration | `targetRecalibration*` |
 | Risk geometry | `riskGeometry*` |
 | Earnings/data freshness | Stage4/Stage6/Harvester lineage reports |
+| Decision ticket completeness | Institutional applicability audit |
+| Independent contrarian review | Institutional applicability audit |
 
 Research outcomes:
 
@@ -86,6 +88,45 @@ The Research Package must carry enough evidence for a reviewer to map every Stag
 | `breakoutRetestProofConfirmed` | Breakout/retest wait or promotion review | Structure Analyst / Alpha Policy Analyst | `WAIT_PRICE` until proof confirmed and promotion policy allows it |
 
 If a Sidecar Package has no payload, it should cite these Research Package fields through `topSkipReasonCategories` and `payloadExpectation` rather than inventing a new alpha reason.
+
+## Decision Ticket and Contrarian Review Addendum
+
+The Research Package may carry an additive, report-only decision ticket and
+contrarian review. These fields do not change Stage6 ranking, verdict, or
+execution policy.
+
+Decision ticket evidence includes the investment thesis, source-backed
+assumptions, holding horizon, observable invalidation triggers, time-exit or
+review trigger, and bear/base/bull scenario conditions. Missing evidence stays
+explicit. Entry/stop/target geometry alone is `PARTIAL_EVIDENCE_ONLY`; it must
+not be relabeled as a complete thesis.
+
+Contrarian review records reviewer independence, source artifact field paths,
+the strongest contrary thesis, up to three observable failure scenarios,
+invalidation triggers, market-implied expectation gap status, and unsupported
+claim count. It may report a challenge but cannot change BUY/WAIT/NO_TRADE or
+authorize execution.
+
+## Stage7 Process-vs-Outcome Contract
+
+Stage7 keeps modeled financial outcome separate from process quality.
+
+- `outcomeScore` may carry a labeled modeled OOS R-multiple.
+- `processScore` remains `null` without broker-confirmed terminal PAPER
+  lifecycle evidence.
+- A modeled win or loss must not infer process quality.
+- `decisionSnapshot` remains immutable.
+- Process review never authorizes an automatic Stage6 policy change.
+
+Until terminal evidence exists, `processReviewStatus` remains
+`PENDING_TERMINAL_EVIDENCE`.
+
+### Additive Migration Note
+
+`institutional-applicability-audit-v2` adds `guideGapMapping`,
+`contrarianReview`, and `decisionTicket`. Stage7 v2 rows add
+`processOutcomeReview`. Existing consumers may ignore these fields; no existing
+field is removed or redefined.
 
 ## Sidecar Package Contract
 
@@ -193,3 +234,4 @@ shortcut.
 - Do not use package completeness as execution approval.
 - Do not allow sidecar to infer alpha intent missing from Stage6.
 - Do not allow Research Package or Sidecar Package to mutate broker state.
+- Do not infer process quality from OOS return direction.

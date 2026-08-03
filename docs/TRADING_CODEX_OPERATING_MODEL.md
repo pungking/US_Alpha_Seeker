@@ -42,7 +42,7 @@ approval phrase required by that lane.
 | Head manager | Lead Codex session applying `AGENTS.md`, goal scope, and safety rules |
 | Specialist agents | Stage/repo-specific audit lanes |
 | Accepted artifacts | Stage artifacts, audit reports, sidecar state reports |
-| Judgment reviewer | Stage3-6 audits, policy-lane audits, runtime proof checks |
+| Judgment reviewer | Stage3-6 audits, source-backed contrarian review, policy-lane audits, runtime proof checks |
 | Decision package | Consolidated artifact bundle used for go/wait/block decisions |
 | Portfolio and risk review | `alpha-exec-engine` fillability, market guard, live-readiness reports |
 | Service-gated execution | Explicit approval gates in `alpha-exec-engine` |
@@ -57,6 +57,7 @@ approval phrase required by that lane.
 | Technical Analyst | Stage4 | OHLCV freshness, indicators, liquidity, history length | Stage4 technical finding |
 | Structure Analyst | Stage5 | ICT/SMC metrics, execution box, fallback geometry | Stage5 geometry finding |
 | Alpha Policy Analyst | Stage6 | Verdict, target/risk/breakout fields, weak-pillar gate | Stage6 policy finding |
+| Judgment / Contrarian Reviewer | Stage6.5 | Stage6 row fields and artifact references | Report-only challenge; no verdict override |
 | Contract Reviewer | Stage6.5 | Entry/fillability contract, sidecar-readable blockers | Contract finding |
 | Harvester Analyst | Harvester | Mapping freshness, failed tickers, source attempts | Data freshness finding |
 | Risk Manager | Sidecar | Market guard, fillability, ledger/idempotency, ops-health | Risk readiness finding |
@@ -68,7 +69,7 @@ approval phrase required by that lane.
 Request
   -> Head Manager scope check
   -> Specialist evidence collection
-  -> Judgment review
+  -> Independent evidence-based judgment review
   -> Decision Package
   -> Risk / portfolio review
   -> Service-gated execution, if separately approved
@@ -77,6 +78,10 @@ Request
 
 Weak, stale, or missing upstream evidence returns the workflow to the owning
 specialist. It must not be patched downstream by guessing.
+
+Contrarian review is deterministic and report-only by default. It may identify
+the strongest evidence-backed failure scenario, but it cannot rewrite the
+Stage6 verdict or become an execution gate without a separate policy change.
 
 ## Gate Semantics
 
@@ -112,11 +117,17 @@ The lead manager should route repeated no-event or zero-executable outcomes by t
 Alpha mRNA architecture lives in `docs/MRNA_ADAPTIVE_STRATEGY_ARCHITECTURE.md`, with lifecycle details in `docs/ALPHA_MRNA_STRATEGY_BLUEPRINT_PROTOCOL.md`. Together they define how temporary strategy blueprints should expire, feed back, and avoid becoming hard-coded trade outcomes.
 
 1. Record the decision package and assumptions.
-2. Compare outcome, blocker, or failed gate against the expected lane.
+2. Compare outcome, blocker, or failed gate against the expected lane while
+   keeping process quality separate from financial outcome.
 3. Assign the issue to one owner: data, formula, policy, contract, risk, or
    execution safety.
 4. Add the smallest audit, fixture, or producer change that prevents recurrence.
 5. Require a fresh artifact before claiming runtime proof.
+
+An OOS win does not prove good process, and an OOS loss does not prove bad
+process. Verified process scoring requires broker-confirmed terminal PAPER
+lifecycle evidence; otherwise the review remains
+`PENDING_TERMINAL_EVIDENCE`.
 
 ## What This Model Does Not Authorize
 

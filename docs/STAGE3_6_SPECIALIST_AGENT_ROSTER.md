@@ -27,11 +27,12 @@ for temporary strategy classification and later producer tuning.
 | Structure Analyst | Stage5 | Is structure evidence strong enough for Stage6 to trust? | ICT/SMC metrics, execution box, PD zone, support/resistance evidence | Structure/geometry finding |
 | Alpha Policy Analyst | Stage6 | Did Stage6 classify executable/wait/no-trade correctly? | Stage6 row, verdict gates, target/risk/breakout/structure fields | Stage6 policy finding |
 | Formula Evidence Analyst | Stage6 | Does every blocked lane have actionable formula evidence? | fresh-focus audit, runtime formula proof, tuning backlog | Formula backlog finding |
+| Judgment / Contrarian Reviewer | Stage6.5 | What is the strongest source-backed failure case? | Stage6 evidence fields and artifact references | Deterministic report-only challenge |
 | Contract Reviewer | Stage6.5 | Can sidecar classify without recomputing alpha? | entry/fillability contract, reason taxonomy, decision audit | Contract gap finding |
 | Data Lineage Analyst | Harvester/Stage4 | Are source, freshness, symbol mapping, and missing-data reasons auditable? | Harvester audits, Stage4 readiness, earnings lineage | Data lineage finding |
 | Portfolio Risk Reviewer | alpha-exec-engine | Is the portfolio/order state safe to observe or simulate? | market guard, live-readiness, ledger/idempotency, ops-health | Risk readiness finding |
 | Execution Gatekeeper | alpha-exec-engine | Is there exact scoped approval for mutation? | approval phrase, selected dynamic row, rollback, idempotency | Approval package review only |
-| Stage7 Simulation Analyst | Future | Does the strategy family survive walk-forward and costs? | backtest, paper replay, slippage/spread assumptions | Simulation validation finding |
+| Stage7 Simulation Analyst | Future | Does the strategy family survive walk-forward and costs without confusing outcome with process? | backtest, paper replay, slippage/spread assumptions, terminal PAPER evidence when available | Simulation and process/outcome finding |
 | Stage8 Live Readiness Analyst | Future | Is the system ready for paper pilot or micro-live review? | live-readiness scorecard, ops-health root classes | Readiness verdict |
 
 ## Stage Ownership Details
@@ -138,6 +139,10 @@ Blocks:
 
 Specialist outputs become Decision Package evidence. They do not become execution approval.
 
+Contrarian review is a bounded reviewer label, not a new autonomous agent. It
+must cite source artifact fields, must not invent quantitative claims, and must
+not override Stage6 policy.
+
 ## Handoff Rules
 
 1. If data is stale, return to Data Lineage Analyst before policy tuning.
@@ -172,6 +177,10 @@ shortcuts.
 
 Stage7/8 may recommend `BLOCKED`, `PAPER_PILOT`, or `MICRO_LIVE_REVIEW_READY`.
 They must not enable live execution.
+
+Stage7 modeled outcomes and process quality are separate contracts. Without
+broker-confirmed terminal PAPER lifecycle evidence, process review remains
+pending and no process score is inferred from win/loss direction.
 
 ## Operating Defaults
 
