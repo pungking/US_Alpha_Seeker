@@ -4959,6 +4959,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const TELEGRAM_INDEX_SYMBOLS = new Set(['SPY', 'QQQ', 'VIX', 'SPX', 'NDX', 'SP500', 'NASDAQ', 'NASDAQ100', 'IXIC']);
 
   const isExecutableForTelegramContract = (item: AlphaCandidate): boolean => {
+      const finalDecision = String(item?.finalDecision || '').trim().toUpperCase();
+      if (finalDecision) return finalDecision === 'EXECUTABLE_NOW';
+
       const bucket = String(item?.executionBucket || '').trim().toUpperCase();
       if (bucket === 'EXECUTABLE') return true;
       if (bucket === 'WATCHLIST') return false;
@@ -9870,7 +9873,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       );
       stage6ModelTop6Ref.current = modelTop6Pool.map((item) => ({ ...item }));
       stage6WatchlistTopRef.current = modelTop6Watchlist.map((item) => ({ ...item }));
-      stage6ExecutableRef.current = top6Elite.map((item) => ({ ...item }));
+      stage6ExecutableRef.current = top6Elite
+          .filter(isExecutableForTelegramContract)
+          .map((item) => ({ ...item }));
       stage6FinalRef.current = top6Elite;
       stage6FinalRunIdRef.current = getKstTimestamp();
       const displaySymbolSet = new Set<string>();

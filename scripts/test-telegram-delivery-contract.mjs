@@ -81,6 +81,17 @@ assert.equal(evaluateTelegramApiReceipt(true, 200, { ok: true }).ok, true);
 assert.equal(evaluateTelegramApiReceipt(true, 200, { ok: false }).ok, false);
 assert.equal(evaluateTelegramApiReceipt(true, 200, null).errorCategory, 'RESPONSE_BODY_INVALID');
 assert.deepEqual(
+  evaluateTelegramApiReceipt(false, 400, {
+    ok: false,
+    description: "Bad Request: can't parse entities: Can't find end of the entity"
+  }),
+  { ok: false, parseError: true, errorCategory: 'TELEGRAM_PARSE_REJECTED' }
+);
+assert.deepEqual(
+  evaluateTelegramApiReceipt(false, 400, { ok: false, description: 'Bad Request: chat not found' }),
+  { ok: false, parseError: false, errorCategory: 'TELEGRAM_DESTINATION_REJECTED' }
+);
+assert.deepEqual(
   resolveDeliveryAttempts([
     { ok: false, deliveryPath: 'proxy', errorCategory: 'PROXY_UNAVAILABLE' },
     { ok: true, deliveryPath: 'direct', errorCategory: null }
@@ -108,6 +119,8 @@ assert.equal(
 );
 
 const service = read('services/telegramService.ts');
+const intelligence = read('services/intelligenceService.ts');
+const alphaAnalysis = read('components/AlphaAnalysis.tsx');
 const automate = read('automate.js');
 const app = read('App.tsx');
 assert.match(service, /json[?.]*\.ok\s*===\s*true|evaluateTelegramApiReceipt/);
@@ -116,6 +129,19 @@ assert.match(automate, /Telegram Delivered/);
 assert.match(automate, /__AUTO_TELEGRAM_STATUS/);
 assert.match(app, /__AUTO_TELEGRAM_STATUS/);
 assert.doesNotMatch(service, /maskedToken|maskChatId|Chat ID:|Token Status:/);
+assert.match(intelligence, /const hasExecutableContract = Array\.isArray\(contractContext\?\.executablePicks\)/);
+assert.match(
+  intelligence,
+  /const executablePicks = hasExecutableContract\s*\? contextExecutablePicks\.slice\(0, 6\)/
+);
+assert.match(
+  alphaAnalysis,
+  /const finalDecision = String\(item\?\.finalDecision[\s\S]*?if \(finalDecision\) return finalDecision === 'EXECUTABLE_NOW';[\s\S]*?const bucket/
+);
+assert.match(
+  alphaAnalysis,
+  /stage6ExecutableRef\.current = top6Elite\s*\.filter\(isExecutableForTelegramContract\)\s*\.map/
+);
 assert.deepEqual(
   classifyTelegramNotification({ reportGenerated: true, sendAttempted: false }),
   classifyTelegramNotification({ reportGenerated: true, sendAttempted: false })

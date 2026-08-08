@@ -8,6 +8,13 @@ export const TELEGRAM_DELIVERY_STATUS = Object.freeze({
 });
 
 export function evaluateTelegramApiReceipt(httpOk, httpStatus, body) {
+  const description = body && typeof body === 'object' ? String(body.description || '') : '';
+  if (/can't parse entities|parse entities|can't find end of the entity/i.test(description)) {
+    return { ok: false, parseError: true, errorCategory: 'TELEGRAM_PARSE_REJECTED' };
+  }
+  if (/chat not found|bot was blocked|not enough rights|forbidden/i.test(description)) {
+    return { ok: false, parseError: false, errorCategory: 'TELEGRAM_DESTINATION_REJECTED' };
+  }
   if (!httpOk) {
     const errorCategory = httpStatus === 429
         ? 'RATE_LIMITED'
@@ -79,6 +86,8 @@ export function classifyTelegramNotification(input = {}) {
     'RATE_LIMITED',
     'RESPONSE_BODY_INVALID',
     'TELEGRAM_API_REJECTED',
+    'TELEGRAM_DESTINATION_REJECTED',
+    'TELEGRAM_PARSE_REJECTED',
     'TIMEOUT'
   ]);
   const errorCategory = safeErrorCategories.has(input.errorCategory) ? input.errorCategory : null;
