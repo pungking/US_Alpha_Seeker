@@ -2561,6 +2561,9 @@ export async function generateTelegramBrief(
           Array.isArray(rows)
               ? rows.filter((c) => c && !INDEX_SYMBOLS.has(String(c?.symbol || '').toUpperCase()))
               : [];
+      const hasModelTop6Contract = Array.isArray(contractContext?.modelTop6);
+      const hasExecutableContract = Array.isArray(contractContext?.executablePicks);
+      const hasWatchlistContract = Array.isArray(contractContext?.watchlistTop);
       const contextModelTop6 = sanitizeContractList(contractContext?.modelTop6);
       const contextExecutablePicks = sanitizeContractList(contractContext?.executablePicks);
       const contextWatchlistTop = sanitizeContractList(contractContext?.watchlistTop);
@@ -2578,8 +2581,8 @@ export async function generateTelegramBrief(
           const convB = toNum(b?.convictionScore) ?? toNum(b?.compositeAlpha) ?? 0;
           return convB - convA;
       });
-      const modelTop6 = contextModelTop6.length > 0 ? contextModelTop6.slice(0, 6) : modelSorted.slice(0, 6);
-      const executablePicks = contextExecutablePicks.length > 0
+      const modelTop6 = hasModelTop6Contract ? contextModelTop6.slice(0, 6) : modelSorted.slice(0, 6);
+      const executablePicks = hasExecutableContract
           ? contextExecutablePicks.slice(0, 6)
           : [...nonIndexCandidates]
           .filter(isExecutableCandidate)
@@ -2610,7 +2613,7 @@ export async function generateTelegramBrief(
               return convB - convA;
           })
           .slice(0, 6);
-      const watchlistTop = contextWatchlistTop.length > 0
+      const watchlistTop = hasWatchlistContract
           ? contextWatchlistTop.slice(0, 6)
           : modelTop6.filter(item => !isExecutableCandidate(item));
       
