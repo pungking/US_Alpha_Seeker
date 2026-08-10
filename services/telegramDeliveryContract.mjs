@@ -7,6 +7,57 @@ export const TELEGRAM_DELIVERY_STATUS = Object.freeze({
   DELIVERY_RECEIPT_MISSING: 'TELEGRAM_DELIVERY_RECEIPT_MISSING'
 });
 
+const TELEGRAM_DECISION_REASON_LABELS_KO = Object.freeze({
+  executable_pullback: '눌림목 조건 충족',
+  valid_exec: '실행 조건 충족',
+  wait_pullback_not_reached: '진입 가격 미도달',
+  wait_pullback_too_deep: '진입 가격 미도달',
+  wait_current_distance_above_adaptive: '현재가-진입가 괴리 과대',
+  wait_earnings_data_missing: '실적 일정 데이터 누락(대기)',
+  wait_earnings_data_missing_quality_floor: '실적 일정 데이터 누락(품질 기준 미달)',
+  wait_structure_confirmation_required: '진입 구조 확인 필요',
+  wait_state_verdict_conflict: '시장구조-판정 충돌(대기)',
+  invalid_geometry: '가격 구조 오류',
+  invalid_data: '가격 데이터 부족',
+  blocked_invalid_geometry: '가격 구조 오류',
+  blocked_missing_trade_box: '진입/목표/손절 데이터 누락',
+  blocked_quality_missing_expected_return: '기대수익 계산 불가',
+  blocked_quality_conviction_floor: '신뢰도 점수 미달',
+  blocked_quality_verdict_unusable: 'AI 판정 신뢰 불가',
+  blocked_stop_too_tight: '손절폭 과소',
+  blocked_stop_too_wide: '손절폭 과다',
+  blocked_target_too_close: '목표폭 과소',
+  blocked_anchor_exec_gap: '앵커/실행 괴리 과다',
+  blocked_rr_below_min: '손익비 기준 미달',
+  blocked_ev_non_positive: '기대수익 기준 미달',
+  blocked_earnings_data_missing: '실적 일정 데이터 누락(차단)',
+  blocked_earnings_window: '실적 임박 구간',
+  blocked_state_verdict_conflict: '시장구조-판정 충돌(차단)',
+  blocked_verdict_risk_off: '리스크오프 판정'
+});
+
+const normalizeDecisionReason = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/\s+/g, '_')
+  .replace(/-/g, '_');
+
+export function resolveTelegramDecisionReason(item, decision, executionReason) {
+  const finalReason = normalizeDecisionReason(item?.decisionReason);
+  if (finalReason) return finalReason;
+
+  const decisionKey = String(decision || item?.finalDecision || '').trim().toUpperCase();
+  if (decisionKey !== 'EXECUTABLE_NOW') return 'n/a';
+
+  return normalizeDecisionReason(executionReason || item?.executionReason || item?.tradePlanStatusShadow) || 'n/a';
+}
+
+export function toTelegramDecisionReasonLabelKo(reason) {
+  const key = normalizeDecisionReason(reason);
+  if (!key || ['n/a', 'na', 'none', 'null', 'undefined'].includes(key)) return '사유 없음';
+  return TELEGRAM_DECISION_REASON_LABELS_KO[key] || '최종 게이트 사유 확인 필요';
+}
+
 export function evaluateTelegramApiReceipt(httpOk, httpStatus, body) {
   const description = body && typeof body === 'object' ? String(body.description || '') : '';
   if (/can't parse entities|parse entities|can't find end of the entity/i.test(description)) {

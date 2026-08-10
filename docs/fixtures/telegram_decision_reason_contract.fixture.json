@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "telegram-decision-reason-contract-v1",
+  "cases": [
+    {
+      "id": "earnings_quality_floor",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_earnings_data_missing_quality_floor",
+      "executionReason": "VALID_EXEC",
+      "expectedReason": "wait_earnings_data_missing_quality_floor",
+      "expectedLabelKo": "실적 일정 데이터 누락(품질 기준 미달)"
+    },
+    {
+      "id": "structure_confirmation",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_structure_confirmation_required",
+      "executionReason": "WAIT_PULLBACK_TOO_DEEP",
+      "expectedReason": "wait_structure_confirmation_required",
+      "expectedLabelKo": "진입 구조 확인 필요"
+    },
+    {
+      "id": "quality_verdict_unusable",
+      "finalDecision": "BLOCKED_RISK",
+      "decisionReason": "blocked_quality_verdict_unusable",
+      "executionReason": "WAIT_PULLBACK_TOO_DEEP",
+      "expectedReason": "blocked_quality_verdict_unusable",
+      "expectedLabelKo": "AI 판정 신뢰 불가"
+    },
+    {
+      "id": "missing_final_reason",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": null,
+      "executionReason": "WAIT_PULLBACK_TOO_DEEP",
+      "expectedReason": "n/a",
+      "expectedLabelKo": "사유 없음"
+    },
+    {
+      "id": "unmapped_final_reason",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_future_contract_reason",
+      "executionReason": "VALID_EXEC",
+      "expectedReason": "wait_future_contract_reason",
+      "expectedLabelKo": "최종 게이트 사유 확인 필요"
+    }
+  ]
+}
