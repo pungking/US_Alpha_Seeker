@@ -13,6 +13,7 @@ import { formatKstFilenameTimestamp } from '../services/timeService';
 import { enforceStageDriveRetention } from '../services/driveRetentionService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 import { syncPipelineToNotion, type NotionSyncCandidate } from '../services/notionSyncService';
+import { sanitizeTossShadowEvidence, summarizeTossShadowEvidence } from '../services/tossShadowContract.mjs';
 
 declare global {
   interface Window {
@@ -9981,13 +9982,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const attachShadowIntel = (item: any) => {
               const alphaVantage = buildShadowAlphaVantage(item);
               const secEdgar = buildShadowSecEdgar(item);
-              if (!alphaVantage && !secEdgar) return {};
+              const toss = sanitizeTossShadowEvidence(item?.shadow?.toss ?? item?.tossShadowEvidence);
+              if (!alphaVantage && !secEdgar && !toss) return {};
               return {
+                  ...(toss ? { tossShadowEvidence: toss } : {}),
                   ...(alphaVantage ? { alphaVantage } : {}),
                   ...(secEdgar ? { secEdgar } : {}),
                   shadow: {
                       ...(alphaVantage ? { alphaVantage } : {}),
-                      ...(secEdgar ? { secEdgar } : {})
+                      ...(secEdgar ? { secEdgar } : {}),
+                      ...(toss ? { toss } : {})
                   }
               };
           };
@@ -10309,6 +10313,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   item?.marketRegimeLineage && typeof item.marketRegimeLineage === 'object'
                       ? item.marketRegimeLineage
                       : null,
+              tossShadowEvidence: sanitizeTossShadowEvidence(
+                  item?.tossShadowEvidence ?? item?.shadow?.toss
+              ),
               aiVerdict: normalizeOptionalText(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict),
               executionVerdict: normalizeOptionalText(item?.executionVerdict),
               executionActionableVerdict: Boolean(item?.executionActionableVerdict),
@@ -10853,6 +10860,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               .map((row: any) => normalizeOptionalText(row?.marketRegimeLineage?.sourceSha256))
                               .filter((value): value is string => Boolean(value))
                       ))
+                  },
+                  tossShadowEvidence: {
+                      schemaVersion: 'toss-market-data-shadow-v1',
+                      ...summarizeTossShadowEvidence(primaryPool),
+                      propagationMode: 'REPORT_ONLY',
+                      policyImpact: 'NONE_REPORT_ONLY'
                   },
                   hardGateRiskOffExcluded: hardCutBlocked.length,
                   hardGateInvalidGeometryExcluded: invalidGeometryBlocked.length,

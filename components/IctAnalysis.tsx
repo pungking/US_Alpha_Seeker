@@ -4,6 +4,7 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import { GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from '../constants';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { summarizeTossShadowEvidence } from '../services/tossShadowContract.mjs';
 
 interface IctScoredTicker {
   symbol: string;
@@ -1322,6 +1323,12 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             verifiedDecisionTimeRows: finalSurvivors.filter(
               (row: any) => row?.marketRegimeLineage?.status === 'VERIFIED_DECISION_TIME_REGIME'
             ).length
+          },
+          tossShadowEvidence: {
+            schemaVersion: 'toss-market-data-shadow-v1',
+            ...summarizeTossShadowEvidence(finalSurvivors),
+            propagationMode: 'PASS_THROUGH_REPORT_ONLY',
+            policyImpact: 'NONE_REPORT_ONLY'
           },
           scoringContractVersion: "stage5-e-v1",
           stage6ContractVersion: "stage5to6-e-v1"

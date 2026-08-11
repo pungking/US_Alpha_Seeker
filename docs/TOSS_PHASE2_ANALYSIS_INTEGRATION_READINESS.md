@@ -1,12 +1,11 @@
 # Toss Phase 2 Analysis Integration Readiness
 
-Status: `PHASE2A_HARVESTER_IMPLEMENTED_RUNTIME_REPROOF_REQUIRED`
+Status: `PHASE2A_STAGE4_STAGE7_STATIC_PROPAGATION_IMPLEMENTED_RUNTIME_PROOF_PENDING`
 
 This document defines the smallest safe analysis-side use of Toss Securities
-Open API after the existing Phase 1 capability probe passes in a natural
-Harvester run. It is a design and migration contract only. It does not enable a
-provider inside this repository, call Toss from the browser, change Stage6
-policy, or authorize broker/state mutation.
+Open API after the existing Phase 1 capability probe passes. It enables only an
+optional Drive-artifact consumer; it does not call Toss from the browser,
+change Stage6 policy, or authorize broker/state mutation.
 
 Current implementation state:
 
@@ -18,8 +17,9 @@ Current implementation state:
   aggregate alert.
 - That run exposed a response-receipt timestamp defect; the minimal correction
   merged in Harvester commit `1d07004` without an additional Toss request.
-- Stage4-Stage7 propagation remains gated on one separately authorized,
-  post-fix `TOSS_SHADOW_PASS` artifact.
+- The post-alias full-scope proof returned 300/300 rows with
+  `TOSS_SHADOW_PASS`; analysis-side propagation now consumes that artifact as
+  optional report-only evidence.
 
 ## Sources and existing contracts
 
@@ -47,8 +47,9 @@ are outside this plan.
 4. `TOSS_CLIENT_SECRET` stays server-side in Harvester. The browser analysis
    application must not receive it, including through a `VITE_*` variable.
 5. No historical Stage7 decision is backfilled with later Toss evidence.
-6. Phase2a Harvester production is implemented, but analysis-side propagation
-   cannot start until a post-fix artifact says `TOSS_SHADOW_PASS`.
+6. Analysis-side propagation accepts only a same-Stage3-scope
+   `TOSS_SHADOW_PASS`; non-PASS evidence remains excluded without blocking the
+   canonical analysis.
 
 ## Repository ownership
 
@@ -221,8 +222,9 @@ the two mandatory downstream updates.
 
 ## Migration decision
 
-- No production schema or migration is changed in this static task.
-- The future implementation is additive and optional.
+- No existing field semantics or required schema are changed; the production
+  contract is additive and optional.
+- The implementation is additive and optional.
 - Existing Stage7 rows and `decisionSnapshotSha256` remain immutable.
 - New decisions may include Toss evidence in their snapshot; old decisions are
   not rehashed or backfilled.
@@ -265,15 +267,13 @@ the two mandatory downstream updates.
 
 1. Harvester PR: complete in `08ce721`; one market-calendar request and batched
    `/prices` shadow artifact remain disabled on GitHub-hosted runners.
-2. Registered-Mac one-shot: fail-open behavior and alerting passed, while quote
-   eligibility exposed a receipt-timestamp defect. `1d07004` fixes that defect;
-   one separately authorized post-fix proof remains required.
-3. Analysis PR: Stage4 loader plus Stage5/Stage6 propagation, with no scoring or
-   policy use.
+2. Registered-Mac one-shot: the post-alias proof passed with complete 300/300
+   scope, valid clock evidence, and canonical-source preservation.
+3. Analysis PR: Stage4 loader, Stage5/Stage6 propagation, and Stage7 optional
+   decision snapshot, with no scoring or policy use.
 4. Natural Auto-Scheduler one-shot: verify Stage4 -> Stage6 evidence loss is
    zero and all decision outputs are unchanged except additive evidence.
-5. Stage7 PR: optional immutable shadow slice and coverage reporting.
-6. Accumulate prospective OOS before considering any threshold or gate.
+5. Accumulate prospective OOS before considering any threshold or gate.
 
 `stocks`, warnings, exchange-rate, orderbook, and trades are added only when a
 named analysis question and fixture justify them. Phase 2a does not scaffold
