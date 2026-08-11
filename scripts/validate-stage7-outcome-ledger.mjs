@@ -38,6 +38,42 @@ const buildMarketRegimeLineage = (
   ...overrides
 });
 
+const buildTossShadowEvidence = (sourceAsOf = '2026-01-02T12:00:00.000Z', retrievedAt = '2026-01-02T12:00:01.000Z') => ({
+  schemaVersion: 'toss-market-data-shadow-v1',
+  mode: 'SHADOW_ONLY',
+  provider: 'TOSS_OPEN_API',
+  endpoint: '/api/v1/prices',
+  status: 'TOSS_SHADOW_PASS',
+  sourceAsOf,
+  retrievedAt,
+  marketTimezone: 'America/New_York',
+  currency: 'USD',
+  priceSemantics: 'LATEST_QUOTE_NOT_HISTORICAL_ADJUSTED_CANDLE',
+  adjustedPriceSemantics: 'NOT_APPLICABLE_TO_PRICES_ENDPOINT',
+  responseSha256: ['1'.repeat(64)],
+  providerSymbolSha256: '2'.repeat(64),
+  requestScopeSha256: '3'.repeat(64),
+  providerRequestScopeSha256: '4'.repeat(64),
+  requestSourceArtifactFile: 'STAGE3_FUNDAMENTAL_FULL_FIXTURE.json',
+  requestSourceArtifactSha256: '5'.repeat(64),
+  providerSymbolMappingStatus: 'VERIFIED_DOT_HYPHEN_ALIAS',
+  providerMappedRows: 1,
+  accountHeaderUsed: false,
+  orderEndpointUsed: false,
+  eligibleForDecisionTimeSlice: true,
+  decisionTimeStatus: 'PENDING_STAGE6_DECISION_TIMESTAMP',
+  comparison: {
+    status: 'MATCHED',
+    canonicalSource: 'YFINANCE_YAHOO',
+    canonicalSourceAsOf: sourceAsOf,
+    differenceBps: 0,
+    timestampSkewSec: 0,
+    adjustmentBasisComparable: true
+  },
+  canonicalSourceChanged: false,
+  policyImpact: 'NONE_REPORT_ONLY'
+});
+
 const executablePicks = fixture.signals.map((row, index) => ({
   ...row,
   aiVerdict: row.aiVerdict || 'BUY',
@@ -55,6 +91,11 @@ const executablePicks = fixture.signals.map((row, index) => ({
           degraded: true
         })
       : buildMarketRegimeLineage(index % 2 ? 'RISK_OFF' : 'RISK_ON'),
+  ...(row.symbol === 'TPATH'
+    ? { tossShadowEvidence: buildTossShadowEvidence() }
+    : row.symbol === 'NOSOURCE'
+      ? { tossShadowEvidence: buildTossShadowEvidence('2026-01-02T13:05:00.000Z', '2026-01-02T13:06:00.000Z') }
+      : {}),
   marketState: row.symbol === 'PENDING' ? 'MARKUP' : undefined
 }));
 fs.writeFileSync(path.join(stage6Dir, 'STAGE6_ALPHA_FINAL_FIXTURE.json'), JSON.stringify({
@@ -375,6 +416,21 @@ if (ledger.summary.processReviewUnknownRows !== 0
   || ledger.summary.pendingProcessReviewRows !== ledger.summary.seedRows) {
   throw new Error(`process review summary mismatch: ${JSON.stringify(ledger.summary)}`);
 }
+if (ledger.rows.find((row) => row.symbol === 'TPATH')?.decisionSnapshot?.tossShadowEvidence?.decisionTimeStatus !== 'VERIFIED_DECISION_TIME_SHADOW'
+  || ledger.rows.find((row) => row.symbol === 'NOSOURCE')?.decisionSnapshot?.tossShadowEvidence?.decisionTimeStatus !== 'EXCLUDED_TIMESTAMP_AFTER_DECISION'
+  || Object.hasOwn(ledger.rows.find((row) => row.symbol === 'SPATH')?.decisionSnapshot || {}, 'tossShadowEvidence')) {
+  throw new Error('optional Toss decision-time evidence or legacy absence contract failed');
+}
+if (ledger.summary.tossShadowSeedRows !== 2
+  || ledger.summary.tossShadowEligibleRows !== 1
+  || ledger.summary.tossShadowExcludedRows !== 1
+  || ledger.summary.matchedRows !== 1
+  || ledger.summary.divergentRows !== 0
+  || ledger.summary.notComparableTimestampRows !== 0
+  || ledger.summary.staleOrInvalidRows !== 1
+  || ledger.summary.providerAliasMappedRows !== 1) {
+  throw new Error(`Toss shadow summary mismatch: ${JSON.stringify(ledger.summary)}`);
+}
 if (ledger.rows.find((row) => row.symbol === 'PENDING')?.decisionSnapshot?.marketRegime !== 'UNKNOWN'
   || ledger.rows.find((row) => row.symbol === 'PENDING')?.decisionSnapshot?.marketRegimeLineageVerifiedForComparison !== false
   || ledger.rows.find((row) => row.symbol === 'NOSOURCE')?.decisionSnapshot?.marketRegimeLineageStatus !== 'SOURCE_TIMESTAMP_AFTER_DECISION'
@@ -422,9 +478,21 @@ if (JSON.stringify(oosPayload.sourceLedgerSummary) !== JSON.stringify({
   duplicateSeedRows: 0,
   unknownCohortRows: 0,
   lookAheadViolationRows: 0,
-  survivorshipBiasViolationRows: 0
+  survivorshipBiasViolationRows: 0,
+  tossShadowSeedRows: 2,
+  tossShadowEligibleRows: 1,
+  tossShadowExcludedRows: 1,
+  matchedRows: 1,
+  divergentRows: 0,
+  notComparableTimestampRows: 0,
+  staleOrInvalidRows: 1,
+  providerAliasMappedRows: 1
 })) {
   throw new Error(`Stage7 safety summary was not propagated: ${JSON.stringify(oosPayload.sourceLedgerSummary)}`);
+}
+if (oosPayload.rows.find((row) => row.symbol === 'TPATH')?.tossShadowEvidence?.policyImpact !== 'NONE_REPORT_ONLY'
+  || oosPayload.rows.some((row) => row.symbol !== 'TPATH' && row.tossShadowEvidence)) {
+  throw new Error('Toss shadow evidence did not remain an optional report-only OOS slice');
 }
 if (oosPayload.rows.some((row) => row.signalMarketPhase !== 'PRE_RTH')) {
   const rthRows = oosPayload.rows.filter((row) => row.signalMarketPhase === 'RTH');
