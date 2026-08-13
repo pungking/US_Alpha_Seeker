@@ -1559,6 +1559,7 @@ function buildAccumulationLiveness(rows, oosRows, summary) {
   );
   const prospectivePendingRows = prospectiveSourceCompleteRows.filter(
     (row) => row.historyLineage?.prospectiveComparisonEvidence?.status === 'PROSPECTIVE_SOURCE_COMPLETE_HORIZON_PENDING'
+      && row.accumulationLifecycle?.classification === ACCUMULATION_CLASSES.pendingHorizon
   );
   const prospectiveExecutableSeedRows = postActivationRows.filter(
     (row) => row.decisionCohort === COHORTS.executable
@@ -1650,9 +1651,13 @@ function buildAccumulationLiveness(rows, oosRows, summary) {
       counterfactualHistoryMissingRows: rootCauseCounts[PIPELINE_ROOT_CAUSES.historyRetryable],
       currentContractFutureGrowthPossible: rootCauseCounts[PIPELINE_ROOT_CAUSES.comparableResolved] > 0
         || rows.some((row) => row.accumulationLifecycle?.pipelineRootCause === PIPELINE_ROOT_CAUSES.horizon
-          && row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON'),
+          && (
+            row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON'
+            || row.historyLineage?.prospectiveComparisonEvidence?.resolutionAllowed === true
+          )),
       boundedOutcomeContractCouldGrowWithoutExternalSources: rows.some(
         (row) => row.accumulationLifecycle?.outcomeWindowEvidenceAudit?.boundedOutcomeEvidenceComplete === true
+          || row.historyLineage?.prospectiveComparisonEvidence?.resolutionAllowed === true
       )
     }
   };
