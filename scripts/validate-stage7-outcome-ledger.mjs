@@ -13,6 +13,29 @@ const stage4Dir = path.join(tmp, 'stage4');
 fs.mkdirSync(stage6Dir);
 fs.mkdirSync(stage4Dir);
 
+const retentionTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-retention-window-'));
+const retentionResult = spawnSync(process.execPath, [path.join(root, 'scripts/export-stage-artifacts-from-drive.mjs')], {
+  cwd: retentionTmp,
+  env: {
+    ...process.env,
+    STAGE_ARTIFACT_EXPORT_ENABLED: 'false',
+    STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT: '120'
+  },
+  encoding: 'utf8'
+});
+if (retentionResult.status !== 0) {
+  throw new Error(`Stage7 retention fixture failed\n${retentionResult.stdout}\n${retentionResult.stderr}`);
+}
+const retentionReport = JSON.parse(fs.readFileSync(path.join(retentionTmp, 'state/stage-artifact-export-audit.json'), 'utf8'));
+const scheduleSource = fs.readFileSync(path.join(root, '.github/workflows/schedule.yml'), 'utf8');
+if (retentionReport.stage6Limit !== 120
+  || !scheduleSource.includes('STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT: "120"')) {
+  throw new Error(`Stage7 source retention window is below the 20-session horizon plus OOS accumulation runway: ${JSON.stringify({
+    configuredLimit: retentionReport.stage6Limit,
+    workflowConfigured: scheduleSource.includes('STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT: "120"')
+  })}`);
+}
+
 const buildMarketRegimeLineage = (
   marketRegime,
   sourceAsOf = '2026-01-01T21:55:00.000Z',
@@ -793,7 +816,7 @@ fs.mkdirSync(prospectiveStage4Dir);
 const prospectiveDecisionSessions = [buildProspectiveSession('2026-01-01')];
 const prospectiveHistorySessions = ['2026-01-02', '2026-01-05', '2026-01-06', '2026-01-07']
   .map((sessionDate) => buildProspectiveSession(sessionDate));
-const prospectiveSignals = ['PROSPECTIVE', 'PROSPECTIVE_PENDING', 'PROSPECTIVE_GAP', 'PROSPECTIVE_REMOVED']
+const prospectiveSignals = ['PROSPECTIVE', 'PROSPECTIVE_PENDING', 'PROSPECTIVE_GAP', 'PROSPECTIVE_REMOVED', 'PROSPECTIVE_REBASE_PENDING']
   .map((symbol, index) => ({
     ...fixture.signals[0],
     symbol,
@@ -833,7 +856,8 @@ const prospectiveRows = [
     row.sessionDate === '2026-01-06'
       ? { ...row, symbolObserved: false, identityStatus: 'REMOVED_FROM_ACTIVE_LISTING_REQUIRES_EVENT_EVIDENCE' }
       : row
-  ))]
+  ))],
+  ['PROSPECTIVE_REBASE_PENDING', fixture.history.PENDING, prospectiveHistorySessions.slice(0, 2)]
 ].map(([symbol, priceHistory, sessions]) => ({
   symbol,
   priceHistory,
@@ -844,6 +868,9 @@ const prospectiveRows = [
     prospectiveSurveillance: buildProspectiveSurveillance(symbol, sessions)
   }
 }));
+const prospectiveRebasePending = prospectiveRows.find((row) => row.symbol === 'PROSPECTIVE_REBASE_PENDING');
+prospectiveRebasePending.corporateActionLineage.corporateActionStatus = 'VERIFIED_SPLIT_DIVIDEND_EVENTS_IN_WINDOW';
+prospectiveRebasePending.corporateActionLineage.dividendEvents = [{ eventEffectiveAt: '2026-01-05T00:00:00.000Z' }];
 fs.writeFileSync(path.join(prospectiveStage4Dir, 'STAGE4_TECHNICAL_FULL_PROSPECTIVE.json'), JSON.stringify({
   manifest: { timestamp: '2026-01-07T22:00:00.000Z', marketTimezone: 'America/New_York' },
   technical_universe: prospectiveRows
@@ -874,17 +901,46 @@ if (prospectiveBySymbol.PROSPECTIVE?.outcomeLabel !== 'TIMEOUT'
   || prospectiveBySymbol.PROSPECTIVE_PENDING?.historyLineage?.comparisonEvidenceStatus !== 'PROSPECTIVE_SOURCE_COMPLETE_HORIZON_PENDING'
   || prospectiveBySymbol.PROSPECTIVE_GAP?.historyLineage?.comparisonEvidenceStatus !== 'FREE_SOURCE_PROSPECTIVE_COVERAGE_INCOMPLETE'
   || prospectiveBySymbol.PROSPECTIVE_REMOVED?.historyLineage?.comparisonEvidenceStatus !== 'PROSPECTIVE_SYMBOL_IDENTITY_EVENT_REVIEW_REQUIRED'
+  || prospectiveBySymbol.PROSPECTIVE_REBASE_PENDING?.outcomeLabel !== 'EXCLUDED_CORPORATE_ACTION_REBASE_REQUIRED'
   || prospectiveOos.rows.length !== 1
   || prospectiveOos.rows[0]?.symbol !== 'PROSPECTIVE'
   || prospectiveOos.rows[0]?.comparisonEvidenceMode !== 'PROSPECTIVE_DECISION_TO_HORIZON_VERIFIED'
   || prospectiveLedger.accumulationLiveness?.prospective?.status !== 'PROSPECTIVE_ACCUMULATION_PATH_VERIFIED'
-  || prospectiveLedger.accumulationLiveness?.prospective?.postActivationDecisionRows !== 4
-  || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveSourceCompleteRows !== 2
+  || prospectiveLedger.accumulationLiveness?.prospective?.postActivationDecisionRows !== 5
+  || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveSourceCompleteRows !== 3
   || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveSourceGapRows !== 2
   || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveHorizonMaturedRows !== 3
   || prospectiveLedger.accumulationLiveness?.prospective?.prospectiveComparisonEligibleRows !== 1
+  || prospectiveLedger.accumulationLiveness?.prospective?.minimumAdditionalMarketSessions !== 2
+  || prospectiveLedger.accumulationLiveness?.rootCauseAudit?.boundedOutcomeContractCouldGrowWithoutExternalSources !== true
   || prospectiveLedger.accumulationLiveness?.policyChangeAuthorized !== false) {
   throw new Error(`prospective decision-to-horizon contract mismatch: ${JSON.stringify(prospectiveLedger.accumulationLiveness?.prospective)}`);
+}
+
+const prospectivePendingLedgerPath = path.join(prospectiveTmp, 'pending-ledger.json');
+const prospectivePendingResult = spawnSync(process.execPath, [path.join(root, 'scripts/build-stage7-outcome-ledger.mjs')], {
+  cwd: root,
+  env: {
+    ...process.env,
+    STAGE7_STAGE6_DIR: prospectiveStage6Dir,
+    STAGE7_STAGE4_DIR: prospectiveStage4Dir,
+    STAGE7_OUTCOME_LEDGER_OUT: prospectivePendingLedgerPath,
+    STAGE7_OOS_OUT: path.join(prospectiveTmp, 'pending-oos.json'),
+    STAGE7_OUTCOME_MD_OUT: path.join(prospectiveTmp, 'pending-ledger.md'),
+    STAGE7_HORIZON_BARS: '5'
+  },
+  encoding: 'utf8'
+});
+if (prospectivePendingResult.status !== 0) {
+  throw new Error(`prospective pending liveness fixture failed\n${prospectivePendingResult.stdout}\n${prospectivePendingResult.stderr}`);
+}
+const prospectivePendingLedger = JSON.parse(fs.readFileSync(prospectivePendingLedgerPath, 'utf8'));
+if (prospectivePendingLedger.accumulationLiveness?.rootCauseAudit?.comparisonEligibleRows !== 0
+  || prospectivePendingLedger.accumulationLiveness?.rootCauseAudit?.currentContractFutureGrowthPossible !== true
+  || prospectivePendingLedger.accumulationLiveness?.rootCauseAudit?.boundedOutcomeContractCouldGrowWithoutExternalSources !== true
+  || prospectivePendingLedger.accumulationLiveness?.prospective?.status !== 'WAITING_FOR_HORIZON_MATURITY'
+  || prospectivePendingLedger.accumulationLiveness?.prospective?.minimumAdditionalMarketSessions !== 2) {
+  throw new Error(`prospective pending path was incorrectly classified as zero-growth: ${JSON.stringify(prospectivePendingLedger.accumulationLiveness)}`);
 }
 
 const freeTierTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage7-outcome-free-tier-'));
