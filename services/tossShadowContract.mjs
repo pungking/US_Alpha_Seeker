@@ -27,7 +27,12 @@ const excluded = (reason, artifactPresent = true, runEvidence = null) => ({
   rowsBySymbol: new Map()
 });
 
-export function validateTossShadowArtifact(raw, consumedAt = new Date().toISOString(), expectedSourceArtifactFile = null) {
+export function validateTossShadowArtifact(
+  raw,
+  consumedAt = new Date().toISOString(),
+  expectedSourceArtifactFile = null,
+  expectedSourceArtifactSha256 = null
+) {
   if (!raw || typeof raw !== 'object') return excluded('ARTIFACT_MISSING', false);
 
   const lineage = raw.requestLineage;
@@ -96,6 +101,12 @@ export function validateTossShadowArtifact(raw, consumedAt = new Date().toISOStr
   }
   if (expectedSourceArtifactFile && sourceArtifact.file !== expectedSourceArtifactFile) {
     return excluded('REQUEST_SOURCE_ARTIFACT_MISMATCH', true, runEvidence);
+  }
+  if (expectedSourceArtifactFile && !validHash(expectedSourceArtifactSha256)) {
+    return excluded('REQUEST_SOURCE_ARTIFACT_HASH_INVALID', true, runEvidence);
+  }
+  if (expectedSourceArtifactFile && sourceArtifact.sha256 !== expectedSourceArtifactSha256) {
+    return excluded('REQUEST_SOURCE_ARTIFACT_HASH_MISMATCH', true, runEvidence);
   }
   if (!sourceAsOf || !retrievedAt || !consumerAt || sourceAsOf > retrievedAt || retrievedAt > consumerAt) {
     return excluded('SOURCE_TIMESTAMP_AFTER_CONSUMER', true, runEvidence);

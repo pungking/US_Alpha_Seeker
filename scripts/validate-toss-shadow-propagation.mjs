@@ -78,13 +78,36 @@ const artifact = {
 };
 
 const artifactBefore = JSON.stringify(artifact);
-const parsed = validateTossShadowArtifact(artifact, '2026-08-11T20:00:02.000Z');
+const parsed = validateTossShadowArtifact(
+  artifact,
+  '2026-08-11T20:00:02.000Z',
+  artifact.requestLineage.requestSourceArtifact.file,
+  artifact.requestLineage.requestSourceArtifact.sha256
+);
 assert.equal(parsed.status, 'PASS');
 assert.equal(parsed.rowsBySymbol.size, 2);
 assert.equal(JSON.stringify(artifact), artifactBefore);
 assert.equal(
   validateTossShadowArtifact(artifact, '2026-08-11T20:00:02.000Z', 'DIFFERENT_STAGE3.json').exclusionReason,
   'REQUEST_SOURCE_ARTIFACT_MISMATCH'
+);
+assert.equal(
+  validateTossShadowArtifact(
+    artifact,
+    '2026-08-11T20:00:02.000Z',
+    artifact.requestLineage.requestSourceArtifact.file,
+    hash('9')
+  ).exclusionReason,
+  'REQUEST_SOURCE_ARTIFACT_HASH_MISMATCH'
+);
+assert.equal(
+  validateTossShadowArtifact(
+    artifact,
+    '2026-08-11T20:00:02.000Z',
+    artifact.requestLineage.requestSourceArtifact.file,
+    null
+  ).exclusionReason,
+  'REQUEST_SOURCE_ARTIFACT_HASH_INVALID'
 );
 
 const matched = buildTossShadowEvidence(parsed, 'ALPHA', {
@@ -216,6 +239,11 @@ const stage6Source = fs.readFileSync(path.join(root, 'components/AlphaAnalysis.t
 const stage7Source = fs.readFileSync(path.join(root, 'scripts/build-stage7-outcome-ledger.mjs'), 'utf8');
 assert.match(technicalSource, /TOSS_MARKET_DATA_SHADOW\.json/);
 assert.match(technicalSource, /tossShadowEvidence/);
+assert.match(technicalSource, /const stage3SourceSha256 = await sha256Json\(content\)/);
+assert.match(
+  technicalSource,
+  /validateTossShadowArtifact\([\s\S]*?stage3TriggerFile,[\s\S]*?stage3SourceSha256[\s\S]*?\)/
+);
 assert.match(stage5Source, /tossShadowEvidence/);
 assert.match(stage6Source, /tossShadowEvidence:\s*sanitizeTossShadowEvidence/);
 assert.match(stage7Source, /tossShadowEvidence/);
