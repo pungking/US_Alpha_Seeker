@@ -2038,6 +2038,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       await assertDriveOk(stage3ContentRes, `loadStage3.content(${stage3FileId})`);
       const contentText = await stage3ContentRes.text();
       const content = parseDriveJsonText(contentText);
+      const stage3SourceSha256 = await sha256Json(content);
 
       let tossShadow = validateTossShadowArtifact(null);
       try {
@@ -2046,7 +2047,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           tossShadow = validateTossShadowArtifact(
             await downloadFile(accessToken, tossShadowFileId),
             new Date().toISOString(),
-            stage3TriggerFile
+            stage3TriggerFile,
+            stage3SourceSha256
           );
           addLog(
             `Toss shadow ${tossShadow.status === 'PASS' ? 'locked' : 'excluded'}: ${tossShadow.exclusionReason || 'report-only evidence ready'}.`,
