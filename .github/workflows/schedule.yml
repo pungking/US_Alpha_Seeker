@@ -328,7 +328,8 @@ jobs:
         if: success()
         env:
           STAGE_ARTIFACT_EXPORT_STAGE4_LIMIT: "5"
-          STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT: "30"
+          # Keeps 20-session seeds long enough to resolve and accumulate both 30-row OOS cohorts.
+          STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT: "120"
         run: npm run ops:stage-artifacts:export
 
       - name: Audit Stage3-5 | Methodology

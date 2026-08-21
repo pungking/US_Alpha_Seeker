@@ -188,7 +188,7 @@ async function main() {
   const rootFolderId = process.env.GDRIVE_ROOT_FOLDER_ID || process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
   const limit = Math.max(1, Math.min(10, Number(process.env.STAGE_ARTIFACT_EXPORT_LIMIT || 1) || 1));
   const stage4Limit = Math.max(1, Math.min(10, Number(process.env.STAGE_ARTIFACT_EXPORT_STAGE4_LIMIT || limit) || limit));
-  const stage6Limit = Math.max(1, Math.min(60, Number(process.env.STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT || limit) || limit));
+  const stage6Limit = Math.max(1, Math.min(120, Number(process.env.STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT || limit) || limit));
   const report = { generatedAt, overall: 'unknown', enabled, limit, stage4Limit, stage6Limit, stages: [], errors: [], safety: { driveWrite: false, brokerMutation: false, stateMutation: false } };
 
   try {

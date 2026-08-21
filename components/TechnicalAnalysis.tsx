@@ -7,6 +7,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import {
+  buildTossShadowEvidence,
+  summarizeTossShadowEvidence,
+  validateTossShadowArtifact
+} from '../services/tossShadowContract.mjs';
 
 // [ADDED] Markdown Components
 const MarkdownComponents: any = {
@@ -1124,6 +1129,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const MARKET_REGIME_FILE = 'MARKET_REGIME_SNAPSHOT.json';
   const EARNINGS_EVENT_FILE = 'EARNINGS_EVENT_MAP.json';
+  const TOSS_SHADOW_FILE = 'TOSS_MARKET_DATA_SHADOW.json';
 
   const calculateMacroOverlay = (
       snapshot: MarketRegimeSnapshot | null,
@@ -2032,6 +2038,48 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       await assertDriveOk(stage3ContentRes, `loadStage3.content(${stage3FileId})`);
       const contentText = await stage3ContentRes.text();
       const content = parseDriveJsonText(contentText);
+      const stage3SourceSha256 = await sha256Json(content);
+
+      let tossShadow = validateTossShadowArtifact(null);
+      try {
+        const tossShadowFileId = await findFileId(accessToken, TOSS_SHADOW_FILE, systemMapId);
+        if (tossShadowFileId) {
+          tossShadow = validateTossShadowArtifact(
+            await downloadFile(accessToken, tossShadowFileId),
+            new Date().toISOString(),
+            stage3TriggerFile,
+            stage3SourceSha256
+          );
+          addLog(
+            `Toss shadow ${tossShadow.status === 'PASS' ? 'locked' : 'excluded'}: ${tossShadow.exclusionReason || 'report-only evidence ready'}.`,
+            tossShadow.status === 'PASS' ? 'ok' : 'warn'
+          );
+        } else {
+          addLog('Toss shadow artifact missing. Canonical Stage 4 analysis continues.', 'warn');
+        }
+      } catch {
+        tossShadow = validateTossShadowArtifact({});
+        addLog('Toss shadow artifact invalid. Canonical Stage 4 analysis continues.', 'warn');
+      }
+
+      const buildStage4TossShadow = (
+        item: any,
+        candles: any[],
+        lineage: Record<string, any> | null,
+        dataSource: string
+      ) => {
+        const latest = candles[candles.length - 1];
+        return buildTossShadowEvidence(tossShadow, item?.symbol, {
+          price: latest?.c,
+          source: lineage?.vendor || dataSource,
+          sourceAsOf: Number.isFinite(Number(latest?.t)) ? new Date(latest.t).toISOString() : null,
+          currency: item?.currency || lineage?.currency || null,
+          adjustmentBasisComparable: Boolean(
+            lineage?.adjustmentType
+            && lineage.adjustmentType === tossShadow?.runEvidence?.adjustedPriceSemantics
+          )
+        });
+      };
 
       const stage3UniverseRaw = Array.isArray(content?.fundamental_universe) ? content.fundamental_universe : [];
       const stage3InputCount = Number(content?.manifest?.inputCount || stage3UniverseRaw.length);
@@ -2630,18 +2678,31 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   if (stage4RequireDriveForBreakout && isNonDriveSource) {
                       isTechnicalBreakout = false;
                   }
+                  const tossShadowEvidence = buildStage4TossShadow(
+                      item,
+                      candles,
+                      corporateActionLineage,
+                      techData.dataSource
+                  );
 
                   results.push({
                       ...item,
                       ...techData,
                       corporateActionLineage,
                       marketRegimeLineage,
+                      ...(tossShadowEvidence ? {
+                          shadow: {
+                              ...(item?.shadow && typeof item.shadow === 'object' ? item.shadow : {}),
+                              toss: tossShadowEvidence
+                          }
+                      } : {}),
                       isTechnicalBreakout,
                       lastUpdate: new Date().toISOString()
                   });
 
               } catch (e) {
                   console.error(`Tech Analysis Error for ${item.symbol}`, e);
+                  const tossShadowEvidence = buildStage4TossShadow(item, [], null, 'FAILURE');
                   results.push({
                       ...item,
                       technicalScore: 0,
@@ -2669,6 +2730,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       recentSwingLow: 0,
                       corporateActionLineage: null,
                       marketRegimeLineage,
+                      ...(tossShadowEvidence ? {
+                          shadow: {
+                              ...(item?.shadow && typeof item.shadow === 'object' ? item.shadow : {}),
+                              toss: tossShadowEvidence
+                          }
+                      } : {}),
                       lastUpdate: new Date().toISOString(),
                       dataSource: 'FAILURE'
                   });
@@ -2915,6 +2982,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   prospectiveSurveillanceRows: auditReadyResults.filter(
                       (row) => row.corporateActionLineage?.prospectiveSurveillance?.schemaVersion === 'prospective-corporate-action-surveillance-v1'
                   ).length
+              },
+              tossShadowEvidence: {
+                  schemaVersion: 'toss-market-data-shadow-v1',
+                  artifactStatus: tossShadow.status,
+                  exclusionReason: tossShadow.exclusionReason,
+                  ...summarizeTossShadowEvidence(auditReadyResults),
+                  canonicalSourceChanged: false,
+                  policyImpact: 'NONE_REPORT_ONLY'
               },
               scoreBreakdownSchema: "v1.1",
               scoreBreakdownCoverage: `${auditReadyResults.filter((x) => !!x.scoreBreakdown).length}/${auditReadyResults.length}`
