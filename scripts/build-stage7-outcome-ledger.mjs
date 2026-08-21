@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { sanitizeTossShadowEvidence, summarizeTossShadowEvidence } from '../services/tossShadowContract.mjs';
 
 const root = process.cwd();
 const stage6Dir = path.resolve(root, process.env.STAGE7_STAGE6_DIR || 'state/stage6-audit-source');
@@ -682,6 +683,10 @@ function readStage6Seeds() {
         symbol,
         stage6GeneratedAt
       );
+      const tossShadowEvidence = sanitizeTossShadowEvidence(
+        pick?.tossShadowEvidence ?? pick?.shadow?.toss,
+        stage6GeneratedAt
+      );
       const marketRegime = marketRegimeEvidence.marketRegime;
       const decisionCohort = finalDecision === 'EXECUTABLE_NOW' && actionable && sourceLineageValid
         ? COHORTS.executable
@@ -711,6 +716,7 @@ function readStage6Seeds() {
         marketRegimeLineageReasons: marketRegimeEvidence.reasons,
         marketRegimeLineageVerifiedForComparison: marketRegimeEvidence.verified,
         ...(prospectiveSurveillance ? { prospectiveSurveillance } : {}),
+        ...(tossShadowEvidence ? { tossShadowEvidence } : {}),
         primaryBlocker: blocker,
         decisionCohort,
         zeroExecutableTuningLane: pick?.zeroExecutableTuningLane || null,
@@ -1553,6 +1559,7 @@ function buildAccumulationLiveness(rows, oosRows, summary) {
   );
   const prospectivePendingRows = prospectiveSourceCompleteRows.filter(
     (row) => row.historyLineage?.prospectiveComparisonEvidence?.status === 'PROSPECTIVE_SOURCE_COMPLETE_HORIZON_PENDING'
+      && row.accumulationLifecycle?.classification === ACCUMULATION_CLASSES.pendingHorizon
   );
   const prospectiveExecutableSeedRows = postActivationRows.filter(
     (row) => row.decisionCohort === COHORTS.executable
@@ -1644,9 +1651,13 @@ function buildAccumulationLiveness(rows, oosRows, summary) {
       counterfactualHistoryMissingRows: rootCauseCounts[PIPELINE_ROOT_CAUSES.historyRetryable],
       currentContractFutureGrowthPossible: rootCauseCounts[PIPELINE_ROOT_CAUSES.comparableResolved] > 0
         || rows.some((row) => row.accumulationLifecycle?.pipelineRootCause === PIPELINE_ROOT_CAUSES.horizon
-          && row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON'),
+          && (
+            row.historyLineage?.comparisonEligibilityStatus === 'VERIFIED_FOR_COMPARISON'
+            || row.historyLineage?.prospectiveComparisonEvidence?.resolutionAllowed === true
+          )),
       boundedOutcomeContractCouldGrowWithoutExternalSources: rows.some(
         (row) => row.accumulationLifecycle?.outcomeWindowEvidenceAudit?.boundedOutcomeEvidenceComplete === true
+          || row.historyLineage?.prospectiveComparisonEvidence?.resolutionAllowed === true
       )
     }
   };
@@ -1751,6 +1762,9 @@ const oosRows = rows
     outcomeScore: row.processOutcomeReview.outcomeScore,
     outcomeScoreBasis: row.processOutcomeReview.outcomeScoreBasis,
     decisionSnapshotSha256: row.decisionSnapshotSha256,
+    ...(row.decisionSnapshot?.tossShadowEvidence
+      ? { tossShadowEvidence: row.decisionSnapshot.tossShadowEvidence }
+      : {}),
     corporateActionLineageSchemaVersion: row.historyLineage?.schemaVersion || null,
     adjustmentType: row.historyLineage?.adjustmentType || null,
     splitAdjustmentStatus: row.historyLineage?.splitAdjustmentStatus || null,
@@ -1836,7 +1850,10 @@ const summary = {
   marketRegimeLineageUnverifiedRows: rows.filter((row) => row.decisionSnapshot?.marketRegimeLineageVerifiedForComparison !== true).length,
   pendingProcessReviewRows: rows.filter((row) => row.processOutcomeReview?.processReviewStatus === 'PENDING_TERMINAL_EVIDENCE').length,
   verifiedProcessReviewRows: rows.filter((row) => row.processOutcomeReview?.processReviewStatus === 'VERIFIED_PROCESS_REVIEW').length,
-  processReviewUnknownRows: rows.filter((row) => !['PENDING_TERMINAL_EVIDENCE', 'VERIFIED_PROCESS_REVIEW'].includes(row.processOutcomeReview?.processReviewStatus)).length
+  processReviewUnknownRows: rows.filter((row) => !['PENDING_TERMINAL_EVIDENCE', 'VERIFIED_PROCESS_REVIEW'].includes(row.processOutcomeReview?.processReviewStatus)).length,
+  ...summarizeTossShadowEvidence(rows.map((row) => ({
+    tossShadowEvidence: row.decisionSnapshot?.tossShadowEvidence
+  })))
 };
 const accumulationLiveness = buildAccumulationLiveness(rows, oosRows, summary);
 summary.accumulationLivenessStatus = accumulationLiveness.status;
@@ -1867,6 +1884,7 @@ const ledger = {
     prospectiveRule: 'only post-activation decisions with complete free-source decision-to-horizon sessions may become comparison eligible; historical rows are immutable',
     costInputs: costs,
     biasPolicy: 'decision snapshot is immutable; outcomes use only eligible post-decision daily bars; unverified corporate-action or market-regime lineage remains explicit',
+    tossShadowPolicy: 'optional decision-time evidence is report-only and never changes Stage6 policy or base OOS eligibility',
     processReviewPolicy: 'modeled OOS outcome never implies process quality; verified process scoring requires broker-confirmed terminal PAPER lifecycle evidence'
   },
   summary,
@@ -1892,7 +1910,15 @@ const oosPayload = {
     duplicateSeedRows: summary.duplicateSeedRows,
     unknownCohortRows: summary.unknownCohortRows,
     lookAheadViolationRows: summary.lookAheadViolationRows,
-    survivorshipBiasViolationRows: summary.survivorshipBiasViolationRows
+    survivorshipBiasViolationRows: summary.survivorshipBiasViolationRows,
+    tossShadowSeedRows: summary.tossShadowSeedRows,
+    tossShadowEligibleRows: summary.tossShadowEligibleRows,
+    tossShadowExcludedRows: summary.tossShadowExcludedRows,
+    matchedRows: summary.matchedRows,
+    divergentRows: summary.divergentRows,
+    notComparableTimestampRows: summary.notComparableTimestampRows,
+    staleOrInvalidRows: summary.staleOrInvalidRows,
+    providerAliasMappedRows: summary.providerAliasMappedRows
   },
   driveStage4Stage7Utilization,
   accumulationLiveness,
