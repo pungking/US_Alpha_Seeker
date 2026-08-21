@@ -128,6 +128,13 @@ Until terminal evidence exists, `processReviewStatus` remains
 `processOutcomeReview`. Existing consumers may ignore these fields; no existing
 field is removed or redefined.
 
+`institutional-applicability-audit-v3` additively adds
+`stockHubCapabilityAbsorption`: a static public-feature inventory, existing
+contract mappings, Priority 0 report-only reuse decisions, and bounded official
+source capability packages. StockHub remains an idea catalog, not a data source.
+All v2 fields and semantics are unchanged, and consumers may ignore the new
+top-level field.
+
 ## Sidecar Package Contract
 
 Sidecar Package proves the execution sidecar consumed the same hash and did not

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { buildStockHubCapabilityAbsorption } from './lib/stockhub-capability-absorption.mjs';
 
 const REPO_ROOT = process.cwd();
 const DEFAULT_INPUT = 'state/stage6-execution-gate-audit.json';
@@ -381,13 +382,16 @@ function buildReport(stage6Audit, sourceAudit = DEFAULT_INPUT) {
     return acc;
   }, {});
   const guideGapMapping = buildGuideGapMapping();
+  const stockHubCapabilityAbsorption = buildStockHubCapabilityAbsorption();
   const ticketStatuses = new Set(['COMPLETE_SOURCE_BACKED', 'PARTIAL_EVIDENCE_ONLY', 'INSUFFICIENT_SOURCE_EVIDENCE']);
   return {
-    schemaVersion: 'institutional-applicability-audit-v2',
+    schemaVersion: 'institutional-applicability-audit-v3',
+    compatibility: 'ADDITIVE_BACKWARD_COMPATIBLE_V2_FIELDS_UNCHANGED',
     generatedAt,
     sourceAudit,
     latestStage6File: latestFile,
     guideGapMapping,
+    stockHubCapabilityAbsorption,
     summary: {
       totalRows: rows.length,
       latestRows: latestRows.length,
@@ -428,6 +432,48 @@ function buildMarkdown(report) {
     lines.push(`| ${esc(item.concept)} | ${esc(item.classification)} | ${esc(item.existingContract)} | ${esc(item.remainingGap || 'None')} |`);
   }
   lines.push('');
+  const stockHub = report.stockHubCapabilityAbsorption;
+  lines.push('## StockHub Public Capability Absorption');
+  lines.push('');
+  lines.push(`- Role: ${stockHub.sourceRole}`);
+  lines.push(`- Snapshot: ${stockHub.sourceSnapshot.publicFeaturesUrl} (${stockHub.sourceSnapshot.reviewedAt}, sha256=${stockHub.sourceSnapshot.sha256})`);
+  lines.push(`- Public feature cards: ${stockHub.summary.classifiedFeatureCardRows}/${stockHub.sourceSnapshot.declaredFeatureCardCount} (${stockHub.summary.featureCardCoveragePercent}%)`);
+  lines.push(`- Unique public capabilities: ${stockHub.summary.reviewedFeatureCount}/${stockHub.sourceSnapshot.expectedUniqueFeatureCount} (${stockHub.summary.featureCoveragePercent}%)`);
+  lines.push(`- Public navigation routes: ${stockHub.summary.navigationReviewedRouteCount}/${stockHub.sourceSnapshot.observedUniqueInternalRouteCount} (${stockHub.summary.navigationRouteCoveragePercent}%)`);
+  lines.push(`- Unknown/unclassified: ${stockHub.summary.unknownOrUnclassified}`);
+  lines.push(`- Identifier/publication-delay unknown: ${stockHub.summary.identifierUnknownOrUnclassifiedRows}/${stockHub.summary.publicationDelayUnknownOrUnclassifiedRows}`);
+  lines.push(`- StockHub credentials/authenticated access: ${stockHub.sourceSnapshot.credentialReceivedOrStored ? 'USED' : 'NOT_USED'}`);
+  lines.push('');
+  lines.push('### Coverage Status');
+  lines.push('');
+  lines.push('| Status | Count |');
+  lines.push('| --- | ---: |');
+  for (const [status, count] of Object.entries(stockHub.summary.statusCounts)) lines.push(`| ${esc(status)} | ${count} |`);
+  lines.push('');
+  lines.push('### Full Public Feature Coverage');
+  lines.push('');
+  lines.push('| # | Feature | Route | Category | Coverage | Priority | Existing contract | Official candidate | Disposition | Primary blocker | Next action |');
+  lines.push('| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+  stockHub.inventory.forEach((item, index) => {
+    lines.push(`| ${index + 1} | ${esc(item.featureName)} | ${esc(item.publicRoute)} | ${esc(item.category)} | ${esc(item.currentCoverageStatus)} | ${esc(item.valuePriority)} | ${esc(`${item.existingRepository}: ${item.existingArtifactOrConsumer}`)} | ${esc(item.officialCandidateSource)} | ${esc(item.implementationDisposition)} | ${esc(item.primaryBlocker)} | ${esc(item.nextAction)} |`);
+  });
+  lines.push('');
+  lines.push('### Priority 0 Existing-Evidence Reuse');
+  lines.push('');
+  lines.push('| Capability | Evidence status | Source refs | Publication delay | Identifier lineage | Verdict | Policy impact |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- |');
+  for (const item of stockHub.priority0ReportOnlyEvidence) {
+    lines.push(`| ${esc(item.capability)} | ${esc(item.evidenceStatus)} | ${esc(item.sourceArtifactRefs.join('; '))} | ${esc(item.publicationDelayStatus)} | ${esc(item.identifierLineageStatus)} | ${esc(item.reportOnlyVerdict)} | ${esc(item.policyImpact)} |`);
+  }
+  lines.push('');
+  lines.push('### Bounded Official-Source Packages');
+  lines.push('');
+  lines.push('| Capability | Status | Repository | Official source | Access/terms | Request budget | Lineage | Fail-open |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- |');
+  for (const item of stockHub.officialSourceCapabilityPackages) {
+    lines.push(`| ${esc(item.capabilityId)} | ${esc(item.capabilityStatus)} | ${esc(item.implementationRepository)} | ${esc(item.officialSource.join('; '))} | ${esc(`${item.authenticationRequirement}; ${item.licenseOrTermsStatus}`)} | ${esc(item.requestBudget)} | ${esc(item.identifierLineage)} | ${esc(item.failOpenBehavior)} |`);
+  }
+  lines.push('');
   lines.push('## Latest Run Readiness');
   lines.push('');
   lines.push('| Readiness | Count |');
@@ -458,6 +504,9 @@ function buildMarkdown(report) {
   lines.push('- If `GOOD_STOCK_BAD_ENTRY` dominates, add a Stage6 breakout/retest or nearer-entry lane with RR preserved.');
   lines.push('- The institutional prompt should be applied first to Stage6 contract fields: evidence quality, peer valuation, macro/policy risk, thesis invalidation, and trade plan.');
   lines.push('- Do not fix this by widening sidecar chase. That would convert a model-entry problem into uncontrolled execution risk.');
+  lines.push('- StockHub is retained only as a public feature idea catalog; no StockHub data, UI, wording, authenticated content, credential, cookie, or session is a production source.');
+  lines.push('- Priority 0 meanings reuse existing Stage4, Stage6, Stage7, Harvester, and alpha-exec report contracts; no duplicate planner, ledger, screener, or execution path is added.');
+  lines.push('- Every missing external capability remains bounded and approval-gated with `canonicalSourceChanged=false` and `policyImpact=NONE_REPORT_ONLY`.');
   lines.push('');
   return `${lines.join('\n')}\n`;
 }
