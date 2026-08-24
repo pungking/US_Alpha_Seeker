@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
 import { fetchPortalIndices } from "./portalIndicesService";
+import { simulateFixedTradeBox } from "./deterministicBacktest.mjs";
 
 const PERPLEXITY_MODELS = PERPLEXITY_CONFIG.MODEL_CHAIN;
 const DEFAULT_PERPLEXITY_MODEL = PERPLEXITY_MODELS[0] || 'sonar';
@@ -348,36 +349,6 @@ const ALPHA_SCHEMA = {
     },
     required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "newsSentiment", "newsScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "stopLoss", "riskRewardRatio"]
   }
-};
-
-const BACKTEST_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    simulationPeriod: { type: Type.STRING },
-    equityCurve: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          period: { type: Type.STRING },
-          value: { type: Type.NUMBER }
-        },
-        required: ["period", "value"]
-      }
-    },
-    metrics: {
-      type: Type.OBJECT,
-      properties: {
-        winRate: { type: Type.STRING },
-        profitFactor: { type: Type.STRING },
-        maxDrawdown: { type: Type.STRING },
-        sharpeRatio: { type: Type.STRING }
-      },
-      required: ["winRate", "profitFactor", "maxDrawdown", "sharpeRatio"]
-    },
-    historicalContext: { type: Type.STRING }
-  },
-  required: ["simulationPeriod", "equityCurve", "metrics", "historicalContext"]
 };
 
 function sanitizeAndParseJson(text: string): any | null {
@@ -851,190 +822,73 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       const from = startDate.toISOString().split('T')[0];
       const to = endDate.toISOString().split('T')[0];
       
-      const url = `https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
-      const res = await fetch(url);
+      const endpoint = new URL(`https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/range/1/day/${from}/${to}`);
+      endpoint.searchParams.set('adjusted', 'true');
+      endpoint.searchParams.set('sort', 'asc');
+      endpoint.searchParams.set('apiKey', polygonKey);
+      const res = await fetch(endpoint.toString());
       
       if (!res.ok) return null; 
       const json = await res.json();
       if (!json.results || json.results.length === 0) return null;
 
-      const candles = json.results; 
-      
-      const entry = stock.supportLevel || stock.price * 0.95;
-      const target = stock.resistanceLevel || stock.price * 1.10;
-      const stop = stock.stopLoss || stock.price * 0.90;
-      
-      let balance = 100; 
-      let position: { entryPrice: number, quantity: number } | null = null;
-      let wins = 0;
-      let losses = 0;
-      let maxDrawdown = 0;
-      let peakBalance = 100;
-      let tradeCount = 0;
-      
-      const equityCurve = [];
-      let lastMonth = '';
-
-      for (const candle of candles) {
-          const date = new Date(candle.t);
-          const monthStr = `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-          
-          if (position) {
-              if (candle.l <= stop) {
-                  const exitPrice = Math.min(candle.o, stop); 
-                  balance = position.quantity * exitPrice;
-                  position = null;
-                  losses++;
-                  tradeCount++;
-              } 
-              else if (candle.h >= target) {
-                  const exitPrice = Math.max(candle.o, target);
-                  balance = position.quantity * exitPrice;
-                  position = null;
-                  wins++;
-                  tradeCount++;
-              }
-          }
-          
-          if (!position) {
-              if (candle.l <= entry && candle.h >= entry) {
-                  position = { entryPrice: entry, quantity: balance / entry };
-              }
-          }
-          
-          let currentEquity = balance;
-          if (position) {
-              currentEquity = position.quantity * candle.c;
-          }
-          
-          if (currentEquity > peakBalance) peakBalance = currentEquity;
-          const dd = (peakBalance - currentEquity) / peakBalance * 100;
-          if (dd > maxDrawdown) maxDrawdown = dd;
-
-          if (monthStr !== lastMonth) {
-              equityCurve.push({ period: monthStr, value: Number((currentEquity - 100).toFixed(1)) });
-              lastMonth = monthStr;
-          }
-      }
-
-      const totalTrades = wins + losses;
-      const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
-      const finalReturn = balance - 100;
-      
-      let profitFactor = 0;
-      if (losses === 0) {
-          profitFactor = wins > 0 ? 99.99 : 0;
-      } else {
-          const avgWin = wins > 0 ? (target - entry) : 0;
-          const avgLoss = losses > 0 ? (entry - stop) : 0;
-          profitFactor = (wins * avgWin) / (losses * avgLoss);
-      }
-      
-      const sharpeRatio = maxDrawdown > 0 ? (finalReturn / maxDrawdown) : (finalReturn > 0 ? 3.0 : 0);
+      const candles = json.results;
+      const entry = Number(stock.supportLevel || stock.price * 0.95);
+      const target = Number(stock.resistanceLevel || stock.price * 1.10);
+      const stop = Number(stock.stopLoss || stock.price * 0.90);
+      const replay = simulateFixedTradeBox({ candles, entry, target, stop });
+      const { metrics } = replay;
+      const sourceAsOf = new Date(Number(candles[candles.length - 1]?.t)).toISOString();
 
       return {
           simulationPeriod: `${from} ~ ${to}`,
-          equityCurve: equityCurve,
+          equityCurve: replay.equityCurve,
           metrics: {
-              winRate: `${winRate.toFixed(1)}%`,
-              profitFactor: profitFactor.toFixed(2),
-              maxDrawdown: `-${maxDrawdown.toFixed(1)}%`,
-              sharpeRatio: sharpeRatio.toFixed(2)
+              winRate: `${metrics.winRatePct.toFixed(1)}%`,
+              profitFactor: metrics.profitFactor == null ? 'N/A' : metrics.profitFactor.toFixed(2),
+              maxDrawdown: `-${metrics.maxDrawdownPct.toFixed(1)}%`,
+              sharpeRatio: metrics.sharpeRatio == null ? 'N/A' : metrics.sharpeRatio.toFixed(2),
+              finalReturn: `${metrics.finalReturnPct.toFixed(1)}%`
           },
-          historicalContext: `### 실데이터 검증 분석 리포트 (Real-Data Audit)
-**Polygon.io 공식 데이터**를 기반으로 수행된 확정적 백테스트 결과입니다.
+          evidenceMode: replay.evidence.mode,
+          lookAheadSafe: replay.evidence.lookAheadSafe,
+          policyEligible: replay.evidence.policyEligible,
+          policyImpact: replay.evidence.policyImpact,
+          metricContractVersion: 'deterministic-price-replay-v1',
+          assumptions: replay.assumptions,
+          dataContract: {
+              vendor: 'Polygon.io',
+              retrievedAt: new Date().toISOString(),
+              sourceAsOf,
+              marketTimezone: 'America/New_York',
+              adjustmentType: 'PROVIDER_ADJUSTED_TRUE',
+              dividendAdjustmentVerified: false,
+              totalReturnBasis: false,
+              completedSessionOnlyVerified: replay.evidence.completedSessionOnlyVerified
+          },
+          historicalContext: `### 현재 트레이드 박스 과거 가격 경로 재생
+**Polygon.io 조정 일봉**에 현재 진입·목표·손절 가격을 고정 적용한 report-only 재생입니다.
 
-- **매매 신뢰도**: 지난 24개월간 총 ${totalTrades}회의 가상 매매가 시뮬레이션 되었습니다.
-- **리스크 진단**: 해당 기간 동안 발생한 최대 낙폭(MDD)은 ${maxDrawdown.toFixed(1)}% 입니다.
+- **완료 거래**: ${metrics.tradeCount}회
+- **최종 평가수익률**: ${metrics.finalReturnPct.toFixed(1)}% (종료 시 열린 포지션은 마지막 종가로 평가)
+- **리스크 진단**: 최대 낙폭 ${metrics.maxDrawdownPct.toFixed(1)}%
 - **매매 전략**: 진입 $${entry.toFixed(2)} / 목표 $${target.toFixed(2)} / 손절 $${stop.toFixed(2)}
 
-이 결과는 AI의 추정이 아닌, 실제 과거 주가 변동(OHLCV)에 전략을 대입하여 산출된 팩트 기반 데이터입니다. 지정가 주문이 100% 체결되었다는 가정하에 산출되었습니다.`
+과거 각 시점의 의사결정 snapshot이 아니라 현재 트레이드 박스를 과거 가격에 적용하므로 look-ahead-safe 백테스트가 아닙니다. 수수료·슬리피지는 포함하지 않았으며 Stage6 점수·순위·실행 정책에 사용할 수 없습니다.`
       };
 
-  } catch (e) {
-      console.error("Deterministic Backtest Failed:", e);
+  } catch {
+      console.warn('[BACKTEST_REPLAY] status=FAILED safeErrorCategory=CONTRACT_OR_SOURCE_INVALID');
       return null;
   }
 }
 
-export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
+export async function runHistoricalPriceReplay(stock: any): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
   const realData = await runDeterministicBacktest(stock);
   if (realData) {
       return { data: realData, isRealData: true };
   }
-
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = config?.key;
-  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
-
-  const prompt = `
-  [Task] Perform a quantitative backtest simulation for ticker ${stock.symbol} based on its technical setup.
-  Technical Context: Score=${stock.technicalScore}, Support=${stock.supportLevel}, Resistance=${stock.resistanceLevel}.
-  
-  **IMPORTANT**: The analysis period MUST be 24 months (2 years).
-  Return exactly 24 monthly data points in the equityCurve array.
-
-  Return a JSON object matching this schema:
-  {
-      "simulationPeriod": "2023.01 ~ 2025.01",
-      "equityCurve": [{ "period": "23.01", "value": 0 }, ... 24 monthly points ...],
-      "metrics": { "winRate": "65%", "profitFactor": "2.1", "maxDrawdown": "-15%", "sharpeRatio": "1.5" },
-      "historicalContext": "Write a realistic analysis of how this strategy would have performed in Korean Markdown. DO NOT USE EMOJIS."
-  }
-  `;
-
-  try {
-    if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: config?.key || "" });
-      const result = await fetchWithRetry(() => ai.models.generateContent({
-        model: GEMINI_MODELS.FAST,
-        contents: prompt,
-        config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
-      }));
-      trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-      const parsed = sanitizeAndParseJson(result.text);
-      if (parsed && parsed.historicalContext) {
-          parsed.historicalContext = removeCitations(parsed.historicalContext);
-      }
-      return { data: parsed, isRealData: false };
-    }
-    
-    let pRes;
-    const body = JSON.stringify({
-        model: DEFAULT_PERPLEXITY_MODEL,
-        messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
-    });
-
-    try {
-        pRes = await fetch('/api/perplexity', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-            body
-        });
-        if (pRes.status === 404) throw new Error("Proxy 404");
-    } catch (e) {
-        pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
-            body
-        });
-    }
-    
-    const data = await pRes.json();
-    if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
-    
-    if (!pRes.ok) throw new Error(data.error?.message || "Perplexity Error");
-
-    const parsed = sanitizeAndParseJson(data.choices?.[0]?.message?.content);
-    if (parsed && parsed.historicalContext) {
-        parsed.historicalContext = removeCitations(parsed.historicalContext);
-    }
-    return { data: parsed, isRealData: false };
-    
-  } catch (e: any) {
-    trackUsage(provider, 0, true, e.message);
-    return { data: null, error: e.message };
-  }
+  return { data: null, error: 'EMPIRICAL_PRICE_REPLAY_UNAVAILABLE', isRealData: false };
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string, audit?: any}> {
