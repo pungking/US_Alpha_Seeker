@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from '../constants';
-import { generateAlphaSynthesis, generateTop6NeuralOutlook, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, type TelegramBriefContractContext } from '../services/intelligenceService';
+import { generateAlphaSynthesis, generateTop6NeuralOutlook, runHistoricalPriceReplay, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, type TelegramBriefContractContext } from '../services/intelligenceService';
 import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage } from '../services/telegramService';
 import { classifyTelegramNotification } from '../services/telegramDeliveryContract.mjs';
 import { fetchPortalIndices } from '../services/portalIndicesService';
@@ -435,10 +435,14 @@ interface AlphaCandidate {
 interface BacktestResult {
   simulationPeriod?: string;
   equityCurve: { period: string; value: number; signal?: 'BUY' | 'SELL' | 'HOLD' }[];
-  metrics: { winRate: string; profitFactor: string; maxDrawdown: string; sharpeRatio: string; };
+  metrics: { winRate: string; profitFactor: string; maxDrawdown: string; sharpeRatio: string; finalReturn?: string; };
   historicalContext: string;
   timestamp?: number;
   isRealData?: boolean;
+  evidenceMode?: string;
+  lookAheadSafe?: boolean;
+  policyEligible?: boolean;
+  policyImpact?: 'NONE_REPORT_ONLY';
 }
 
 interface Stage5SourceMeta {
@@ -527,7 +531,7 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
   },
   PROFIT_FACTOR: {
     title: "손익비 (Profit Factor)",
-    desc: "### 지표 정의\n**총 수익금을 총 손실금으로 나눈 비율**입니다. 차트 하단의 막대는 매월 발생한 수익/손실의 절대 규모를 나타냅니다.\n\n### 구간별 해석\n- **1.0 초과**: 수익이 손실보다 큼 (이익 구간)\n- **1.5 이상**: 이상적인 우상향 계좌 패턴\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략",
+    desc: "### 지표 정의\n**완료 거래의 총 실현이익을 총 실현손실 절대값으로 나눈 비율**입니다. 손실 거래가 없으면 N/A로 표시합니다. 수수료·슬리피지가 빠진 report-only 값입니다.",
     overlayDesc: "하단 막대: 매월 자산 변동폭 (Magnitude)"
   },
   MAX_DRAWDOWN: {
@@ -537,7 +541,7 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
   },
   SHARPE_RATIO: {
     title: "샤프 지수 (Sharpe Ratio)",
-    desc: "### 지표 정의\n**감수한 위험(변동성) 대비 얻은 초과 수익**입니다. 점선은 변동성 없는 이상적인 성장 경로를 나타냅니다.\n\n### 효율성 판단\n- **1.0 이상**: 리스크 대비 수익성 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 데이터 과최적화 가능성 점검 필요",
+    desc: "### 지표 정의\n일별 평가자산 수익률의 평균을 표본 표준편차로 나누고 252 세션으로 연율화한 값입니다. 무위험수익률은 0으로 고정하며, 현재 트레이드 박스 재생 결과이므로 정책 입력으로 사용할 수 없습니다.",
     overlayDesc: "주황 점선: 변동성 없는 이상적 성장 경로 (Benchmark)"
   }
 };
@@ -545,7 +549,7 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
 const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'HALF_KELLY': {
         title: "Half-Kelly Criterion (최적 비중)",
-        desc: "승률(P)과 손익비(B)를 기반으로 파산 위험을 0으로 수렴시키는 수학적 최적 투자 비중입니다.\n\n`K% = P - (1-P)/B`",
+        desc: "승률(P)과 손익비(B)를 이용한 이론적 비중 추정값입니다. 손실이나 파산 위험 제거를 보장하지 않으며 report-only 참고값입니다.\n\n`K% = P - (1-P)/B`",
         strategy: "이 값은 '권장 상한선(Max Cap)'입니다. \n- 20% 근접: 확신도가 매우 높음 (적극 투자)\n- 10% 미만: 일반적인 기회 (분산 투자)\n*계산된 %의 50~80%만 집행하는 것이 안전합니다."
     },
     'VAPS': {
@@ -4343,7 +4347,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const roe = selectedStock.roe || 15; 
           const ictScore = selectedStock.ictScore || conviction; 
           const intrinsic = selectedStock.intrinsicValue || selectedStock.price;
-          const simMetrics = backtestData[selectedStock.symbol]?.metrics;
+          const replayEvidence = backtestData[selectedStock.symbol];
+          const simMetrics = replayEvidence?.policyEligible === true ? replayEvidence.metrics : undefined;
           let P = 0; 
           let B = 0; 
           
@@ -11420,13 +11425,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setBacktestLoading(true);
     setSelectedMetricInfo(null);
     setActiveOverlay(null);
-    addLog(`Simulating Quant Protocol for ${stock.symbol}...`, "signal");
+    addLog(`Running report-only price replay for ${stock.symbol}...`, "signal");
 
     try {
-      const { data, error, isRealData } = await runAiBacktest(stock, selectedBrain);
+      const { data, error, isRealData } = await runHistoricalPriceReplay(stock);
       if (error) throw new Error(error);
       
-      if (!data) throw new Error("AI returned empty data structure");
+      if (!data) throw new Error("Price replay returned empty data structure");
 
       const safeMetrics = {
           winRate: data.metrics?.winRate || "0%",
@@ -11446,16 +11451,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             isRealData: !!isRealData
         } 
       }));
-      addLog(`Simulation complete for ${stock.symbol} ${isRealData ? '(Real Data)' : '(AI Sim)'}.`, "ok");
+      addLog(`Report-only price replay complete for ${stock.symbol}.`, "ok");
 
       // [SIMULATION TELEGRAM ROUTE] Send simulation result to dedicated chat channel.
       const simulationSummary = [
-        "🧪 Simulation Execution Update",
+        "🧪 Report-Only Price Replay",
         `Symbol: ${stock.symbol} (${stock.name || '-'})`,
         `Period: ${data.simulationPeriod || '-'}`,
         `WinRate: ${safeMetrics.winRate} | PF: ${safeMetrics.profitFactor}`,
         `MDD: ${safeMetrics.maxDrawdown} | Sharpe: ${safeMetrics.sharpeRatio}`,
-        `DataSource: ${isRealData ? 'REAL' : 'AI_SIM'}`
+        `EvidenceMode: ${data.evidenceMode || 'UNKNOWN'}`,
+        `LookAheadSafe: ${data.lookAheadSafe === true}`,
+        `PolicyEligible: ${data.policyEligible === true}`
       ].join("\n");
 
       try {
@@ -11512,29 +11519,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return 'bg-slate-700 text-slate-300 border-slate-600';
   };
 
-  const generateSyntheticData = (metrics: any) => {
-      const winRate = parseFloat(String(metrics?.winRate || "60").replace(/[^0-9.]/g, '')) || 60;
-      const profitFactor = parseFloat(String(metrics?.profitFactor || "1.5").replace(/[^0-9.]/g, '')) || 1.8;
-      let value = 0;
-      const data = [];
-      const now = new Date();
-      for (let i = 24; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const period = `${d.getFullYear().toString().slice(2)}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
-          if (i === 24) {
-              data.push({ period, value: 0 });
-          } else {
-              const isWin = Math.random() * 100 < winRate;
-              const vol = 3 + Math.random() * 5; 
-              const move = isWin ? (vol * (Math.random() * 0.5 + 0.8)) : -(vol * (Math.random() * 0.5 + 0.8) / profitFactor);
-              const drift = profitFactor > 1.2 ? 0.5 : 0;
-              value += (move + drift);
-              data.push({ period, value: Number(value.toFixed(1)) });
-          }
-      }
-      return data;
-  };
-
   const chartData = useMemo(() => {
     try {
         if (!currentBacktest) return [];
@@ -11549,10 +11533,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     value: isNaN(val) ? 0 : val
                 };
             });
-        } else if (currentBacktest.metrics) {
-            rawData = generateSyntheticData(currentBacktest.metrics);
-        } else {
-            rawData = generateSyntheticData({ winRate: "50%", profitFactor: "1.2" });
         }
 
         if (rawData.length === 0) return [];
@@ -12626,10 +12606,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     <div className="flex justify-between items-end mb-6">
                         <div className="flex items-center gap-4">
                             <div>
-                                <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1 italic">Quant_Backtest_Protocol</h4>
+                                <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1 italic">Quant_Price_Replay</h4>
                                 {currentBacktest && (
                                     <p className="text-[9px] text-slate-500 font-mono font-bold">
-                                        SIMULATION PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span>
+                                        PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span>
+                                        {' · '}MODE: <span className="text-amber-400">{currentBacktest.evidenceMode || 'UNKNOWN'}</span>
+                                        {' · '}LOOK-AHEAD SAFE: <span className="text-rose-400">{currentBacktest.lookAheadSafe === true ? 'YES' : 'NO'}</span>
+                                        {' · '}POLICY: <span className="text-slate-400">REPORT ONLY</span>
                                     </p>
                                 )}
                             </div>
@@ -12641,7 +12624,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 disabled={backtestLoading}
                                 className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
                             >
-                                {backtestLoading ? "Running Simulation..." : "Run Portfolio Simulation"}
+                                {backtestLoading ? "Running Replay..." : "Run Report-Only Replay"}
                             </button>
                         )}
                     </div>

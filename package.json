@@ -37,6 +37,7 @@
     "webhook:delete": "node scripts/setup-telegram-webhook.mjs --delete",
     "ops:institutional:audit": "node scripts/build-institutional-applicability-audit.mjs",
     "ops:institutional:audit:validate": "node scripts/validate-institutional-applicability-audit.mjs",
+    "ops:test:deterministic-backtest": "node scripts/test-deterministic-backtest-contract.mjs",
     "ops:stage6:structure:audit": "node scripts/build-current-entry-structure-audit.mjs",
     "ops:stage6:current-entry:review": "node scripts/build-current-entry-execution-review.mjs",
     "ops:stage6:current-entry:canary": "node scripts/canary-stage6-current-entry-promotion.mjs",
