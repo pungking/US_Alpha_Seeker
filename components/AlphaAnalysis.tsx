@@ -8,6 +8,10 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS, PERPLEXITY_CONFIG, STR
 import { generateAlphaSynthesis, generateTop6NeuralOutlook, runHistoricalPriceReplay, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, type TelegramBriefContractContext } from '../services/intelligenceService';
 import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage } from '../services/telegramService';
 import { classifyTelegramNotification } from '../services/telegramDeliveryContract.mjs';
+import {
+  isExecutableForTelegramContract,
+  reconcileStage6ExecutionSurfaces
+} from '../services/stage6ExecutionSurfaceContract.mjs';
 import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { enforceStageDriveRetention } from '../services/driveRetentionService';
@@ -4964,29 +4968,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const TELEGRAM_INDEX_SYMBOLS = new Set(['SPY', 'QQQ', 'VIX', 'SPX', 'NDX', 'SP500', 'NASDAQ', 'NASDAQ100', 'IXIC']);
 
-  const isExecutableForTelegramContract = (item: AlphaCandidate): boolean => {
-      const finalDecision = String(item?.finalDecision || '').trim().toUpperCase();
-      if (finalDecision) return finalDecision === 'EXECUTABLE_NOW';
-
-      const bucket = String(item?.executionBucket || '').trim().toUpperCase();
-      if (bucket === 'EXECUTABLE') return true;
-      if (bucket === 'WATCHLIST') return false;
-
-      const reason = String(item?.executionReason || item?.tradePlanStatusShadow || '').trim().toUpperCase();
-      if (reason) return reason === 'VALID_EXEC';
-
-      const verdictKey = String(item?.verdictFinal || item?.finalVerdict || item?.aiVerdict || item?.verdict || '')
-          .trim()
-          .toUpperCase()
-          .replace(/\s+/g, '_')
-          .replace(/-/g, '_');
-      if (verdictKey === 'WAIT' || verdictKey === 'HOLD') return false;
-
-      const feasible = item?.entryFeasible ?? item?.entryFeasibleShadow;
-      if (typeof feasible === 'boolean') return feasible;
-      return true;
-  };
-
   const pickTelegramContractCandidates = (items: AlphaCandidate[]): AlphaCandidate[] => {
       const nonIndex = items.filter((item) => !TELEGRAM_INDEX_SYMBOLS.has(normalizeContractSymbol(item?.symbol)));
       const sorted = [...nonIndex]
@@ -9868,7 +9849,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               entryFeasibilityDowngradedCount > 0 ? "warn" : "ok"
           );
       }
-      const decisionCountsTop6 = top6Elite.reduce<Record<string, number>>((acc, item) => {
+      const finalizedExecutionSurfaces = reconcileStage6ExecutionSurfaces(modelTop6Pool, top6Elite);
+      const finalizedModelTop6Pool: AlphaCandidate[] = finalizedExecutionSurfaces.modelTop6;
+      const finalizedModelTop6Watchlist: AlphaCandidate[] = finalizedExecutionSurfaces.watchlistTop;
+      const decisionCountsTop6 = finalizedModelTop6Pool.reduce<Record<string, number>>((acc, item) => {
           const key = String(item.finalDecision || 'UNKNOWN').toUpperCase();
           acc[key] = (acc[key] || 0) + 1;
           return acc;
@@ -9877,11 +9861,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           `Decision dist(top6): EXECUTABLE_NOW=${decisionCountsTop6.EXECUTABLE_NOW || 0} WAIT_PRICE=${decisionCountsTop6.WAIT_PRICE || 0} BLOCKED_RISK=${decisionCountsTop6.BLOCKED_RISK || 0} BLOCKED_EVENT=${decisionCountsTop6.BLOCKED_EVENT || 0}`,
           "info"
       );
-      stage6ModelTop6Ref.current = modelTop6Pool.map((item) => ({ ...item }));
-      stage6WatchlistTopRef.current = modelTop6Watchlist.map((item) => ({ ...item }));
-      stage6ExecutableRef.current = top6Elite
-          .filter(isExecutableForTelegramContract)
-          .map((item) => ({ ...item }));
+      stage6ModelTop6Ref.current = finalizedModelTop6Pool.map((item) => ({ ...item }));
+      stage6WatchlistTopRef.current = finalizedModelTop6Watchlist.map((item) => ({ ...item }));
+      stage6ExecutableRef.current = finalizedExecutionSurfaces.executablePicks.map((item: AlphaCandidate) => ({ ...item }));
       stage6FinalRef.current = top6Elite;
       stage6FinalRunIdRef.current = getKstTimestamp();
       const displaySymbolSet = new Set<string>();
@@ -9892,7 +9874,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           displaySymbolSet.add(symbolKey);
           stage6DisplayCandidates.push(item);
       }
-      for (const item of modelTop6Watchlist) {
+      for (const item of finalizedModelTop6Watchlist) {
           const symbolKey = normalizeContractSymbol(item?.symbol) || `WATCH_${stage6DisplayCandidates.length}`;
           if (displaySymbolSet.has(symbolKey)) continue;
           displaySymbolSet.add(symbolKey);
@@ -10654,7 +10636,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               stateVerdictConflict: Boolean(item?.stateVerdictConflict),
               ...attachShadowIntel(item)
           });
-          const decisionReasonCountsTop6 = top6Elite.reduce<Record<string, number>>((acc, item) => {
+          const decisionReasonCountsTop6 = finalizedModelTop6Pool.reduce<Record<string, number>>((acc, item) => {
               const key = String(item?.decisionReason || item?.executionReason || 'unknown').toLowerCase();
               acc[key] = (acc[key] || 0) + 1;
               return acc;
@@ -10876,9 +10858,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   hardGateInvalidGeometryExcluded: invalidGeometryBlocked.length,
                   decisionCountsPrimary,
                   decisionCountsTop6,
-                  modelTop6Symbols: modelTop6Pool.map((item) => item.symbol),
+                  modelTop6Symbols: finalizedModelTop6Pool.map((item) => item.symbol),
                   executablePickSymbols: executableContractPool.map((item) => item.symbol),
-                  modelTop6WatchlistSymbols: modelTop6Watchlist.map((item) => item.symbol),
+                  modelTop6WatchlistSymbols: finalizedModelTop6Watchlist.map((item) => item.symbol),
                   executableFallbackCount,
                   decisionGate: stage6DecisionGate,
                   flagPropagationAudit: stage6FlagPropagationAudit,
@@ -10907,9 +10889,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               },
               execution_contract: {
                   generatedAt: new Date().toISOString(),
-                  modelTop6: modelTop6Pool.map(toExecutionContractItem),
+                  modelTop6: finalizedModelTop6Pool.map(toExecutionContractItem),
                   executablePicks: executableContractPool.map(toExecutionContractItem),
-                  watchlistTop: modelTop6Watchlist.map(toExecutionContractItem),
+                  watchlistTop: finalizedModelTop6Watchlist.map(toExecutionContractItem),
                   decisionCountsPrimary,
                   decisionCountsTop6,
                   decisionReasonCountsPrimary,
@@ -11068,7 +11050,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   runDurationSec
               },
               executablePicks: top6ArchiveCandidates.map(mapToNotionCandidate),
-              watchlist: modelTop6Watchlist.map(mapToNotionCandidate)
+              watchlist: finalizedModelTop6Watchlist.map(mapToNotionCandidate)
           };
 
           // Expose payload for CI automation fallback sync when /api route is unavailable.

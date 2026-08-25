@@ -15,12 +15,33 @@ try {
   assert.fail('Telegram delivery contract helper must exist.');
 }
 
+let executionSurfaceContract;
+try {
+  executionSurfaceContract = await import('../services/stage6ExecutionSurfaceContract.mjs');
+} catch {
+  assert.fail('Stage6 execution surface contract helper must exist.');
+}
+
 const {
   classifyTelegramNotification,
   evaluateTelegramApiReceipt,
   resolveDeliveryAttempts,
   summarizeChunkDeliveries
 } = contract;
+const { isExecutableForTelegramContract, reconcileStage6ExecutionSurfaces } = executionSurfaceContract;
+
+const finalizedSurfaces = reconcileStage6ExecutionSurfaces(
+  [
+    { symbol: 'LATEWAIT', finalDecision: 'EXECUTABLE_NOW', executionBucket: 'EXECUTABLE' },
+    { symbol: 'WAIT', finalDecision: 'WAIT_PRICE', executionBucket: 'WATCHLIST' }
+  ],
+  [{ symbol: 'LATEWAIT', finalDecision: 'WAIT_PRICE', executionBucket: 'WATCHLIST' }]
+);
+assert.equal(finalizedSurfaces.modelTop6[0].finalDecision, 'WAIT_PRICE');
+assert.deepEqual(finalizedSurfaces.executablePicks, []);
+assert.deepEqual(finalizedSurfaces.watchlistTop.map((row) => row.symbol), ['LATEWAIT', 'WAIT']);
+assert.equal(isExecutableForTelegramContract({ finalDecision: 'EXECUTABLE_NOW' }), true);
+assert.equal(isExecutableForTelegramContract({ finalDecision: 'WAIT_PRICE', executionBucket: 'EXECUTABLE' }), false);
 
 assert.deepEqual(
   classifyTelegramNotification({
@@ -121,6 +142,7 @@ assert.equal(
 const service = read('services/telegramService.ts');
 const intelligence = read('services/intelligenceService.ts');
 const alphaAnalysis = read('components/AlphaAnalysis.tsx');
+const executionSurfaces = read('services/stage6ExecutionSurfaceContract.mjs');
 const automate = read('automate.js');
 const app = read('App.tsx');
 assert.match(service, /json[?.]*\.ok\s*===\s*true|evaluateTelegramApiReceipt/);
@@ -135,12 +157,20 @@ assert.match(
   /const executablePicks = hasExecutableContract\s*\? contextExecutablePicks\.slice\(0, 6\)/
 );
 assert.match(
-  alphaAnalysis,
+  executionSurfaces,
   /const finalDecision = String\(item\?\.finalDecision[\s\S]*?if \(finalDecision\) return finalDecision === 'EXECUTABLE_NOW';[\s\S]*?const bucket/
 );
 assert.match(
   alphaAnalysis,
-  /stage6ExecutableRef\.current = top6Elite\s*\.filter\(isExecutableForTelegramContract\)\s*\.map/
+  /const finalizedExecutionSurfaces = reconcileStage6ExecutionSurfaces\(modelTop6Pool, top6Elite\)/
+);
+assert.match(
+  alphaAnalysis,
+  /stage6ModelTop6Ref\.current = finalizedModelTop6Pool[\s\S]*?stage6WatchlistTopRef\.current = finalizedModelTop6Watchlist[\s\S]*?stage6ExecutableRef\.current = finalizedExecutionSurfaces\.executablePicks/
+);
+assert.match(
+  alphaAnalysis,
+  /execution_contract:\s*\{[\s\S]*?modelTop6: finalizedModelTop6Pool\.map\(toExecutionContractItem\)[\s\S]*?executablePicks: executableContractPool\.map\(toExecutionContractItem\)[\s\S]*?watchlistTop: finalizedModelTop6Watchlist\.map\(toExecutionContractItem\)/
 );
 assert.deepEqual(
   classifyTelegramNotification({ reportGenerated: true, sendAttempted: false }),
