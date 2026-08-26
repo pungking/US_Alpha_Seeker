@@ -4,6 +4,11 @@ import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, PE
 import { ApiProvider } from "../types";
 import { fetchPortalIndices } from "./portalIndicesService";
 import { simulateFixedTradeBox } from "./deterministicBacktest.mjs";
+import {
+  classifyMarketPulseIntegrity,
+  isExecutableForTelegramContract,
+  summarizeReportOnlyConcentration
+} from "./stage6ExecutionSurfaceContract.mjs";
 
 const PERPLEXITY_MODELS = PERPLEXITY_CONFIG.MODEL_CHAIN;
 const DEFAULT_PERPLEXITY_MODEL = PERPLEXITY_MODELS[0] || 'sonar';
@@ -2060,7 +2065,13 @@ export async function generateTelegramBrief(
       let ndxSource = "unknown";
       let vixSource = "unknown";
       let ixicSource = "unknown";
-      let pulseCapturedAt = "";
+      let pulseRetrievedAt = "";
+      const pulsePoints: Record<'SPX' | 'NDX' | 'IXIC' | 'VIX', any> = {
+          SPX: null,
+          NDX: null,
+          IXIC: null,
+          VIX: null
+      };
       const asFinite = (val: any): number | null => {
           const n = Number(val);
           return Number.isFinite(n) ? n : null;
@@ -2105,24 +2116,28 @@ export async function generateTelegramBrief(
               spx = Number(pulse.spy.price).toFixed(2);
               spxChg = readChange(pulse.spy);
               spxSource = readSource(pulse.spy, spxSource);
+              pulsePoints.SPX = pulse.spy;
           }
           const ndxFromCache = pulse.ndx || pulse.qqq;
           if (ndxFromCache && isValidIndexPoint('NDX', ndxFromCache.price)) {
               ndx = Number(ndxFromCache.price).toFixed(2);
               ndxChg = readChange(ndxFromCache);
               ndxSource = readSource(ndxFromCache, ndxSource);
+              pulsePoints.NDX = ndxFromCache;
           }
           if (pulse.ixic && isValidIndexPoint('IXIC', pulse.ixic.price)) {
               ixic = Number(pulse.ixic.price).toFixed(2);
               ixicChg = readChange(pulse.ixic);
               ixicSource = readSource(pulse.ixic, ixicSource);
+              pulsePoints.IXIC = pulse.ixic;
           }
           if (pulse.vix && isValidIndexPoint('VIX', pulse.vix.price)) {
               vixVal = Number(pulse.vix.price) || 0;
               vix = vixVal.toFixed(2);
               vixSource = readSource(pulse.vix, vixSource);
+              pulsePoints.VIX = pulse.vix;
           }
-          pulseCapturedAt = formatCapturedAt(
+          pulseRetrievedAt = formatCapturedAt(
               pulse?.meta?.fetchedAt || pulse?.capturedAt || pulse?.updatedAt
           );
       }
@@ -2135,28 +2150,33 @@ export async function generateTelegramBrief(
               const s = indices?.find((i: any) => i?.symbol === 'SP500' || i?.symbol === 'SPX');
               const n = indices?.find((i: any) => i?.symbol === 'NDX' || i?.symbol === 'NASDAQ100' || i?.rawSymbol === '.NDX');
               const nComposite = indices?.find((i: any) => i?.symbol === 'IXIC' || i?.symbol === 'NASDAQ' || i?.rawSymbol === '.IXIC');
+              const fallbackRetrievedAt = new Date().toISOString();
 
               if (v && isValidIndexPoint('VIX', v.price)) {
                   vixVal = Number(v.price) || 0;
                   vix = vixVal.toFixed(2);
                   vixSource = readSource(v, vixSource);
+                  pulsePoints.VIX = { ...v, retrievedAt: v?.retrievedAt || fallbackRetrievedAt };
               }
               if (s && isValidIndexPoint('SPX', s.price)) {
                   spx = Number(s.price).toFixed(2);
                   spxChg = readChange(s);
                   spxSource = readSource(s, spxSource);
+                  pulsePoints.SPX = { ...s, retrievedAt: s?.retrievedAt || fallbackRetrievedAt };
               }
               if (n && isValidIndexPoint('NDX', n.price)) {
                   ndx = Number(n.price).toFixed(2);
                   ndxChg = readChange(n);
                   ndxSource = readSource(n, ndxSource);
+                  pulsePoints.NDX = { ...n, retrievedAt: n?.retrievedAt || fallbackRetrievedAt };
               }
               if (nComposite && isValidIndexPoint('IXIC', nComposite.price)) {
                   ixic = Number(nComposite.price).toFixed(2);
                   ixicChg = readChange(nComposite);
                   ixicSource = readSource(nComposite, ixicSource);
+                  pulsePoints.IXIC = { ...nComposite, retrievedAt: nComposite?.retrievedAt || fallbackRetrievedAt };
               }
-              pulseCapturedAt = formatCapturedAt(new Date().toISOString());
+              pulseRetrievedAt = formatCapturedAt(fallbackRetrievedAt);
           } catch(e) {
               console.warn("Primary Index Fetch Failed (portal_indices).");
           }
@@ -2189,7 +2209,21 @@ export async function generateTelegramBrief(
               : sourceLabels.length === 1
                   ? sourceLabels[0]
                   : pulseSources.map(([k, src]) => `${k}:${src}`).join(', ');
-      const pulseCapturedAtLabel = pulseCapturedAt || "N/A";
+      const pulseRetrievedAtLabel = pulseRetrievedAt || "N/A";
+      const pulseIntegrity = classifyMarketPulseIntegrity(pulsePoints, pulseRetrievedAt);
+      const sourceAsOfLabel = pulseIntegrity.rows
+          .map((row: any) => `${row.sourceId}=${row.sourceAsOf || 'unavailable'}`)
+          .join(', ');
+      const grainLabel = pulseIntegrity.rows
+          .map((row: any) => `${row.sourceId}=${row.grain}`)
+          .join(', ');
+      const vixIntegrity = pulseIntegrity.rows.find((row: any) => row.sourceId === 'VIX');
+      const vixLabel = vixIntegrity?.status === 'MARKET_SOURCE_TIMESTAMP_VALID' && vixIntegrity?.grain === 'INTRADAY'
+          ? 'VIX'
+          : 'VIX (source time/grain unverified)';
+      const pulseIntegrityWarning = pulseIntegrity.status === 'MARKET_PULSE_INTEGRITY_PASS'
+          ? ''
+          : `\n⚠️ Market Pulse Integrity: ${pulseIntegrity.status} (report-only; same-time intraday comparison not verified)`;
       const safeCandidates = Array.isArray(candidates) ? candidates : [];
 
       // 2. Generate "Market Pulse" Text via AI
@@ -2197,6 +2231,7 @@ export async function generateTelegramBrief(
       const macroPrompt = `
       [Task] Write a concise "Market Pulse" summary in Korean (max 3 lines).
       Data: VIX: ${vixStr}, S&P500(SPX): ${spxStr}, ${ndxLabel}: ${ndxStr}${ixicPrompt}.
+      Source integrity: ${pulseIntegrity.status}. Do not describe all points as same-time intraday unless integrity is PASS.
       If VIX is numeric, never output VIX as N/A.
       Focus on market sentiment (Risk-On/Off) based on VIX and Index moves.
       `;
@@ -2388,25 +2423,16 @@ export async function generateTelegramBrief(
           }
           return null;
       };
+      const formatEarningsEvidence = (item: any): string => {
+          const daysToEvent = readCanonicalEarningsDaysToEvent(item);
+          if (daysToEvent !== null) return `D-${daysToEvent}`;
+          return String(item?.earningsCoverageStatus || 'EARNINGS_EVIDENCE_UNAVAILABLE').trim().toUpperCase();
+      };
       const readExecutionScore = (item: any): number | null => {
           const raw = toNum(item?.executionScore);
           return raw === null ? null : Number(raw.toFixed(1));
       };
-      const isExecutableCandidate = (item: any): boolean => {
-          const decision = readDecision(item);
-          if (decision) return decision === 'EXECUTABLE_NOW';
-          const decisionReason = toReasonKey(readDecisionReason(item));
-          if (decisionReason.startsWith('blocked_') || decisionReason.startsWith('wait_')) return false;
-          const bucket = readExecutionBucket(item);
-          if (bucket) return bucket === 'EXECUTABLE';
-          const reason = readExecutionReason(item);
-          if (reason) return reason === 'VALID_EXEC';
-          const verdict = toVerdictKey(item?.verdictFinal || item?.finalVerdict || item?.aiVerdict || item?.verdict || '');
-          if (verdict === 'WAIT' || verdict === 'HOLD') return false;
-          const feasible = item?.entryFeasible ?? item?.entryFeasibleShadow;
-          if (typeof feasible === 'boolean') return feasible;
-          return true;
-      };
+      const isExecutableCandidate = isExecutableForTelegramContract;
       const formatPct = (value: any): string => {
           const n = toNum(value);
           return n === null ? 'N/A' : `${n.toFixed(2)}%`;
@@ -2471,18 +2497,16 @@ export async function generateTelegramBrief(
           ? contextWatchlistTop.slice(0, 6)
           : modelTop6.filter(item => !isExecutableCandidate(item));
       
-      const sectorCounts: Record<string, number> = {};
-      (executablePicks.length > 0 ? executablePicks : modelTop6).forEach(c => {
-          const s = c?.sectorTheme || c?.sector || "Unknown";
-          sectorCounts[s] = (sectorCounts[s] || 0) + 1;
-      });
-
-      let sectorWarning = "";
-      Object.entries(sectorCounts).forEach(([sector, count]) => {
-          if (count >= 3) {
-              sectorWarning += `\n⚠️ Sector Concentration: ${sector} 비중 높음 (분산 투자 권장)`;
-          }
-      });
+      const concentration = summarizeReportOnlyConcentration(executablePicks.length > 0 ? executablePicks : modelTop6);
+      const concentrationLabels: Record<string, string> = { sector: 'Sector', industry: 'Industry', theme: 'Theme' };
+      const concentrationParts = Object.entries(concentration.dimensions)
+          .filter(([, evidence]: any) => evidence.topValue)
+          .map(([dimension, evidence]: any) =>
+              `${concentrationLabels[dimension]}=${evidence.topValue} ${evidence.topCount}/${evidence.totalRows}`
+          );
+      const sectorWarning = concentrationParts.length > 0
+          ? `\n📐 Concentration (report-only): ${concentrationParts.join(' | ')}`
+          : '';
 
       // Name Cleaner
       const cleanName = (name: any) => {
@@ -2614,7 +2638,7 @@ export async function generateTelegramBrief(
               qualityScoreRaw == null
                   ? (toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha))
                   : Number(qualityScoreRaw.toFixed(1));
-          const earningsDays = readCanonicalEarningsDaysToEvent(c);
+          const earningsEvidence = formatEarningsEvidence(c);
           const verdictConflict = Boolean(c?.verdictConflict);
           const stateVerdictConflict = Boolean(c?.stateVerdictConflict);
           const conflictLabel =
@@ -2648,8 +2672,8 @@ export async function generateTelegramBrief(
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: ${planEntryLabel} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
    • 🧭 Exec: 실행가능=${entryFeasibleLabel} | 상태=${planStatusLabelKo} | 거리=${distanceLabel}
-   • 🧩 Decision: 판정=${decisionLabelKo} | 사유=${decisionReasonLabelKo} | ${conflictLabel} | AQ=${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | 실적=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
-   • 📈 Exp.Return: ${expReturn}
+   • 🧩 Decision: 판정=${decisionLabelKo} | 사유=${decisionReasonLabelKo} | ${conflictLabel} | AQ=${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | Model ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | 실적=${earningsEvidence}
+   • 📈 Model Expected Return: ${expReturn}
    • 💎 Logic:
      - ${r1}
      - ${r2}
@@ -2677,8 +2701,10 @@ export async function generateTelegramBrief(
                   const conv = toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha) ?? 0;
                   const executionScore = readExecutionScore(c);
                   const qualityScore = toNum(c?.qualityScore) ?? conv;
+                  const dataCompleteness = toNum(c?.dataConfidence);
                   const er = String(c?.gatedExpectedReturn || c?.expectedReturn || 'N/A');
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | R#${rankRaw ?? 'N/A'} | F#${rankFinal ?? 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | AQ ${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | 상태 ${bucketKo}/${reasonKo} | 판정 ${decisionKo}/${decisionReasonKo} | 신뢰도 ${Math.round(conv)} | ER ${er}`;
+                  const earningsEvidence = formatEarningsEvidence(c);
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | R#${rankRaw ?? 'N/A'} | F#${rankFinal ?? 'N/A'} | M#${modelRank ?? 'N/A'} | Exec#${execRank ?? 'N/A'} | AQ ${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | 상태 ${bucketKo}/${reasonKo} | 판정 ${decisionKo}/${decisionReasonKo} | 모델확신 ${Math.round(conv)} | 데이터완전성 ${dataCompleteness == null ? 'N/A' : dataCompleteness.toFixed(0)} | Model ER ${er} | 실적 ${earningsEvidence}`;
               })
               .join('\n')
           : '• N/A';
@@ -2705,7 +2731,7 @@ export async function generateTelegramBrief(
                       reason === 'VALID_EXEC' && decision !== 'EXECUTABLE_NOW'
                           ? '모델상 실행 조건 충족(최종 게이트 차단)'
                           : toExecutionReasonLabelKo(reason);
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | R#${rankRaw ?? 'N/A'} | F#${rankFinal ?? 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | 판정=${verdict || 'N/A'} | 상태=${decisionKo}/${decisionReasonKo} | 실행사유=${reasonKo} | 거리=${distance}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | R#${rankRaw ?? 'N/A'} | F#${rankFinal ?? 'N/A'} | M#${modelRank ?? 'N/A'} | Exec#${execRank ?? 'N/A'} | 판정=${verdict || 'N/A'} | 상태=${decisionKo}/${decisionReasonKo} | 실행사유=${reasonKo} | 거리=${distance} | 실적=${formatEarningsEvidence(c)}`;
               })
               .join('\n')
           : '• 없음';
@@ -2726,8 +2752,9 @@ export async function generateTelegramBrief(
 
 📊 Market Pulse
 ${macroSection}
-(S&P500(SPX): ${spxStr} | ${ndxLabel}: ${ndxStr} | VIX: ${vixStr}${ixic === "N/A" ? "" : ` | NASDAQ Composite(IXIC): ${ixicStr}`})
-Source: ${pulseSourceLabel} | CapturedAt: ${pulseCapturedAtLabel}
+(S&P500(SPX): ${spxStr} | ${ndxLabel}: ${ndxStr} | ${vixLabel}: ${vixStr}${ixic === "N/A" ? "" : ` | NASDAQ Composite(IXIC): ${ixicStr}`})
+Source: ${pulseSourceLabel} | RetrievedAt: ${pulseRetrievedAtLabel}
+SourceAsOf: ${sourceAsOfLabel} | Grain: ${grainLabel} | Integrity: ${pulseIntegrity.status}${pulseIntegrityWarning}
 ${sectorWarning}
 
 🧠 Top6 (Model Rank)
@@ -2743,7 +2770,7 @@ ${watchlistSection}
 ${riskNote}
 
 [Alpha Signal Guide]
-• **핵심 우선순위**: **지금 진입 가능** 종목 중 XS/RR/ER가 높은 순서로 검토  
+• **핵심 우선순위**: **지금 진입 가능** 종목 중 XS/RR/Model ER가 높은 순서로 검토
 • **실행/대기 구분**: **가격 대기/제외**는 종목 불량이 아니라 **진입 타이밍/리스크 조건 미충족**  
 • **배지 해석(요약)**: 💎 Hidden Gem 저평가 잠재, 🏢 Institutional 기관 수급, 🏷️ Discount 유리한 가격대, 🔥 Momentum 추세 강세, 🛡️ Defensive 방어 성격  
 • **리스크 원칙**: VIX 고변동/실적 근접 구간은 보수적으로, 손절가(Stop) 엄수`.trim();

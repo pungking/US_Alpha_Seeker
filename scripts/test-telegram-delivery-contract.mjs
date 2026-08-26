@@ -28,7 +28,12 @@ const {
   resolveDeliveryAttempts,
   summarizeChunkDeliveries
 } = contract;
-const { isExecutableForTelegramContract, reconcileStage6ExecutionSurfaces } = executionSurfaceContract;
+const {
+  classifyMarketPulseIntegrity,
+  isExecutableForTelegramContract,
+  reconcileStage6ExecutionSurfaces,
+  summarizeReportOnlyConcentration
+} = executionSurfaceContract;
 
 const finalizedSurfaces = reconcileStage6ExecutionSurfaces(
   [
@@ -42,6 +47,112 @@ assert.deepEqual(finalizedSurfaces.executablePicks, []);
 assert.deepEqual(finalizedSurfaces.watchlistTop.map((row) => row.symbol), ['LATEWAIT', 'WAIT']);
 assert.equal(isExecutableForTelegramContract({ finalDecision: 'EXECUTABLE_NOW' }), true);
 assert.equal(isExecutableForTelegramContract({ finalDecision: 'WAIT_PRICE', executionBucket: 'EXECUTABLE' }), false);
+assert.equal(
+  isExecutableForTelegramContract({ executionBucket: 'EXECUTABLE', executionReason: 'VALID_EXEC' }),
+  false,
+  'missing finalized decision must fail closed'
+);
+
+const paritySurfaces = reconcileStage6ExecutionSurfaces(
+  [
+    { symbol: 'EXEC', finalDecision: 'EXECUTABLE_NOW' },
+    { symbol: 'BLOCKED', finalDecision: 'WAIT_PRICE' }
+  ],
+  [
+    { symbol: 'EXEC', finalDecision: 'EXECUTABLE_NOW' },
+    { symbol: 'BLOCKED', finalDecision: 'WAIT_PRICE' }
+  ]
+);
+assert.deepEqual(paritySurfaces.executablePicks.map((row) => row.symbol), ['EXEC']);
+assert.deepEqual(paritySurfaces.watchlistTop.map((row) => row.symbol), ['BLOCKED']);
+assert.deepEqual(
+  new Set([...paritySurfaces.executablePicks, ...paritySurfaces.watchlistTop].map((row) => row.symbol)),
+  new Set(paritySurfaces.modelTop6.map((row) => row.symbol))
+);
+
+const earningsSurface = reconcileStage6ExecutionSurfaces(
+  [{ symbol: 'EVENT', finalDecision: 'EXECUTABLE_NOW' }],
+  [{
+    symbol: 'EVENT',
+    finalDecision: 'WAIT_PRICE',
+    decisionReason: 'wait_earnings_data_missing_quality_floor',
+    earningsCoverageStatus: 'EARNINGS_SOURCE_MISSING'
+  }]
+);
+assert.equal(earningsSurface.executablePicks.length, 0);
+assert.equal(earningsSurface.watchlistTop[0].earningsCoverageStatus, 'EARNINGS_SOURCE_MISSING');
+
+const renamedParitySurfaces = reconcileStage6ExecutionSurfaces(
+  paritySurfaces.modelTop6.map((row, index) => ({ ...row, symbol: `RENAMED_${index}` })),
+  paritySurfaces.modelTop6.map((row, index) => ({ ...row, symbol: `RENAMED_${index}` }))
+);
+assert.deepEqual(
+  renamedParitySurfaces.modelTop6.map((row) => row.finalDecision),
+  paritySurfaces.modelTop6.map((row) => row.finalDecision),
+  'ticker rename must not change finalized decision semantics'
+);
+
+assert.throws(
+  () => reconcileStage6ExecutionSurfaces([], [
+    { symbol: 'PRIVATE_DUPLICATE', finalDecision: 'EXECUTABLE_NOW' },
+    { symbol: 'PRIVATE_DUPLICATE', finalDecision: 'EXECUTABLE_NOW' }
+  ]),
+  (error) => error?.message === 'STAGE6_EXECUTION_SURFACE_DUPLICATE_FINALIZED_IDENTITY'
+    && !error.message.includes('PRIVATE_DUPLICATE')
+);
+assert.throws(
+  () => reconcileStage6ExecutionSurfaces([
+    { symbol: 'PRIVATE_MODEL_DUPLICATE', finalDecision: 'WAIT_PRICE' },
+    { symbol: 'PRIVATE_MODEL_DUPLICATE', finalDecision: 'WAIT_PRICE' }
+  ], []),
+  (error) => error?.message === 'STAGE6_EXECUTION_SURFACE_DUPLICATE_MODEL_TOP6_IDENTITY'
+    && !error.message.includes('PRIVATE_MODEL_DUPLICATE')
+);
+
+const staleMixedPulse = classifyMarketPulseIntegrity({
+  SPX: { sourceAsOf: '2026-08-25T13:43:00.000Z', grain: 'INTRADAY' },
+  NDX: { sourceAsOf: '2026-08-25T13:43:00.000Z', grain: 'INTRADAY' },
+  IXIC: { sourceAsOf: '2026-08-25T13:43:00.000Z', grain: 'INTRADAY' },
+  VIX: { sourceAsOf: '2026-08-24T20:00:00.000Z', grain: 'PREVIOUS_CLOSE', stale: true }
+}, '2026-08-25T13:43:05.000Z');
+assert.equal(staleMixedPulse.status, 'MARKET_PULSE_STALE_OR_GRAIN_MISMATCH');
+assert.equal(staleMixedPulse.staleRows, 1);
+assert.equal(staleMixedPulse.mixedGrain, true);
+assert.equal(staleMixedPulse.unknownOrUnclassifiedRows, 0);
+
+const unavailablePulse = classifyMarketPulseIntegrity({
+  SPX: {}, NDX: {}, IXIC: {}, VIX: {}
+}, '2026-08-25T13:43:05.000Z');
+assert.equal(unavailablePulse.status, 'MARKET_PULSE_SOURCE_AS_OF_UNAVAILABLE');
+assert.equal(unavailablePulse.sourceAsOfUnavailableRows, 4);
+assert.equal(unavailablePulse.unknownOrUnclassifiedRows, 0);
+assert.deepEqual(unavailablePulse, classifyMarketPulseIntegrity(
+  { SPX: {}, NDX: {}, IXIC: {}, VIX: {} },
+  '2026-08-25T13:43:05.000Z'
+));
+
+const unverifiedGrainPulse = classifyMarketPulseIntegrity({
+  SPX: { sourceAsOf: '2026-08-25T13:43:00.000Z' },
+  NDX: { sourceAsOf: '2026-08-25T13:43:00.000Z' },
+  IXIC: { sourceAsOf: '2026-08-25T13:43:00.000Z' },
+  VIX: { sourceAsOf: '2026-08-25T13:43:00.000Z' }
+}, '2026-08-25T13:43:05.000Z');
+assert.equal(unverifiedGrainPulse.status, 'MARKET_PULSE_GRAIN_UNVERIFIED');
+assert.equal(unverifiedGrainPulse.unverifiedGrainRows, 4);
+
+const concentrationA = summarizeReportOnlyConcentration([
+  { symbol: 'AAA', sector: 'Health', industry: 'Biotech', theme: 'Growth' },
+  { symbol: 'BBB', sector: 'Health', industry: 'Biotech', theme: 'Growth' },
+  { symbol: 'CCC', sector: 'Energy', industry: 'Tankers', theme: 'Cyclical' }
+]);
+const concentrationB = summarizeReportOnlyConcentration([
+  { symbol: 'RENAMED1', sector: 'Health', industry: 'Biotech', theme: 'Growth' },
+  { symbol: 'RENAMED2', sector: 'Health', industry: 'Biotech', theme: 'Growth' },
+  { symbol: 'RENAMED3', sector: 'Energy', industry: 'Tankers', theme: 'Cyclical' }
+]);
+assert.deepEqual(concentrationA, concentrationB, 'ticker rename must not change concentration evidence');
+assert.equal(concentrationA.policyImpact, 'NONE_REPORT_ONLY');
+assert.equal(JSON.stringify(concentrationA).includes('AAA'), false, 'aggregate concentration must redact symbols');
 
 assert.deepEqual(
   classifyTelegramNotification({
@@ -158,8 +269,9 @@ assert.match(
 );
 assert.match(
   executionSurfaces,
-  /const finalDecision = String\(item\?\.finalDecision[\s\S]*?if \(finalDecision\) return finalDecision === 'EXECUTABLE_NOW';[\s\S]*?const bucket/
+  /const finalDecision = String\(item\?\.finalDecision[\s\S]*?return finalDecision === 'EXECUTABLE_NOW';/
 );
+assert.doesNotMatch(executionSurfaces, /return typeof feasible === 'boolean' \? feasible : true/);
 assert.match(
   alphaAnalysis,
   /const finalizedExecutionSurfaces = reconcileStage6ExecutionSurfaces\(modelTop6Pool, top6Elite\)/
@@ -172,6 +284,14 @@ assert.match(
   alphaAnalysis,
   /execution_contract:\s*\{[\s\S]*?modelTop6: finalizedModelTop6Pool\.map\(toExecutionContractItem\)[\s\S]*?executablePicks: executableContractPool\.map\(toExecutionContractItem\)[\s\S]*?watchlistTop: finalizedModelTop6Watchlist\.map\(toExecutionContractItem\)/
 );
+assert.match(intelligence, /Model Expected Return/);
+assert.match(intelligence, /Model ER/);
+assert.match(intelligence, /모델확신/);
+assert.match(intelligence, /데이터완전성/);
+assert.match(intelligence, /EARNINGS_EVIDENCE_UNAVAILABLE/);
+assert.match(intelligence, /RetrievedAt:/);
+assert.match(intelligence, /SourceAsOf:/);
+assert.doesNotMatch(intelligence, /Source: \$\{pulseSourceLabel\} \| CapturedAt:/);
 assert.deepEqual(
   classifyTelegramNotification({ reportGenerated: true, sendAttempted: false }),
   classifyTelegramNotification({ reportGenerated: true, sendAttempted: false })
