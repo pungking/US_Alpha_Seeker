@@ -6,6 +6,7 @@ import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { validateStage1ArtifactForStage2 } from '../services/stage1PointInTimeFilterContract.mjs';
 
 interface Props {
   autoStart?: boolean;
@@ -647,7 +648,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog(`[WARN] Drive upload 응답에 fileId 누락 (${name})`, "warn");
           return;
       }
-      addLog(`[OK] Drive upload verified: ${name} (${uploaded.id})`, "ok");
+      addLog(`[OK] Drive upload verified: ${name}`, "ok");
   };
 
   const executeDeepFilter = async () => {
@@ -675,7 +676,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           if (!listData.files?.length) throw new Error("Stage 1 Data Missing.");
           const stage1File = listData.files[0];
           addLog(
-              `[STAGE2_SOURCE] Stage1=${stage1File.name || stage1File.id} size=${stage1File.size || 'unknown'} created=${stage1File.createdTime || 'unknown'} modified=${stage1File.modifiedTime || 'unknown'}`,
+              `[STAGE2_SOURCE] Stage1=${stage1File.name || 'unnamed'} size=${stage1File.size || 'unknown'} created=${stage1File.createdTime || 'unknown'} modified=${stage1File.modifiedTime || 'unknown'}`,
               "info"
           );
 
@@ -688,11 +689,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           await assertDriveOk(stage1Res, "executeDeepFilter.downloadStage1");
           const stage1Text = await stage1Res.text();
           const stage1Content = parseDriveJsonText(stage1Text);
-
-          const stage1RawCandidates = Array.isArray(stage1Content?.investable_universe)
-              ? stage1Content.investable_universe
-              : [];
-          const stage1InputCount = Number(stage1Content?.manifest?.inputCount || stage1RawCandidates.length);
+          const stage1Validation = await validateStage1ArtifactForStage2(stage1Content);
+          if (!stage1Validation.valid) {
+              throw new Error(`Stage 1 source contract invalid: ${stage1Validation.reasons.join(',')}`);
+          }
+          const stage1RawCandidates = stage1Validation.investableUniverse;
+          const stage1Manifest = stage1Validation.manifest;
+          const stage1InputCount = Number(stage1Manifest?.inputCount || stage1RawCandidates.length);
           const candidates = stage1RawCandidates.filter(isAnalysisEligibleTicker);
           const excludedByInstrumentType = Math.max(0, stage1RawCandidates.length - candidates.length);
           addLog(`Targets Acquired: ${candidates.length} candidates.`, "ok");
@@ -992,6 +995,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   inputCount: stage1InputCount,
                   eligibleCount: candidates.length,
                   excludedByInstrumentType,
+                  sourceStage1File: stage1File.name || null,
+                  sourceStage1SchemaVersion: stage1Manifest.schemaVersion,
+                  sourceStage1RunId: stage1Manifest.runId,
+                  sourceStage1DecisionAt: stage1Manifest.decisionAt,
+                  sourceStage1InputHash: stage1Manifest.inputHash,
+                  sourceStage1OutputHash: stage1Manifest.outputHash,
+                  sourceStage1ThresholdContractSha256: stage1Manifest.thresholdContractSha256,
                   timestamp: new Date().toISOString(),
                   engine: "3-Factor_Quant_Model_Sanitized",
                   aiAudit: "Skipped (Quant-Only Optimization)"
