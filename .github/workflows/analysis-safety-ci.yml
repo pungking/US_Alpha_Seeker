@@ -31,6 +31,8 @@ jobs:
         run: npm run ops:safety:client-secret-exposure
       - name: Stage0 source evidence contract fixture
         run: npm run ops:test:stage0-source-contract
+      - name: Stage1 point-in-time filter contract fixture
+        run: npm run ops:test:stage1-point-in-time-contract
       - name: Stage6 fillability contract fixture
         run: npm run ops:stage6:fillability-contract:validate
       - name: Stage6 fresh-focus formula coverage fixture
