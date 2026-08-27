@@ -29,6 +29,8 @@ jobs:
         run: npm run ops:test:telegram-delivery-contract
       - name: Client secret exposure audit
         run: npm run ops:safety:client-secret-exposure
+      - name: Stage0 source evidence contract fixture
+        run: npm run ops:test:stage0-source-contract
       - name: Stage6 fillability contract fixture
         run: npm run ops:stage6:fillability-contract:validate
       - name: Stage6 fresh-focus formula coverage fixture
