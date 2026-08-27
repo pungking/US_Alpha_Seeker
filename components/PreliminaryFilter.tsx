@@ -9,6 +9,7 @@ import { trackUsage, removeCitations } from '../services/intelligenceService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { validateStage0ArtifactForStage1 } from '../services/stage0SourceEvidenceContract.mjs';
 
 // [STAGE 0 -> 1 DATA STRUCTURE]
 interface MasterTicker {
@@ -95,7 +96,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [stage0EligibleCount, setStage0EligibleCount] = useState(0);
   const [stage0ExcludedCount, setStage0ExcludedCount] = useState(0);
   const [stage0SourceFile, setStage0SourceFile] = useState<string | null>(null);
-  const [stage0SourceFileId, setStage0SourceFileId] = useState<string | null>(null);
+  const [stage0SourceContract, setStage0SourceContract] = useState<any>(null);
 
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -270,20 +271,21 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           const contentFetch = await fetch(`https://www.googleapis.com/drive/v3/files/${stage0Source.id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });
-          await assertDriveOk(contentFetch, `loadStage0.content(${stage0Source.id})`);
+          await assertDriveOk(contentFetch, 'loadStage0.content');
           const contentText = await contentFetch.text();
           const content = parseDriveJsonText(contentText);
+          const stage0Validation = await validateStage0ArtifactForStage1(content);
+          if (!stage0Validation.valid) {
+              throw new Error(`Stage 0 source contract invalid: ${stage0Validation.reasons.join(',')}`);
+          }
           const stage0FileName = String(stage0Source?.name || '');
-          const stage0FileId = String(stage0Source?.id || '');
           setStage0SourceFile(stage0FileName || null);
-          setStage0SourceFileId(stage0FileId || null);
+          setStage0SourceContract(stage0Validation.manifest);
 
           // CRITICAL: Capture data in local scope to avoid State Race Conditions
-          const stage0Universe: MasterTicker[] = Array.isArray(content?.universe) ? content.universe : [];
-          const stage0EligibleUniverse: MasterTicker[] = Array.isArray(content?.eligible_universe)
-            ? content.eligible_universe
-            : stage0Universe.filter(isAnalysisEligibleTicker);
-          const stage0Manifest = content?.manifest || {};
+          const stage0Universe: MasterTicker[] = stage0Validation.universe;
+          const stage0EligibleUniverse: MasterTicker[] = stage0Validation.eligibleUniverse;
+          const stage0Manifest = stage0Validation.manifest;
           const stage0Counts: Stage0CountContract = {
             inputCount: toNonNegativeInt(stage0Universe.length, stage0Manifest?.inputCount),
             eligibleCount: toNonNegativeInt(stage0EligibleUniverse.length, stage0Manifest?.eligibleCount),
@@ -324,7 +326,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 proposal,
                 stage0Counts,
                 stage0FileName || null,
-                stage0FileId || null
+                stage0Validation.manifest
               );
           } else {
               setLoading(false);
@@ -576,7 +578,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       explicitProposal?: AiProposal,
       explicitStage0Counts?: Stage0CountContract,
       explicitStage0File?: string | null,
-      explicitStage0FileId?: string | null
+      explicitStage0Contract?: any
   ) => {
     if (!accessToken) return;
     
@@ -591,7 +593,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       excludedByInstrumentType: stage0ExcludedCount
     };
     const sourceStage0File = explicitStage0File ?? stage0SourceFile;
-    const sourceStage0FileId = explicitStage0FileId ?? stage0SourceFileId;
+    const sourceContract = explicitStage0Contract ?? stage0SourceContract;
     const manifestInputCount = toNonNegativeInt(stage0Counts.inputCount, dataToFilter.length);
     const manifestEligibleCount = toNonNegativeInt(stage0Counts.eligibleCount, dataToFilter.length);
     const manifestExcludedByInstrumentType = Math.max(
@@ -674,7 +676,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             eligibleCount: manifestEligibleCount,
             excludedByInstrumentType: manifestExcludedByInstrumentType,
             sourceStage0File,
-            sourceStage0FileId,
+            sourceStage0SchemaVersion: sourceContract?.schemaVersion || null,
+            sourceStage0RunId: sourceContract?.runId || null,
+            sourceStage0InventorySha256: sourceContract?.sourceInventorySha256 || null,
+            sourceStage0InputHash: sourceContract?.inputHash || null,
+            sourceStage0OutputHash: sourceContract?.outputHash || null,
             regime: activeProposal?.regime || "Manual", 
             filters: { minPrice: targetPrice, minVolume: targetVolume, hardGate: "PE>0 && ROE>0 && Target>0" }, 
             timestamp: new Date().toISOString(), 
