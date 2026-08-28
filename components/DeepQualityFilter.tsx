@@ -696,6 +696,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const stage1RawCandidates = stage1Validation.investableUniverse;
           const stage1Manifest = stage1Validation.manifest;
           const stage1InputCount = Number(stage1Manifest?.inputCount || stage1RawCandidates.length);
+          if (stage1RawCandidates.length === 0) {
+              const primaryBlocker = Object.entries(stage1Manifest?.statusCounts || {})
+                  .sort(([leftKey, leftCount]: any, [rightKey, rightCount]: any) =>
+                      Number(rightCount) - Number(leftCount) || String(leftKey).localeCompare(String(rightKey))
+                  )[0];
+              const blocker = primaryBlocker ? `${primaryBlocker[0]}=${primaryBlocker[1]}` : 'UNCLASSIFIED=0';
+              throw new Error(`Stage 1 point-in-time evidence gate produced zero rows (${blocker}).`);
+          }
           const candidates = stage1RawCandidates.filter(isAnalysisEligibleTicker);
           const excludedByInstrumentType = Math.max(0, stage1RawCandidates.length - candidates.length);
           addLog(`Targets Acquired: ${candidates.length} candidates.`, "ok");
