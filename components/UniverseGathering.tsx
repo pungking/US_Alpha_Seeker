@@ -4,6 +4,7 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 import {
+  applyStage0FinancialPublicationLineage,
   buildStage0Artifact,
   buildStage0SourceFileEvidence,
   classifyStage0RowEvidence,
@@ -795,8 +796,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       
       try {
           // STRICTLY USE DRIVE ONLY
-          const generatedAt = new Date().toISOString();
-          const { assets, sourceFiles } = await mountFinancialEngine(token);
+          const { assets, sourceFiles, financialLineageContract, generatedAt } = await mountFinancialEngine(token);
           
           if (assets.length === 0) throw new Error("Engine Stall: Zero assets loaded from Drive.");
 
@@ -828,6 +828,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               universe: assets,
               eligibleUniverse,
               monitoringUniverse,
+              financialLineageContract,
               manifestBase: {
                   version: "13.5.1", 
                   provider: "Drive_V13_Original_Files", 
@@ -896,6 +897,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const financialDailyFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapFolderId);
       if (!financialDailyFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDailyFolder}' not found inside Maps.`);
 
+      const identityMapMeta = await findSourceFile(token, 'Ticker_ID_Mapping_Final.json', systemMapFolderId);
+      const financialLineageMeta = await findSourceFile(token, 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json', systemMapFolderId);
+      if (!identityMapMeta || !financialLineageMeta) {
+          throw new Error('Stage0 SEC financial lineage contract missing from System_Identity_Maps.');
+      }
+      const identityMapDownload = await downloadSourceFile(token, identityMapMeta.id);
+      const financialLineageDownload = await downloadSourceFile(token, financialLineageMeta.id);
+      const identityMap = parseDriveJsonText(identityMapDownload.rawText);
+      const financialLineageArtifact = parseDriveJsonText(financialLineageDownload.rawText);
+      if (!identityMap || typeof identityMap !== 'object' || Array.isArray(identityMap)) {
+          throw new Error('Stage0 identity map contract invalid.');
+      }
+
       addLog("Core Map Located. Firing Cylinders (A-Z)...", "ok");
 
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -940,7 +954,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           ? Object.values(content)
                           : [];
                   // [CORE] Process Data with Robust Key Mapping & Scaling
-                  const stocks = processCylinderData(content, retrievedAt);
+                  const stocks = processCylinderData(content, retrievedAt, fileName);
                   const count = stocks.length;
                   const rejectedRows = Math.max(0, sourceRows.length - count);
                   const parseStatus = sourceRows.length === 0 && (!content || typeof content !== 'object')
@@ -953,6 +967,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       fileName,
                       sourceKind: 'FINANCIAL_DATA_DAILY_CYLINDER',
                       rawBytes,
+                      canonicalPayload: content,
                       retrievedAt,
                       sourceRows,
                       parsedRows: count,
@@ -984,13 +999,32 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       if (sourceFiles.length !== cylinders.length || sourceFiles.some((file) => file.parseStatus === 'PARSE_FAILED')) {
           throw new Error(`Stage0 source contract incomplete: verified=${sourceFiles.length}/${cylinders.length}`);
       }
-      
-      return { assets: masterUniverse, sourceFiles };
+
+      const generatedAt = new Date().toISOString();
+      const financialLineage = await applyStage0FinancialPublicationLineage({
+          rows: masterUniverse,
+          sourceFiles,
+          lineageArtifact: financialLineageArtifact,
+          lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+          lineageArtifactRawBytes: financialLineageDownload.rawBytes,
+          identityMap,
+          identityMapRawBytes: identityMapDownload.rawBytes,
+          referenceTime: generatedAt
+      });
+      const financialLineageRows = financialLineage.rows as unknown as MasterTicker[];
+      const finalRegistry = new Map(financialLineageRows.map((row) => [row.symbol, row]));
+      setGatheredRegistry(finalRegistry);
+      addLog(
+          `SEC publication lineage: verified=${financialLineage.contract.verifiedRows} blocked=${financialLineage.contract.unresolvedRows + financialLineage.contract.notApplicableRows}`,
+          financialLineage.contract.verifiedRows > 0 ? 'ok' : 'warn'
+      );
+
+      return { assets: financialLineageRows, sourceFiles, financialLineageContract: financialLineage.contract, generatedAt };
   };
 
   // [V13] Enhanced Data Processor for 28 Metrics
   // [FIX] Smart Scaling for Ratios
-  const processCylinderData = (jsonContent: any, quoteRetrievedAt: string): MasterTicker[] => {
+  const processCylinderData = (jsonContent: any, quoteRetrievedAt: string, sourceDailyFile: string): MasterTicker[] => {
       const items = Array.isArray(jsonContent) ? jsonContent : Object.values(jsonContent);
           
       return items.map((item: any) => {
@@ -1114,6 +1148,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   revenueGrowth: toPercent(root.revenueGrowth),
                   operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
                   netIncome: Number(root.netIncome || 0),
+                  netIncomeEvidenceValue: root.netIncome ?? null,
                   netIncomeCommonStockholders: Number(root.netIncomeCommonStockholders || root.netIncome || 0),
 
                   // 5. Dividend
@@ -1145,6 +1180,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   quoteTimestamp: Number(root.quoteTimestamp || 0),
                   quoteSource: root.quoteSource || null,
                   quoteRetrievedAt,
+                  sourceDailyFile,
                   netIncomeSource: root.netIncomeSource || null,
                   netIncomeAsOf: root.netIncomeAsOf || null,
                   financialSource: root.financialSource || root.netIncomeSource || null,

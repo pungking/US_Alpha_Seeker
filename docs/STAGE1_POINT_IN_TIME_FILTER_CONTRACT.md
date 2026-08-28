@@ -7,9 +7,10 @@ Stage1 accepts a row only when its quote and profitability inputs are verifiable
 
 ## Artifact
 
-`STAGE1_PURIFIED_UNIVERSE_*.json` now uses `stage1-point-in-time-v1` and records:
+`STAGE1_PURIFIED_UNIVERSE_*.json` now uses `stage1-point-in-time-v2` and records:
 
 - the exact Stage0 run and inventory/input/output hashes;
+- the exact Stage0 SEC-lineage artifact, producer evidence/input/output, and identity-map content hashes;
 - deterministic Stage1 input, threshold-contract, and output hashes;
 - threshold source/provider/model provenance;
 - row-level point-in-time gate results and analyst-target status;
@@ -17,9 +18,10 @@ Stage1 accepts a row only when its quote and profitability inputs are verifiable
 
 Price and volume thresholds, the small-cap volume multiplier, positive PE/PER, and
 positive ROE remain unchanged. A row also needs a verified quote source/timestamp and
-verified financial source/fiscal-period/publication timestamp available by
-`decisionAt`. It also independently requires an immutable retrieval timestamp
-ordered after publication and no later than `decisionAt`.
+verified SEC financial-lineage classification and record SHA-256, plus the source,
+fiscal-period, and publication timestamp available by `decisionAt`. It also
+independently requires an immutable retrieval timestamp ordered after publication
+and no later than `decisionAt`. `unresolvedPromotionRows` must remain zero.
 
 ## Compatibility
 

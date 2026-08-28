@@ -1,7 +1,14 @@
 import { hashCanonicalJsonSha256 } from './stage0SourceEvidenceContract.mjs';
 
 const SHA256_RE = /^[a-f0-9]{64}$/;
+const STAGE0_SCHEMA_VERSION = 'stage0-source-truth-v2';
+const STAGE1_SCHEMA_VERSION = 'stage1-point-in-time-v2';
 const VERIFIED_STAGE1_STATUS = 'STAGE1_POINT_IN_TIME_VERIFIED';
+const VERIFIED_FINANCIAL_LINEAGE = new Set([
+  'FINANCIAL_LINEAGE_VERIFIED_ORIGINAL',
+  'FINANCIAL_LINEAGE_VERIFIED_AMENDMENT',
+  'FINANCIAL_LINEAGE_DUPLICATE_SAME_ACCESSION_COLLAPSED'
+]);
 const VALID_THRESHOLD_SOURCES = new Set(['AI_PROPOSAL_CAPTURED', 'FALLBACK_DEFAULT', 'MANUAL_CAPTURED']);
 const VALID_TARGET_POLICY_STATUSES = new Set([
   'TARGET_POINT_IN_TIME_VERIFIED_REPORT_ONLY',
@@ -68,6 +75,9 @@ const financialGate = (row, decisionAt) => {
   const retrievedAt = normalizeIso(row?.financialRetrievedAt);
   const decisionIso = normalizeIso(decisionAt);
   return normalizeText(row?.financialEvidenceStatus).toUpperCase() === 'FINANCIAL_EVIDENCE_VERIFIED'
+    && VERIFIED_FINANCIAL_LINEAGE.has(normalizeText(row?.financialLineageClassification).toUpperCase())
+    && SHA256_RE.test(normalizeText(row?.financialSourceRecordSha256))
+    && SHA256_RE.test(normalizeText(row?.financialLineageArtifactSha256))
     && Boolean(normalizeText(row?.financialSource))
     && Boolean(normalizeText(row?.fiscalPeriod))
     && Boolean(publishedAt && retrievedAt && decisionIso
@@ -208,8 +218,9 @@ const thresholdContract = (thresholds, policy) => ({
 });
 
 const stage1OutputHash = (rows) => hashCanonicalJsonSha256({ investable_universe: canonicalRowOrder(rows) });
-const stage1InputHash = ({ sourceStage0OutputHash, thresholdContractSha256, decisionAt }) => hashCanonicalJsonSha256({
+const stage1InputHash = ({ sourceStage0OutputHash, sourceStage0FinancialLineageArtifactSha256, thresholdContractSha256, decisionAt }) => hashCanonicalJsonSha256({
   sourceStage0OutputHash,
+  sourceStage0FinancialLineageArtifactSha256,
   thresholdContractSha256,
   decisionAt
 });
@@ -228,18 +239,37 @@ export const buildStage1Artifact = async ({
   const sourceStage0InputCount = Number(sourceStage0Manifest?.inputCount);
   const sourceStage0EligibleCount = Number(sourceStage0Manifest?.eligibleCount);
   const sourceStage0ExcludedCount = Number(sourceStage0Manifest?.excludedByInstrumentType);
+  const sourceStage0FinancialLineage = sourceStage0Manifest?.financialLineageContract || {};
+  const sourceStage0FinancialLineageArtifactSha256 = normalizeText(sourceStage0FinancialLineage?.artifactContentSha256);
   const sourceRows = Array.isArray(rows) ? rows : [];
   const sourceIdentities = sourceRows.map((row) => normalizeText(row?.symbol));
   if (
     !decisionIso
     || !normalizeText(sourceStage0File)
-    || sourceStage0Manifest?.schemaVersion !== 'stage0-source-truth-v1'
+    || sourceStage0Manifest?.schemaVersion !== STAGE0_SCHEMA_VERSION
     || !normalizeText(sourceStage0Manifest?.runId)
     || !sourceStage0GeneratedAt
     || sourceStage0GeneratedAt > decisionIso
     || !SHA256_RE.test(normalizeText(sourceStage0Manifest?.sourceInventorySha256))
     || !SHA256_RE.test(normalizeText(sourceStage0Manifest?.inputHash))
     || !SHA256_RE.test(sourceStage0OutputHash)
+    || sourceStage0FinancialLineage?.status !== 'STAGE0_SEC_FINANCIAL_LINEAGE_CONSUMED'
+    || !SHA256_RE.test(sourceStage0FinancialLineageArtifactSha256)
+    || !SHA256_RE.test(normalizeText(sourceStage0FinancialLineage?.producerEvidenceSha256))
+    || !SHA256_RE.test(normalizeText(sourceStage0FinancialLineage?.producerInputHash))
+    || !SHA256_RE.test(normalizeText(sourceStage0FinancialLineage?.producerOutputHash))
+    || !SHA256_RE.test(normalizeText(sourceStage0FinancialLineage?.identityMapContentSha256))
+    || !SHA256_RE.test(normalizeText(sourceStage0FinancialLineage?.identityMapCanonicalSha256))
+    || !SHA256_RE.test(normalizeText(sourceStage0FinancialLineage?.currentDailySourceInventorySha256))
+    || sourceStage0FinancialLineage?.rowCountParity !== true
+    || sourceStage0FinancialLineage?.currentDailySourceHashParity !== true
+    || Number(sourceStage0FinancialLineage?.sourceRows) !== sourceStage0InputCount
+    || Number(sourceStage0FinancialLineage?.matchedRows) !== sourceStage0InputCount
+    || Number(sourceStage0FinancialLineage?.unknownOrUnclassifiedRows) !== 0
+    || sourceStage0FinancialLineage?.canonicalSourceChanged !== false
+    || sourceStage0FinancialLineage?.policyImpact !== 'NONE_REPORT_ONLY'
+    || sourceStage0FinancialLineage?.Stage1To7PolicyChanged !== false
+    || sourceStage0FinancialLineage?.brokerOrSidecarStateMutation !== false
     || !Number.isInteger(sourceStage0InputCount)
     || !Number.isInteger(sourceStage0EligibleCount)
     || !Number.isInteger(sourceStage0ExcludedCount)
@@ -268,11 +298,16 @@ export const buildStage1Artifact = async ({
       : 'MANUAL_FILTER';
   const investableUniverse = evaluation.acceptedRows.map((row) => ({ ...row, origin }));
   const thresholdContractSha256 = await hashCanonicalJsonSha256(contract);
-  const inputHash = await stage1InputHash({ sourceStage0OutputHash, thresholdContractSha256, decisionAt: decisionIso });
+  const inputHash = await stage1InputHash({
+    sourceStage0OutputHash,
+    sourceStage0FinancialLineageArtifactSha256,
+    thresholdContractSha256,
+    decisionAt: decisionIso
+  });
   const outputHash = await stage1OutputHash(investableUniverse);
   return {
     manifest: {
-      schemaVersion: 'stage1-point-in-time-v1',
+      schemaVersion: STAGE1_SCHEMA_VERSION,
       runId: `stage1-${inputHash.slice(0, 12)}-${outputHash.slice(0, 12)}`,
       generatedAt: decisionIso,
       decisionAt: decisionIso,
@@ -284,6 +319,13 @@ export const buildStage1Artifact = async ({
       sourceStage0InventorySha256: sourceStage0Manifest.sourceInventorySha256,
       sourceStage0InputHash: sourceStage0Manifest.inputHash,
       sourceStage0OutputHash,
+      sourceStage0FinancialLineageArtifactSha256,
+      sourceStage0FinancialLineageEvidenceSha256: sourceStage0FinancialLineage.producerEvidenceSha256,
+      sourceStage0FinancialLineageInputHash: sourceStage0FinancialLineage.producerInputHash,
+      sourceStage0FinancialLineageOutputHash: sourceStage0FinancialLineage.producerOutputHash,
+      sourceStage0IdentityMapContentSha256: sourceStage0FinancialLineage.identityMapContentSha256,
+      sourceStage0IdentityMapCanonicalSha256: sourceStage0FinancialLineage.identityMapCanonicalSha256,
+      sourceStage0DailySourceInventorySha256: sourceStage0FinancialLineage.currentDailySourceInventorySha256,
       count: investableUniverse.length,
       sourceCount: sourceRows.length,
       inputCount: sourceStage0InputCount,
@@ -291,6 +333,14 @@ export const buildStage1Artifact = async ({
       excludedByInstrumentType: sourceStage0ExcludedCount,
       pointInTimeVerifiedRows: investableUniverse.length,
       evidenceBlockedRows: evaluation.blockedRows,
+      financialLineageVerifiedRows: investableUniverse.filter((row) =>
+        VERIFIED_FINANCIAL_LINEAGE.has(normalizeText(row?.financialLineageClassification).toUpperCase())
+          && normalizeText(row?.financialLineageArtifactSha256) === sourceStage0FinancialLineageArtifactSha256
+      ).length,
+      unresolvedPromotionRows: investableUniverse.filter((row) =>
+        !VERIFIED_FINANCIAL_LINEAGE.has(normalizeText(row?.financialLineageClassification).toUpperCase())
+          || normalizeText(row?.financialLineageArtifactSha256) !== sourceStage0FinancialLineageArtifactSha256
+      ).length,
       statusCounts: evaluation.statusCounts,
       targetHardGateApplied: false,
       targetBiasAudit: evaluation.targetBiasAudit,
@@ -317,10 +367,10 @@ export const validateStage1ArtifactForStage2 = async (artifact = {}) => {
   const reasons = new Set();
   const manifest = artifact?.manifest || {};
   const investableUniverse = Array.isArray(artifact?.investable_universe) ? artifact.investable_universe : [];
-  addReason(reasons, manifest?.schemaVersion !== 'stage1-point-in-time-v1', 'MANIFEST_SCHEMA_INVALID');
+  addReason(reasons, manifest?.schemaVersion !== STAGE1_SCHEMA_VERSION, 'MANIFEST_SCHEMA_INVALID');
   addReason(reasons, !normalizeIso(manifest?.decisionAt) || !normalizeIso(manifest?.generatedAt), 'MANIFEST_TIMESTAMP_INVALID');
   addReason(reasons, !normalizeText(manifest?.runId) || manifest?.sourceStage !== 'stage1_prefilter', 'MANIFEST_IDENTITY_INVALID');
-  addReason(reasons, manifest?.sourceStage0SchemaVersion !== 'stage0-source-truth-v1', 'SOURCE_STAGE0_CONTRACT_INVALID');
+  addReason(reasons, manifest?.sourceStage0SchemaVersion !== STAGE0_SCHEMA_VERSION, 'SOURCE_STAGE0_CONTRACT_INVALID');
   addReason(reasons, !normalizeText(manifest?.sourceStage0RunId), 'SOURCE_STAGE0_CONTRACT_INVALID');
   addReason(reasons,
     !normalizeText(manifest?.sourceStage0File)
@@ -330,6 +380,15 @@ export const validateStage1ArtifactForStage2 = async (artifact = {}) => {
   addReason(reasons, !SHA256_RE.test(normalizeText(manifest?.sourceStage0InventorySha256)), 'SOURCE_STAGE0_HASH_INVALID');
   addReason(reasons, !SHA256_RE.test(normalizeText(manifest?.sourceStage0InputHash)), 'SOURCE_STAGE0_HASH_INVALID');
   addReason(reasons, !SHA256_RE.test(normalizeText(manifest?.sourceStage0OutputHash)), 'SOURCE_STAGE0_HASH_INVALID');
+  addReason(reasons,
+    !SHA256_RE.test(normalizeText(manifest?.sourceStage0FinancialLineageArtifactSha256))
+      || !SHA256_RE.test(normalizeText(manifest?.sourceStage0FinancialLineageEvidenceSha256))
+      || !SHA256_RE.test(normalizeText(manifest?.sourceStage0FinancialLineageInputHash))
+      || !SHA256_RE.test(normalizeText(manifest?.sourceStage0FinancialLineageOutputHash))
+      || !SHA256_RE.test(normalizeText(manifest?.sourceStage0IdentityMapContentSha256))
+      || !SHA256_RE.test(normalizeText(manifest?.sourceStage0IdentityMapCanonicalSha256))
+      || !SHA256_RE.test(normalizeText(manifest?.sourceStage0DailySourceInventorySha256)),
+    'SOURCE_STAGE0_FINANCIAL_LINEAGE_INVALID');
   addReason(reasons, Number(manifest?.count) !== investableUniverse.length || Number(manifest?.pointInTimeVerifiedRows) !== investableUniverse.length, 'STAGE1_ROW_COUNT_MISMATCH');
   addReason(reasons,
     Number(manifest?.sourceCount) !== Number(manifest?.eligibleCount)
@@ -337,11 +396,18 @@ export const validateStage1ArtifactForStage2 = async (artifact = {}) => {
     'SOURCE_STAGE0_ROW_COUNT_MISMATCH');
   addReason(reasons, manifest?.targetHardGateApplied !== false || manifest?.thresholdContract?.targetHardGateApplied !== false, 'TARGET_HARD_GATE_CONTRACT_INVALID');
   addReason(reasons, Number(manifest?.unknownOrUnclassifiedRows) !== 0, 'POINT_IN_TIME_CLASSIFICATION_INVALID');
+  addReason(reasons,
+    Number(manifest?.unresolvedPromotionRows) !== 0
+      || Number(manifest?.financialLineageVerifiedRows) !== investableUniverse.length,
+    'SOURCE_STAGE0_FINANCIAL_LINEAGE_INVALID');
   addReason(reasons, investableUniverse.some((row) =>
     row?.stage1PointInTimeStatus !== VERIFIED_STAGE1_STATUS
       || row?.targetHardGateApplied !== false
       || Object.values(row?.stage1Gates || {}).length !== 7
       || Object.values(row?.stage1Gates || {}).some((value) => value !== true)
+      || !VERIFIED_FINANCIAL_LINEAGE.has(normalizeText(row?.financialLineageClassification).toUpperCase())
+      || !SHA256_RE.test(normalizeText(row?.financialSourceRecordSha256))
+      || normalizeText(row?.financialLineageArtifactSha256) !== normalizeText(manifest?.sourceStage0FinancialLineageArtifactSha256)
   ), 'POINT_IN_TIME_CLASSIFICATION_INVALID');
   addReason(reasons, investableUniverse.some((row) => {
     const targetStatus = normalizeText(row?.targetPolicyStatus);
@@ -370,6 +436,7 @@ export const validateStage1ArtifactForStage2 = async (artifact = {}) => {
   addReason(reasons, expectedThresholdHash !== manifest?.thresholdContractSha256, 'THRESHOLD_CONTRACT_HASH_MISMATCH');
   const expectedInputHash = await stage1InputHash({
     sourceStage0OutputHash: manifest?.sourceStage0OutputHash,
+    sourceStage0FinancialLineageArtifactSha256: manifest?.sourceStage0FinancialLineageArtifactSha256,
     thresholdContractSha256: manifest?.thresholdContractSha256,
     decisionAt: normalizeIso(manifest?.decisionAt)
   });
