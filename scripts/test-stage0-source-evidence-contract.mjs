@@ -11,9 +11,11 @@ try {
 }
 
 const {
+  applyStage0FinancialPublicationLineage,
   buildStage0Artifact,
   buildStage0SourceFileEvidence,
   classifyStage0RowEvidence,
+  hashCanonicalJsonSha256,
   validateStage0ArtifactForStage1
 } = contract;
 
@@ -36,6 +38,7 @@ const sourceFile = async (letter, ordinal) => {
     fileName: `${letter}_stocks_daily.json`,
     sourceKind: 'FINANCIAL_DATA_DAILY_CYLINDER',
     rawText: JSON.stringify(rows),
+    canonicalPayload: rows,
     retrievedAt: GENERATED_AT,
     sourceRows: rows,
     parsedRows: rows.length,
@@ -54,10 +57,23 @@ const completeRow = classifyStage0RowEvidence({
   quoteSource: 'FIXTURE_QUOTE',
   quoteTimestamp: Date.parse('2026-08-26T09:00:00.000Z') / 1000,
   quoteRetrievedAt: GENERATED_AT,
-  netIncomeSource: 'FIXTURE_FINANCIAL',
-  fiscalPeriod: '2026-Q2',
+  netIncome: 100,
+  netIncomeSource: 'HISTORY',
+  netIncomeAsOf: '2026-06-30',
+  financialSource: 'YFINANCE_HISTORY_SEC_EDGAR_EXACT_LINEAGE',
+  financialMetricBasis: {
+    metric: 'NET_INCOME',
+    sourceLabel: 'Net Income',
+    taxonomy: 'us-gaap',
+    concept: 'NetIncomeLoss',
+    unit: 'USD'
+  },
+  fiscalPeriod: '2026-06-30',
   financialPublishedAt: '2026-08-20T12:00:00.000Z',
   financialRetrievedAt: GENERATED_AT,
+  financialLineageClassification: 'FINANCIAL_LINEAGE_VERIFIED_ORIGINAL',
+  financialSourceRecordSha256: 'd'.repeat(64),
+  financialLineageArtifactSha256: 'e'.repeat(64),
   targetMeanPrice: 12,
   targetMeanPriceSource: 'FIXTURE_TARGET',
   targetMeanPriceAsOf: '2026-08-25T20:00:00.000Z',
@@ -79,8 +95,265 @@ assert.equal(completeRow.legacyDataQuality, 'HIGH');
 assert.equal(completeRow.dataQualityLegacyBasis, 'PRICE_PRESENT_ONLY');
 const completeUniverse = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => ({
   ...completeRow,
-  symbol: `${letter}1`
+  symbol: `${letter}1`,
+  sourceDailyFile: `${letter}_stocks_daily.json`
 }));
+
+const identityMap = Object.fromEntries(completeUniverse.map((row) => [row.symbol, {
+  symbol: row.symbol,
+  sourceSymbol: row.symbol,
+  analysisEligible: true
+}]));
+const identityMapSha256 = await hashCanonicalJsonSha256(identityMap);
+const producerSourceFiles = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').flatMap((letter, index) => [
+  {
+    fileName: `${letter}_stocks_daily.json`,
+    sourceKind: 'DAILY',
+    contentSha256: completeSources[index].canonicalContentSha256,
+    hashBasis: 'CANONICAL_JSON_DOWNLOADED_FROM_DRIVE'
+  },
+  {
+    fileName: `${letter}_stocks_history.json`,
+    sourceKind: 'HISTORY',
+    contentSha256: (index + 27).toString(16).padStart(64, '0'),
+    hashBasis: 'CANONICAL_JSON_DOWNLOADED_FROM_DRIVE'
+  }
+]);
+const producerSourceInventorySha256 = await hashCanonicalJsonSha256(
+  [...producerSourceFiles].sort((left, right) =>
+    left.sourceKind.localeCompare(right.sourceKind) || left.fileName.localeCompare(right.fileName)
+  )
+);
+const sourceResponseHashes = {
+  secCompanyTickerMap: '2'.repeat(64),
+  secCompanyfactsBulk: '3'.repeat(64),
+  secSubmissionsBulk: '4'.repeat(64)
+};
+const producerLineageRows = await Promise.all(completeUniverse.map(async (row, index) => {
+  const base = {
+    identity: {
+      effectiveSymbol: row.symbol,
+      sourceSymbol: row.symbol,
+      identifierLineageStatus: 'IDENTIFIER_LINEAGE_VERIFIED'
+    },
+    identityMapSha256,
+    financialMetricBasis: 'NET_INCOME',
+    sourceMetricLabel: 'Net Income',
+    value: row.netIncome,
+    fiscalPeriod: row.netIncomeAsOf,
+    sourceDailyFile: row.sourceDailyFile,
+    sourceDailyFileSha256: producerSourceFiles.find((file) =>
+      file.sourceKind === 'DAILY' && file.fileName === row.sourceDailyFile
+    ).contentSha256,
+    sourceHistoryFile: `${row.symbol[0]}_stocks_history.json`,
+    sourceHistoryFileSha256: producerSourceFiles.find((file) =>
+      file.sourceKind === 'HISTORY' && file.fileName === `${row.symbol[0]}_stocks_history.json`
+    ).contentSha256,
+    inputStatus: index === completeUniverse.length - 1
+      ? 'FINANCIAL_LINEAGE_FACT_NOT_FOUND'
+      : 'READY_FOR_EXACT_SEC_LINEAGE'
+  };
+  if (index === completeUniverse.length - 1) {
+    return { ...base, classification: 'FINANCIAL_LINEAGE_FACT_NOT_FOUND' };
+  }
+  const verified = {
+    ...base,
+    classification: 'FINANCIAL_LINEAGE_VERIFIED_ORIGINAL',
+    financialSource: 'YFINANCE_HISTORY_SEC_EDGAR_EXACT_LINEAGE',
+    financialMetricBasis: {
+      metric: 'NET_INCOME',
+      sourceLabel: 'Net Income',
+      taxonomy: 'us-gaap',
+      concept: 'NetIncomeLoss',
+      unit: 'USD'
+    },
+    fiscalPeriod: { start: '2026-04-01', end: row.netIncomeAsOf },
+    form: '10-Q',
+    accessionNumber: `fixture-accession-${index}`,
+    tenDigitCik: `fixture-cik-${index}`,
+    financialPublishedAt: '2026-08-20T12:00:00.000Z',
+    financialRetrievedAt: '2026-08-26T09:50:00.000Z',
+    amendmentStatus: 'ORIGINAL',
+    collapsedDuplicateRows: 0
+  };
+  const financialSourceRecordHashBasis = {
+    cik: verified.tenDigitCik,
+    taxonomy: verified.financialMetricBasis.taxonomy,
+    concept: verified.financialMetricBasis.concept,
+    unit: verified.financialMetricBasis.unit,
+    value: verified.value,
+    periodStart: verified.fiscalPeriod.start,
+    periodEnd: verified.fiscalPeriod.end,
+    form: verified.form,
+    accessionNumber: verified.accessionNumber,
+    acceptanceDateTime: verified.financialPublishedAt,
+    retrievedAt: verified.financialRetrievedAt,
+    sourceResponseHashes
+  };
+  return {
+    ...verified,
+    financialSourceRecordHashBasis,
+    financialSourceRecordSha256: await hashCanonicalJsonSha256(financialSourceRecordHashBasis)
+  };
+}));
+const producerArtifact = {
+  schemaVersion: 'stage0-sec-financial-publication-lineage-v1',
+  mode: 'SHADOW_ONLY_STAGE0_FINANCIAL_PUBLICATION_LINEAGE',
+  status: 'STAGE0_SEC_FINANCIAL_LINEAGE_PRODUCER_PASS',
+  runId: 'stage0-sec-lineage-fixture',
+  generatedAt: '2026-08-26T09:50:00.000Z',
+  collectionWindow: '2026-08-26',
+  collectionKey: '1'.repeat(64),
+  sourceFileCount: producerSourceFiles.length,
+  sourceInputRows: producerLineageRows.length,
+  sourceParsedRows: producerLineageRows.length,
+  sourceRejectedRows: 1,
+  sourceFileHashes: producerSourceFiles,
+  sourceInventorySha256: producerSourceInventorySha256,
+  identityMapSha256,
+  sourceResponseHashes,
+  requestCounts: {
+    secCompanyTickerMap: 1,
+    secCompanyfactsBulk: 1,
+    secSubmissionsBulk: 1
+  },
+  externalRequestCount: 3,
+  requestBudgetCompliant: true,
+  requestBudgetExact: true,
+  retryCount: 0,
+  paginationUsed: false,
+  publicationLineageRows: producerLineageRows,
+  classificationCounts: {
+    FINANCIAL_LINEAGE_FACT_NOT_FOUND: 1,
+    FINANCIAL_LINEAGE_VERIFIED_ORIGINAL: producerLineageRows.length - 1
+  },
+  verifiedRows: producerLineageRows.length - 1,
+  ambiguousRows: 0,
+  unresolvedRows: 1,
+  unknownOrUnclassifiedRows: 0,
+  rawResponseStored: false,
+  stageProgressionGate: 'STAGE0_LOCKED',
+  recurringActivationAuthorized: false,
+  canonicalSourceChanged: false,
+  policyImpact: 'NONE_REPORT_ONLY',
+  Stage1To7PolicyChanged: false,
+  brokerOrSidecarStateMutation: false,
+  inputHash: '5'.repeat(64),
+  outputHash: '6'.repeat(64),
+  evidenceSha256: '7'.repeat(64),
+  artifactPersistenceStatus: 'LOCAL_AND_DRIVE_PUBLISHED'
+};
+const producerRawText = JSON.stringify(producerArtifact);
+const identityMapRawText = JSON.stringify(identityMap);
+const appliedLineage = await applyStage0FinancialPublicationLineage({
+  rows: completeUniverse,
+  sourceFiles: completeSources,
+  lineageArtifact: producerArtifact,
+  lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+  lineageArtifactRawBytes: new TextEncoder().encode(producerRawText),
+  identityMap,
+  identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+  referenceTime: GENERATED_AT,
+  quoteFreshnessMaxAgeMs: FRESHNESS_MS
+});
+assert.equal(appliedLineage.contract.matchedRows, completeUniverse.length);
+assert.equal(appliedLineage.contract.verifiedRows, completeUniverse.length - 1);
+assert.equal(appliedLineage.contract.unresolvedRows, 1);
+assert.equal(appliedLineage.contract.unknownOrUnclassifiedRows, 0);
+assert.equal(appliedLineage.contract.rowCountParity, true);
+assert.match(appliedLineage.contract.artifactContentSha256, /^[a-f0-9]{64}$/);
+assert.match(appliedLineage.contract.identityMapContentSha256, /^[a-f0-9]{64}$/);
+assert.equal(appliedLineage.contract.identityMapCanonicalSha256, identityMapSha256);
+assert.equal(appliedLineage.contract.currentDailySourceHashParity, true);
+assert.equal(appliedLineage.rows[0].financialEvidenceStatus, 'FINANCIAL_EVIDENCE_VERIFIED');
+assert.equal(appliedLineage.rows.at(-1).financialLineageClassification, 'FINANCIAL_LINEAGE_FACT_NOT_FOUND');
+assert.notEqual(appliedLineage.rows.at(-1).financialEvidenceStatus, 'FINANCIAL_EVIDENCE_VERIFIED');
+assert.equal('accessionNumber' in appliedLineage.rows[0], false);
+assert.equal('tenDigitCik' in appliedLineage.rows[0], false);
+
+const tamperedRecordHash = structuredClone(producerArtifact);
+tamperedRecordHash.publicationLineageRows[0].financialSourceRecordHashBasis.periodEnd = '2026-03-31';
+await assert.rejects(
+  applyStage0FinancialPublicationLineage({
+    rows: completeUniverse,
+    sourceFiles: completeSources,
+    lineageArtifact: tamperedRecordHash,
+    lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+    lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(tamperedRecordHash)),
+    identityMap,
+    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    referenceTime: GENERATED_AT
+  }),
+  /STAGE0_SEC_FINANCIAL_LINEAGE_CONTRACT_INVALID/
+);
+
+await assert.rejects(
+  applyStage0FinancialPublicationLineage({
+    rows: completeUniverse,
+    sourceFiles: completeSources,
+    lineageArtifact: {
+      ...producerArtifact,
+      identityMapSha256: '8'.repeat(64)
+    },
+    lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+    lineageArtifactRawBytes: new TextEncoder().encode(producerRawText),
+    identityMap,
+    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    referenceTime: GENERATED_AT
+  }),
+  /STAGE0_SEC_FINANCIAL_LINEAGE_CONTRACT_INVALID/
+);
+
+const wrongFileLineage = structuredClone(producerArtifact);
+wrongFileLineage.publicationLineageRows[0].sourceDailyFile = 'B_stocks_daily.json';
+wrongFileLineage.publicationLineageRows[0].sourceDailyFileSha256 = producerSourceFiles.find((file) =>
+  file.sourceKind === 'DAILY' && file.fileName === 'B_stocks_daily.json'
+).contentSha256;
+await assert.rejects(
+  applyStage0FinancialPublicationLineage({
+    rows: completeUniverse,
+    sourceFiles: completeSources,
+    lineageArtifact: wrongFileLineage,
+    lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+    lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(wrongFileLineage)),
+    identityMap,
+    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    referenceTime: GENERATED_AT
+  }),
+  /STAGE0_SEC_FINANCIAL_LINEAGE_ROW_MATCH_INVALID/
+);
+
+const changedCurrentSource = structuredClone(completeSources);
+changedCurrentSource[0].canonicalContentSha256 = 'f'.repeat(64);
+await assert.rejects(
+  applyStage0FinancialPublicationLineage({
+    rows: completeUniverse,
+    sourceFiles: changedCurrentSource,
+    lineageArtifact: producerArtifact,
+    lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+    lineageArtifactRawBytes: new TextEncoder().encode(producerRawText),
+    identityMap,
+    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    referenceTime: GENERATED_AT
+  }),
+  /STAGE0_SEC_FINANCIAL_LINEAGE_SOURCE_HASH_MISMATCH/
+);
+
+const changedIdentityMap = structuredClone(identityMap);
+changedIdentityMap.A1.analysisEligible = false;
+await assert.rejects(
+  applyStage0FinancialPublicationLineage({
+    rows: completeUniverse,
+    sourceFiles: completeSources,
+    lineageArtifact: producerArtifact,
+    lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+    lineageArtifactRawBytes: new TextEncoder().encode(producerRawText),
+    identityMap: changedIdentityMap,
+    identityMapRawBytes: new TextEncoder().encode(JSON.stringify(changedIdentityMap)),
+    referenceTime: GENERATED_AT
+  }),
+  /STAGE0_SEC_FINANCIAL_LINEAGE_IDENTITY_HASH_MISMATCH/
+);
 
 const missingQuote = classifyStage0RowEvidence({ ...completeRow, quoteSource: null }, {
   referenceTime: GENERATED_AT,
@@ -176,18 +449,25 @@ assert.equal(noFreshnessPolicy.evidenceQualityStatus, 'EVIDENCE_PARTIAL');
 const artifact = await buildStage0Artifact({
   generatedAt: GENERATED_AT,
   sourceFiles: completeSources,
-  universe: completeUniverse,
-  eligibleUniverse: completeUniverse,
-  monitoringUniverse: []
+  universe: appliedLineage.rows,
+  eligibleUniverse: appliedLineage.rows,
+  monitoringUniverse: [],
+  financialLineageContract: appliedLineage.contract
 });
 
-assert.equal(artifact.manifest.schemaVersion, 'stage0-source-truth-v1');
+assert.equal(artifact.manifest.schemaVersion, 'stage0-source-truth-v2');
+assert.equal(artifact.manifest.stageProgressionGate, 'STAGE0_LOCKED');
+assert.equal(artifact.manifest.financialLineageContract.status, 'STAGE0_SEC_FINANCIAL_LINEAGE_CONSUMED');
+assert.equal(artifact.manifest.financialLineageContract.rowCountParity, true);
+assert.equal(artifact.manifest.financialLineageContract.currentDailySourceHashParity, true);
+assert.match(artifact.manifest.financialLineageContract.currentDailySourceInventorySha256, /^[a-f0-9]{64}$/);
 assert.equal(artifact.manifest.sourceFileCount, 26);
 assert.equal(artifact.manifest.sourceInputRows, 26);
 assert.equal(artifact.manifest.sourceParsedRows, 26);
 assert.equal(artifact.manifest.sourceRejectedRows, 0);
 assert.match(artifact.manifest.sourceInventorySha256, /^[a-f0-9]{64}$/);
-assert.equal(artifact.manifest.inputHash, artifact.manifest.sourceInventorySha256);
+assert.match(artifact.manifest.inputHash, /^[a-f0-9]{64}$/);
+assert.notEqual(artifact.manifest.inputHash, artifact.manifest.sourceInventorySha256);
 assert.match(artifact.manifest.outputHash, /^[a-f0-9]{64}$/);
 assert.equal(artifact.manifest.sourceFiles[0].fileName, 'A_stocks_daily.json');
 assert.equal(artifact.manifest.sourceFiles[25].fileName, 'Z_stocks_daily.json');
@@ -196,9 +476,10 @@ assert.equal(artifact.manifest.unknownOrUnclassifiedRows, 0);
 const reordered = await buildStage0Artifact({
   generatedAt: GENERATED_AT,
   sourceFiles: [...completeSources].reverse(),
-  universe: completeUniverse,
-  eligibleUniverse: completeUniverse,
-  monitoringUniverse: []
+  universe: appliedLineage.rows,
+  eligibleUniverse: appliedLineage.rows,
+  monitoringUniverse: [],
+  financialLineageContract: appliedLineage.contract
 });
 assert.equal(reordered.manifest.sourceInventorySha256, artifact.manifest.sourceInventorySha256);
 assert.equal(reordered.manifest.inputHash, artifact.manifest.inputHash);
@@ -209,20 +490,23 @@ const changedA = await buildStage0SourceFileEvidence({
   fileName: 'A_stocks_daily.json',
   sourceKind: 'FINANCIAL_DATA_DAILY_CYLINDER',
   rawText: JSON.stringify([{ ...sourceRows('A')[0], price: 11 }]),
+  canonicalPayload: [{ ...sourceRows('A')[0], price: 11 }],
   retrievedAt: GENERATED_AT,
   sourceRows: sourceRows('A'),
   parsedRows: 1,
   rejectedRows: 0,
   parseStatus: 'PARSED'
 });
-const changedArtifact = await buildStage0Artifact({
+assert.notEqual(changedA.contentSha256, completeSources[0].contentSha256);
+assert.notEqual(changedA.canonicalContentSha256, completeSources[0].canonicalContentSha256);
+await assert.rejects(buildStage0Artifact({
   generatedAt: GENERATED_AT,
   sourceFiles: [changedA, ...completeSources.slice(1)],
-  universe: completeUniverse,
-  eligibleUniverse: completeUniverse,
-  monitoringUniverse: []
-});
-assert.notEqual(changedArtifact.manifest.sourceInventorySha256, artifact.manifest.sourceInventorySha256);
+  universe: appliedLineage.rows,
+  eligibleUniverse: appliedLineage.rows,
+  monitoringUniverse: [],
+  financialLineageContract: appliedLineage.contract
+}), /STAGE0_SEC_FINANCIAL_LINEAGE_CONTRACT_INVALID/);
 
 const validated = await validateStage0ArtifactForStage1(artifact);
 assert.equal(validated.valid, true);
@@ -271,16 +555,17 @@ await expectInvalid(malformed, 'MANIFEST_SCHEMA_INVALID');
 const deterministic = await buildStage0Artifact({
   generatedAt: GENERATED_AT,
   sourceFiles: completeSources,
-  universe: completeUniverse,
-  eligibleUniverse: completeUniverse,
-  monitoringUniverse: []
+  universe: appliedLineage.rows,
+  eligibleUniverse: appliedLineage.rows,
+  monitoringUniverse: [],
+  financialLineageContract: appliedLineage.contract
 });
 assert.equal(deterministic.manifest.sourceInventorySha256, artifact.manifest.sourceInventorySha256);
 assert.equal(deterministic.manifest.inputHash, artifact.manifest.inputHash);
 assert.equal(deterministic.manifest.outputHash, artifact.manifest.outputHash);
 
 const publicManifest = JSON.stringify(artifact.manifest);
-for (const forbidden of ['rawText', 'fileId', 'accessToken', 'credential', 'secret']) {
+for (const forbidden of ['rawText', 'fileId', 'accessToken', 'credential', 'secret', 'accessionNumber', 'tenDigitCik']) {
   assert.equal(publicManifest.includes(forbidden), false, `manifest leaked ${forbidden}`);
 }
 
@@ -288,6 +573,7 @@ const stage0Producer = fs.readFileSync(path.join(REPO_ROOT, 'components/Universe
 for (const token of [
   'buildStage0SourceFileEvidence',
   'classifyStage0RowEvidence',
+  'applyStage0FinancialPublicationLineage',
   'buildStage0Artifact'
 ]) {
   assert.ok(stage0Producer.includes(token), `Stage0 producer integration missing: ${token}`);

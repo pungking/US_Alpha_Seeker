@@ -46,6 +46,9 @@ const baseRow = {
   fiscalPeriod: '2026-Q2',
   financialPublishedAt: '2026-08-20T12:00:00.000Z',
   financialRetrievedAt: '2026-08-26T09:50:00.000Z',
+  financialLineageClassification: 'FINANCIAL_LINEAGE_VERIFIED_ORIGINAL',
+  financialSourceRecordSha256: 'd'.repeat(64),
+  financialLineageArtifactSha256: 'e'.repeat(64),
   targetMeanPrice: 12,
   targetEvidenceStatus: 'TARGET_EVIDENCE_VERIFIED',
   targetSource: 'FIXTURE_TARGET',
@@ -117,6 +120,11 @@ const rows = [
   },
   {
     ...baseRow,
+    symbol: 'FINANCIAL_LINEAGE_UNRESOLVED',
+    financialLineageClassification: 'FINANCIAL_LINEAGE_FACT_NOT_FOUND'
+  },
+  {
+    ...baseRow,
     symbol: 'SMALL_CAP_BOUNDARY',
     marketCap: 300_000_000,
     volume: 210_000
@@ -177,6 +185,7 @@ assert.equal(bySymbol.get('FINANCIAL_UNKNOWN').stage1PointInTimeStatus, 'STAGE1_
 assert.equal(bySymbol.get('FINANCIAL_RETRIEVAL_MISSING').stage1PointInTimeStatus, 'STAGE1_BLOCKED_FINANCIAL_EVIDENCE');
 assert.equal(bySymbol.get('FINANCIAL_RETRIEVAL_FUTURE').stage1PointInTimeStatus, 'STAGE1_BLOCKED_FINANCIAL_EVIDENCE');
 assert.equal(bySymbol.get('FINANCIAL_RETRIEVAL_BEFORE_PUBLICATION').stage1PointInTimeStatus, 'STAGE1_BLOCKED_FINANCIAL_EVIDENCE');
+assert.equal(bySymbol.get('FINANCIAL_LINEAGE_UNRESOLVED').stage1PointInTimeStatus, 'STAGE1_BLOCKED_FINANCIAL_EVIDENCE');
 assert.equal(bySymbol.get('SMALL_CAP_BOUNDARY').stage1PointInTimeStatus, 'STAGE1_POINT_IN_TIME_VERIFIED');
 assert.equal(bySymbol.get('SMALL_CAP_BOUNDARY').effectiveMinVolume, 210_000);
 assert.equal(bySymbol.get('LARGE_CAP_LOW_VOLUME').stage1PointInTimeStatus, 'STAGE1_BLOCKED_LIQUIDITY');
@@ -201,12 +210,33 @@ assert.throws(
 );
 
 const sourceStage0Manifest = {
-  schemaVersion: 'stage0-source-truth-v1',
+  schemaVersion: 'stage0-source-truth-v2',
   runId: 'stage0-fixture',
   generatedAt: '2026-08-26T10:00:00.000Z',
   sourceInventorySha256: 'a'.repeat(64),
   inputHash: 'b'.repeat(64),
   outputHash: 'c'.repeat(64),
+  stageProgressionGate: 'STAGE0_LOCKED',
+  financialLineageContract: {
+    status: 'STAGE0_SEC_FINANCIAL_LINEAGE_CONSUMED',
+    artifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+    artifactContentSha256: 'e'.repeat(64),
+    producerEvidenceSha256: 'f'.repeat(64),
+    producerInputHash: '1'.repeat(64),
+    producerOutputHash: '2'.repeat(64),
+    identityMapContentSha256: '3'.repeat(64),
+    identityMapCanonicalSha256: '4'.repeat(64),
+    currentDailySourceInventorySha256: '5'.repeat(64),
+    matchedRows: rows.length,
+    sourceRows: rows.length,
+    rowCountParity: true,
+    currentDailySourceHashParity: true,
+    unknownOrUnclassifiedRows: 0,
+    canonicalSourceChanged: false,
+    policyImpact: 'NONE_REPORT_ONLY',
+    Stage1To7PolicyChanged: false,
+    brokerOrSidecarStateMutation: false
+  },
   inputCount: rows.length,
   eligibleCount: rows.length,
   excludedByInstrumentType: 0
@@ -255,7 +285,12 @@ await assert.rejects(
   /STAGE1_SOURCE_STAGE0_CONTRACT_INVALID/
 );
 
-assert.equal(artifact.manifest.schemaVersion, 'stage1-point-in-time-v1');
+assert.equal(artifact.manifest.schemaVersion, 'stage1-point-in-time-v2');
+assert.equal(artifact.manifest.sourceStage0FinancialLineageArtifactSha256, 'e'.repeat(64));
+assert.equal(artifact.manifest.sourceStage0IdentityMapCanonicalSha256, '4'.repeat(64));
+assert.equal(artifact.manifest.sourceStage0DailySourceInventorySha256, '5'.repeat(64));
+assert.equal(artifact.manifest.unresolvedPromotionRows, 0);
+assert.equal(artifact.manifest.financialLineageVerifiedRows, artifact.investable_universe.length);
 assert.equal(artifact.manifest.targetHardGateApplied, false);
 assert.equal(artifact.manifest.unknownOrUnclassifiedRows, 0);
 assert.equal(artifact.manifest.count, artifact.investable_universe.length);
@@ -322,6 +357,14 @@ await expectInvalid(missingThresholdProvenance, 'THRESHOLD_PROVENANCE_INVALID');
 const stage0HashMissing = structuredClone(artifact);
 stage0HashMissing.manifest.sourceStage0InputHash = null;
 await expectInvalid(stage0HashMissing, 'SOURCE_STAGE0_HASH_INVALID');
+
+const stage0LineageHashMissing = structuredClone(artifact);
+stage0LineageHashMissing.manifest.sourceStage0FinancialLineageArtifactSha256 = null;
+await expectInvalid(stage0LineageHashMissing, 'SOURCE_STAGE0_FINANCIAL_LINEAGE_INVALID');
+
+const stage0DailyHashMissing = structuredClone(artifact);
+stage0DailyHashMissing.manifest.sourceStage0DailySourceInventorySha256 = null;
+await expectInvalid(stage0DailyHashMissing, 'SOURCE_STAGE0_FINANCIAL_LINEAGE_INVALID');
 
 const stage0LookAhead = structuredClone(artifact);
 stage0LookAhead.manifest.sourceStage0GeneratedAt = '2026-08-27T10:00:00.000Z';
