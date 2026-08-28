@@ -147,6 +147,8 @@ const classifyFinancial = (row, referenceTime) => {
   const fiscalPeriod = normalizeText(row?.fiscalPeriod ?? row?.netIncomeFiscalPeriod) || null;
   const rawPublishedAt = row?.financialPublishedAt ?? row?.filingPublishedAt;
   const financialPublishedAt = normalizeIso(rawPublishedAt);
+  const rawRetrievedAt = row?.financialRetrievedAt ?? row?.netIncomeRetrievedAt;
+  const financialRetrievedAt = normalizeIso(rawRetrievedAt);
   const referenceIso = normalizeIso(referenceTime);
 
   let financialEvidenceStatus = 'FINANCIAL_EVIDENCE_VERIFIED';
@@ -156,6 +158,11 @@ const classifyFinancial = (row, referenceTime) => {
     financialEvidenceStatus = 'PUBLICATION_TIMESTAMP_MISSING';
   } else if (!financialPublishedAt || !referenceIso || financialPublishedAt > referenceIso) {
     financialEvidenceStatus = 'FINANCIAL_EVIDENCE_INVALID';
+  } else if (!rawRetrievedAt
+    || !financialRetrievedAt
+    || financialRetrievedAt > referenceIso
+    || financialRetrievedAt < financialPublishedAt) {
+    financialEvidenceStatus = 'FINANCIAL_EVIDENCE_INVALID';
   } else if (normalizeText(row?.financialFreshnessStatus).toUpperCase() === 'STALE') {
     financialEvidenceStatus = 'FINANCIAL_EVIDENCE_STALE';
   }
@@ -164,7 +171,7 @@ const classifyFinancial = (row, referenceTime) => {
     financialSource,
     fiscalPeriod,
     financialPublishedAt,
-    financialRetrievedAt: normalizeIso(row?.financialRetrievedAt),
+    financialRetrievedAt,
     financialEvidenceStatus
   };
 };

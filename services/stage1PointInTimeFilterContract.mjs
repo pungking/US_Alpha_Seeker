@@ -65,11 +65,14 @@ const quoteGate = (row, decisionAt, maxQuoteAgeDays) => {
 
 const financialGate = (row, decisionAt) => {
   const publishedAt = normalizeIso(row?.financialPublishedAt);
+  const retrievedAt = normalizeIso(row?.financialRetrievedAt);
   const decisionIso = normalizeIso(decisionAt);
   return normalizeText(row?.financialEvidenceStatus).toUpperCase() === 'FINANCIAL_EVIDENCE_VERIFIED'
     && Boolean(normalizeText(row?.financialSource))
     && Boolean(normalizeText(row?.fiscalPeriod))
-    && Boolean(publishedAt && decisionIso && publishedAt <= decisionIso);
+    && Boolean(publishedAt && retrievedAt && decisionIso
+      && publishedAt <= retrievedAt
+      && retrievedAt <= decisionIso);
 };
 
 const targetPolicyStatus = (row, decisionAt) => {
