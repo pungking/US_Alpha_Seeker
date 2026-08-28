@@ -116,6 +116,24 @@ const financialPublicationMissing = classifyStage0RowEvidence({
 }, { referenceTime: GENERATED_AT, quoteFreshnessMaxAgeMs: FRESHNESS_MS });
 assert.equal(financialPublicationMissing.financialEvidenceStatus, 'PUBLICATION_TIMESTAMP_MISSING');
 
+const financialRetrievalMissing = classifyStage0RowEvidence({
+  ...completeRow,
+  financialRetrievedAt: null
+}, { referenceTime: GENERATED_AT, quoteFreshnessMaxAgeMs: FRESHNESS_MS });
+assert.equal(financialRetrievalMissing.financialEvidenceStatus, 'FINANCIAL_EVIDENCE_INVALID');
+
+const financialRetrievalFuture = classifyStage0RowEvidence({
+  ...completeRow,
+  financialRetrievedAt: '2026-08-27T12:00:00.000Z'
+}, { referenceTime: GENERATED_AT, quoteFreshnessMaxAgeMs: FRESHNESS_MS });
+assert.equal(financialRetrievalFuture.financialEvidenceStatus, 'FINANCIAL_EVIDENCE_INVALID');
+
+const financialRetrievedBeforePublication = classifyStage0RowEvidence({
+  ...completeRow,
+  financialRetrievedAt: '2026-08-19T12:00:00.000Z'
+}, { referenceTime: GENERATED_AT, quoteFreshnessMaxAgeMs: FRESHNESS_MS });
+assert.equal(financialRetrievedBeforePublication.financialEvidenceStatus, 'FINANCIAL_EVIDENCE_INVALID');
+
 const missingFinancialSentinel = classifyStage0RowEvidence({ ...completeRow, netIncomeSource: 'MISSING', financialSource: 'MISSING' }, {
   referenceTime: GENERATED_AT,
   quoteFreshnessMaxAgeMs: FRESHNESS_MS

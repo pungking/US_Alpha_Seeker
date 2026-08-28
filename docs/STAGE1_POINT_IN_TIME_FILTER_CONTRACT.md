@@ -18,7 +18,8 @@ Stage1 accepts a row only when its quote and profitability inputs are verifiable
 Price and volume thresholds, the small-cap volume multiplier, positive PE/PER, and
 positive ROE remain unchanged. A row also needs a verified quote source/timestamp and
 verified financial source/fiscal-period/publication timestamp available by
-`decisionAt`.
+`decisionAt`. It also independently requires an immutable retrieval timestamp
+ordered after publication and no later than `decisionAt`.
 
 ## Compatibility
 

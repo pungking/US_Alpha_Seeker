@@ -45,6 +45,7 @@ const baseRow = {
   financialSource: 'FIXTURE_FINANCIAL',
   fiscalPeriod: '2026-Q2',
   financialPublishedAt: '2026-08-20T12:00:00.000Z',
+  financialRetrievedAt: '2026-08-26T09:50:00.000Z',
   targetMeanPrice: 12,
   targetEvidenceStatus: 'TARGET_EVIDENCE_VERIFIED',
   targetSource: 'FIXTURE_TARGET',
@@ -98,6 +99,21 @@ const rows = [
     symbol: 'FINANCIAL_UNKNOWN',
     financialEvidenceStatus: 'PUBLICATION_TIMESTAMP_MISSING',
     financialPublishedAt: null
+  },
+  {
+    ...baseRow,
+    symbol: 'FINANCIAL_RETRIEVAL_MISSING',
+    financialRetrievedAt: null
+  },
+  {
+    ...baseRow,
+    symbol: 'FINANCIAL_RETRIEVAL_FUTURE',
+    financialRetrievedAt: '2026-08-27T12:00:00.000Z'
+  },
+  {
+    ...baseRow,
+    symbol: 'FINANCIAL_RETRIEVAL_BEFORE_PUBLICATION',
+    financialRetrievedAt: '2026-08-19T12:00:00.000Z'
   },
   {
     ...baseRow,
@@ -158,6 +174,9 @@ assert.equal(bySymbol.get('STALE_QUOTE').stage1PointInTimeStatus, 'STAGE1_BLOCKE
 assert.equal(bySymbol.get('FUTURE_QUOTE').stage1PointInTimeStatus, 'STAGE1_BLOCKED_QUOTE_EVIDENCE');
 assert.equal(bySymbol.get('QUOTE_SOURCE_MISSING').stage1PointInTimeStatus, 'STAGE1_BLOCKED_QUOTE_EVIDENCE');
 assert.equal(bySymbol.get('FINANCIAL_UNKNOWN').stage1PointInTimeStatus, 'STAGE1_BLOCKED_FINANCIAL_EVIDENCE');
+assert.equal(bySymbol.get('FINANCIAL_RETRIEVAL_MISSING').stage1PointInTimeStatus, 'STAGE1_BLOCKED_FINANCIAL_EVIDENCE');
+assert.equal(bySymbol.get('FINANCIAL_RETRIEVAL_FUTURE').stage1PointInTimeStatus, 'STAGE1_BLOCKED_FINANCIAL_EVIDENCE');
+assert.equal(bySymbol.get('FINANCIAL_RETRIEVAL_BEFORE_PUBLICATION').stage1PointInTimeStatus, 'STAGE1_BLOCKED_FINANCIAL_EVIDENCE');
 assert.equal(bySymbol.get('SMALL_CAP_BOUNDARY').stage1PointInTimeStatus, 'STAGE1_POINT_IN_TIME_VERIFIED');
 assert.equal(bySymbol.get('SMALL_CAP_BOUNDARY').effectiveMinVolume, 210_000);
 assert.equal(bySymbol.get('LARGE_CAP_LOW_VOLUME').stage1PointInTimeStatus, 'STAGE1_BLOCKED_LIQUIDITY');

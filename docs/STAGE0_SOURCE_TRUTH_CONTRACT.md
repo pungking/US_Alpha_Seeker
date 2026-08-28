@@ -19,7 +19,11 @@ fields. Raw source content and Drive file IDs are not persisted.
 canonical quality classification. Quote, financial, analyst-target, and
 identifier evidence are classified independently. Missing publication or
 vendor as-of timestamps are preserved as missing and are not replaced by a
-retrieval timestamp.
+retrieval timestamp. Financial evidence is verified only when source, fiscal
+period, publication time, and retrieval time are all present and ordered as
+`financialPublishedAt <= financialRetrievedAt <= Stage0 referenceTime`.
+Stage1 independently requires the same evidence by `decisionAt`;
+`netIncomeAsOf` and `updated` are not timestamp substitutes.
 
 No Stage1 filter, Stage2-7 score, threshold, ranking, or verdict changes are
 part of this migration.
