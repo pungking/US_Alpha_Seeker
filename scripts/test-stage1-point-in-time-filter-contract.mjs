@@ -340,5 +340,10 @@ assert.doesNotMatch(stage1Producer, /\(s\.targetMeanPrice > 0\)/, 'legacy target
 const stage2Consumer = fs.readFileSync(path.join(REPO_ROOT, 'components/DeepQualityFilter.tsx'), 'utf8');
 assert.ok(stage2Consumer.includes('validateStage1ArtifactForStage2'), 'Stage2 Stage1-contract gate missing');
 assert.match(stage2Consumer, /await validateStage1ArtifactForStage2\(stage1Content\)/);
+assert.match(
+  stage2Consumer,
+  /stage1RawCandidates\.length === 0[\s\S]{0,800}point-in-time evidence gate/i,
+  'empty Stage1 point-in-time output is still misreported as an instrument-gate failure'
+);
 
 console.log('[STAGE1_POINT_IN_TIME_FILTER_CONTRACT] PASS');
