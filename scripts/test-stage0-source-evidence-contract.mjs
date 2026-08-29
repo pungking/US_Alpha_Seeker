@@ -203,7 +203,7 @@ const producerArtifact = {
   runId: 'stage0-sec-lineage-fixture',
   generatedAt: '2026-08-26T09:50:00.000Z',
   collectionWindow: '2026-08-26',
-  collectionKey: '1'.repeat(64),
+  collectionKey: null,
   sourceFileCount: producerSourceFiles.length,
   sourceInputRows: producerLineageRows.length,
   sourceParsedRows: producerLineageRows.length,
@@ -243,6 +243,11 @@ const producerArtifact = {
   evidenceSha256: '7'.repeat(64),
   artifactPersistenceStatus: 'LOCAL_AND_DRIVE_PUBLISHED'
 };
+producerArtifact.collectionKey = await hashCanonicalJsonSha256({
+  collectionWindow: producerArtifact.collectionWindow,
+  inputHash: producerArtifact.inputHash,
+  schemaVersion: producerArtifact.schemaVersion
+});
 const producerRawText = JSON.stringify(producerArtifact);
 const identityMapRawText = JSON.stringify(identityMap);
 const appliedLineage = await applyStage0FinancialPublicationLineage({
@@ -270,6 +275,48 @@ assert.equal(appliedLineage.rows.at(-1).financialLineageClassification, 'FINANCI
 assert.notEqual(appliedLineage.rows.at(-1).financialEvidenceStatus, 'FINANCIAL_EVIDENCE_VERIFIED');
 assert.equal('accessionNumber' in appliedLineage.rows[0], false);
 assert.equal('tenDigitCik' in appliedLineage.rows[0], false);
+
+const recurringProducerArtifact = structuredClone(producerArtifact);
+recurringProducerArtifact.recurringActivationAuthorized = true;
+recurringProducerArtifact.collectionKey = await hashCanonicalJsonSha256({
+  activationMode: 'RECURRING_SECOND_BATCH',
+  collectionWindow: recurringProducerArtifact.collectionWindow,
+  requestScope: ['secCompanyTickerMap', 'secCompanyfactsBulk', 'secSubmissionsBulk'],
+  schemaVersion: recurringProducerArtifact.schemaVersion,
+  sourceFamily: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE'
+});
+assert.equal(
+  recurringProducerArtifact.collectionKey,
+  '238f2686b12de90314aa8bb969f788255261a4c93f1e2de51431e4daa2e20007'
+);
+const recurringAppliedLineage = await applyStage0FinancialPublicationLineage({
+  rows: completeUniverse,
+  sourceFiles: completeSources,
+  lineageArtifact: recurringProducerArtifact,
+  lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+  lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(recurringProducerArtifact)),
+  identityMap,
+  identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+  referenceTime: GENERATED_AT,
+  quoteFreshnessMaxAgeMs: FRESHNESS_MS
+});
+assert.equal(recurringAppliedLineage.contract.producerRecurringActivationAuthorized, true);
+
+const invalidRecurringCollectionKey = structuredClone(recurringProducerArtifact);
+invalidRecurringCollectionKey.collectionKey = '1'.repeat(64);
+await assert.rejects(
+  applyStage0FinancialPublicationLineage({
+    rows: completeUniverse,
+    sourceFiles: completeSources,
+    lineageArtifact: invalidRecurringCollectionKey,
+    lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+    lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(invalidRecurringCollectionKey)),
+    identityMap,
+    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    referenceTime: GENERATED_AT
+  }),
+  /STAGE0_SEC_FINANCIAL_LINEAGE_CONTRACT_INVALID/
+);
 
 const tamperedRecordHash = structuredClone(producerArtifact);
 tamperedRecordHash.publicationLineageRows[0].financialSourceRecordHashBasis.periodEnd = '2026-03-31';
@@ -547,6 +594,10 @@ await expectInvalid(partitionMismatch, 'STAGE0_ROW_COUNT_MISMATCH');
 const outputMismatch = structuredClone(artifact);
 outputMismatch.universe[0].price = 99;
 await expectInvalid(outputMismatch, 'OUTPUT_HASH_MISMATCH');
+
+const missingProducerActivationMode = structuredClone(artifact);
+delete missingProducerActivationMode.manifest.financialLineageContract.producerRecurringActivationAuthorized;
+await expectInvalid(missingProducerActivationMode, 'FINANCIAL_LINEAGE_CONTRACT_INVALID');
 
 const malformed = structuredClone(artifact);
 malformed.manifest.schemaVersion = 'legacy';

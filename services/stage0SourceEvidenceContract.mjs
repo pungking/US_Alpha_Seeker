@@ -3,6 +3,13 @@ const COMPLETE_SOURCE_COUNT = 26;
 const STAGE0_SCHEMA_VERSION = 'stage0-source-truth-v2';
 const FINANCIAL_LINEAGE_FILE = 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json';
 const FINANCIAL_LINEAGE_SCHEMA_VERSION = 'stage0-sec-financial-publication-lineage-v1';
+const FINANCIAL_LINEAGE_SOURCE_FAMILY = 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE';
+const FINANCIAL_LINEAGE_REQUEST_SCOPE = [
+  'secCompanyTickerMap',
+  'secCompanyfactsBulk',
+  'secSubmissionsBulk'
+];
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const FINANCIAL_LINEAGE_CLASSIFICATIONS = new Set([
   'FINANCIAL_LINEAGE_VERIFIED_ORIGINAL',
   'FINANCIAL_LINEAGE_VERIFIED_AMENDMENT',
@@ -74,6 +81,13 @@ const normalizeIso = (value) => {
     milliseconds = Date.parse(raw);
   }
   return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
+};
+
+const validDateOnly = (value) => {
+  const text = normalizeText(value);
+  if (!DATE_ONLY_RE.test(text)) return false;
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
 };
 
 const sourceRoot = (row) => row?.basic && typeof row.basic === 'object' ? row.basic : row;
@@ -434,6 +448,23 @@ const validateProducerArtifact = async (artifact, referenceTime) => {
   const expectedDaily = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => `${letter}_stocks_daily.json`);
   const expectedHistory = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => `${letter}_stocks_history.json`);
   const responseKeys = ['secCompanyTickerMap', 'secCompanyfactsBulk', 'secSubmissionsBulk'];
+  const collectionWindow = normalizeText(artifact?.collectionWindow);
+  const recurringActivationAuthorized = artifact?.recurringActivationAuthorized;
+  const expectedCollectionKey = recurringActivationAuthorized === true
+    ? await hashCanonicalJsonSha256({
+      activationMode: 'RECURRING_SECOND_BATCH',
+      collectionWindow,
+      requestScope: FINANCIAL_LINEAGE_REQUEST_SCOPE,
+      schemaVersion: FINANCIAL_LINEAGE_SCHEMA_VERSION,
+      sourceFamily: FINANCIAL_LINEAGE_SOURCE_FAMILY
+    })
+    : recurringActivationAuthorized === false
+      ? await hashCanonicalJsonSha256({
+        collectionWindow,
+        inputHash: artifact?.inputHash,
+        schemaVersion: FINANCIAL_LINEAGE_SCHEMA_VERSION
+      })
+      : null;
   const invalid = artifact?.schemaVersion !== FINANCIAL_LINEAGE_SCHEMA_VERSION
     || artifact?.mode !== 'SHADOW_ONLY_STAGE0_FINANCIAL_PUBLICATION_LINEAGE'
     || artifact?.status !== 'STAGE0_SEC_FINANCIAL_LINEAGE_PRODUCER_PASS'
@@ -466,7 +497,9 @@ const validateProducerArtifact = async (artifact, referenceTime) => {
     || artifact?.paginationUsed !== false
     || artifact?.rawResponseStored !== false
     || artifact?.stageProgressionGate !== 'STAGE0_LOCKED'
-    || artifact?.recurringActivationAuthorized !== false
+    || !validDateOnly(collectionWindow)
+    || artifact?.collectionKey !== expectedCollectionKey
+    || typeof recurringActivationAuthorized !== 'boolean'
     || artifact?.canonicalSourceChanged !== false
     || artifact?.policyImpact !== 'NONE_REPORT_ONLY'
     || artifact?.Stage1To7PolicyChanged !== false
@@ -477,7 +510,15 @@ const validateProducerArtifact = async (artifact, referenceTime) => {
     || !SHA256_RE.test(normalizeText(artifact?.evidenceSha256))
     || rows.some((row) => normalizeText(row?.identityMapSha256) !== normalizeText(artifact?.identityMapSha256));
   if (invalid) throw new Error('STAGE0_SEC_FINANCIAL_LINEAGE_CONTRACT_INVALID');
-  return { rows, files, verifiedRows, notApplicableRows, unresolvedRows, ambiguousRows };
+  return {
+    rows,
+    files,
+    verifiedRows,
+    notApplicableRows,
+    unresolvedRows,
+    ambiguousRows,
+    recurringActivationAuthorized
+  };
 };
 
 export const applyStage0FinancialPublicationLineage = async ({
@@ -658,6 +699,7 @@ export const applyStage0FinancialPublicationLineage = async ({
       producerOutputHash: normalizeText(lineageArtifact.outputHash),
       producerSourceInventorySha256: normalizeText(lineageArtifact.sourceInventorySha256),
       producerIdentityMapSha256: normalizeText(lineageArtifact.identityMapSha256),
+      producerRecurringActivationAuthorized: producer.recurringActivationAuthorized,
       sourceRows: producer.rows.length,
       matchedRows: appliedRows.length,
       verifiedRows: producer.verifiedRows,
@@ -822,6 +864,7 @@ export const validateStage0ArtifactForStage1 = async (artifact = {}) => {
       || !SHA256_RE.test(normalizeText(lineage?.producerEvidenceSha256))
       || !SHA256_RE.test(normalizeText(lineage?.producerInputHash))
       || !SHA256_RE.test(normalizeText(lineage?.producerOutputHash))
+      || typeof lineage?.producerRecurringActivationAuthorized !== 'boolean'
       || lineage?.rowCountParity !== true
       || lineage?.currentDailySourceHashParity !== true
       || Number(lineage?.sourceRows) !== universe.length
