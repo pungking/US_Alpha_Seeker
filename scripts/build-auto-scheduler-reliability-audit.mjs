@@ -102,6 +102,11 @@ checks.push({
   detail:'delivery success is logged only from captured delivery evidence'
 });
 checks.push({
+  id:'auto:shared_failure_markers_reach_terminal_wait',
+  status:/page\.waitForFunction\(\s*\(failureMarkers\)\s*=>[\s\S]{0,1200}?failureMarkers\.some[\s\S]{0,300}?\},\s*\{\s*timeout:[\s\S]{0,100}?\},\s*FAILURE_MARKERS\s*\)/.test(automateText)?'PASS':'FAIL',
+  detail:'Stage0 and other fatal UI markers must terminate the Puppeteer wait immediately'
+});
+checks.push({
   id:'auto:telegram_delivery_status_persisted',
   status:/__AUTO_TELEGRAM_STATUS/.test(autoText)&&/__AUTO_TELEGRAM_STATUS/.test(appText)&&/telegram:\s*previous\?\.telegram/.test(runStatusWriterText)?'PASS':'FAIL',
   detail:'contract suppression, send attempt, and delivery receipt survive into run status evidence'
