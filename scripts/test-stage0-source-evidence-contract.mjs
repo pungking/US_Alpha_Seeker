@@ -15,6 +15,7 @@ const {
   buildStage0Artifact,
   buildStage0SourceFileEvidence,
   classifyStage0RowEvidence,
+  hashBytesSha256,
   hashCanonicalJsonSha256,
   validateStage0ArtifactForStage1
 } = contract;
@@ -102,27 +103,51 @@ const completeUniverse = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => 
 const identityMap = Object.fromEntries(completeUniverse.map((row) => [row.symbol, {
   symbol: row.symbol,
   sourceSymbol: row.symbol,
-  analysisEligible: true
+  analysisEligible: true,
+  displayName: `${row.symbol} 테스트`
 }]));
-const identityMapSha256 = await hashCanonicalJsonSha256(identityMap);
+const identityMapRawText = JSON.stringify(identityMap, null, 2);
+const identityMapRawBytes = new TextEncoder().encode(identityMapRawText);
+const identityMapContentSha256 = await hashBytesSha256(identityMapRawBytes);
+const identityMapSha256 = '9'.repeat(64);
 const producerSourceFiles = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').flatMap((letter, index) => [
   {
     fileName: `${letter}_stocks_daily.json`,
     sourceKind: 'DAILY',
-    contentSha256: completeSources[index].canonicalContentSha256,
-    hashBasis: 'CANONICAL_JSON_DOWNLOADED_FROM_DRIVE'
+    contentSha256: (index + 100).toString(16).padStart(64, '0'),
+    hashBasis: 'CANONICAL_JSON_DOWNLOADED_FROM_DRIVE',
+    rawContentSha256: completeSources[index].contentSha256,
+    rawHashBasis: 'RAW_DRIVE_FILE_BYTES'
   },
   {
     fileName: `${letter}_stocks_history.json`,
     sourceKind: 'HISTORY',
     contentSha256: (index + 27).toString(16).padStart(64, '0'),
-    hashBasis: 'CANONICAL_JSON_DOWNLOADED_FROM_DRIVE'
+    hashBasis: 'CANONICAL_JSON_DOWNLOADED_FROM_DRIVE',
+    rawContentSha256: (index + 200).toString(16).padStart(64, '0'),
+    rawHashBasis: 'RAW_DRIVE_FILE_BYTES'
   }
 ]);
+assert.notEqual(
+  producerSourceFiles[0].contentSha256,
+  completeSources[0].canonicalContentSha256
+);
 const producerSourceInventorySha256 = await hashCanonicalJsonSha256(
   [...producerSourceFiles].sort((left, right) =>
     left.sourceKind.localeCompare(right.sourceKind) || left.fileName.localeCompare(right.fileName)
   )
+);
+const producerRawSourceInventorySha256 = await hashCanonicalJsonSha256(
+  producerSourceFiles
+    .map(({ fileName, rawContentSha256, rawHashBasis, sourceKind }) => ({
+      fileName,
+      rawContentSha256,
+      rawHashBasis,
+      sourceKind
+    }))
+    .sort((left, right) =>
+      left.sourceKind.localeCompare(right.sourceKind) || left.fileName.localeCompare(right.fileName)
+    )
 );
 const sourceResponseHashes = {
   secCompanyTickerMap: '2'.repeat(64),
@@ -193,11 +218,11 @@ const producerLineageRows = await Promise.all(completeUniverse.map(async (row, i
   return {
     ...verified,
     financialSourceRecordHashBasis,
-    financialSourceRecordSha256: await hashCanonicalJsonSha256(financialSourceRecordHashBasis)
+    financialSourceRecordSha256: 'd'.repeat(64)
   };
 }));
 const producerArtifact = {
-  schemaVersion: 'stage0-sec-financial-publication-lineage-v1',
+  schemaVersion: 'stage0-sec-financial-publication-lineage-v2',
   mode: 'SHADOW_ONLY_STAGE0_FINANCIAL_PUBLICATION_LINEAGE',
   status: 'STAGE0_SEC_FINANCIAL_LINEAGE_PRODUCER_PASS',
   runId: 'stage0-sec-lineage-fixture',
@@ -205,12 +230,16 @@ const producerArtifact = {
   collectionWindow: '2026-08-26',
   collectionKey: null,
   sourceFileCount: producerSourceFiles.length,
+  sourceHashCoverage: 100,
+  rawSourceHashCoverage: 100,
   sourceInputRows: producerLineageRows.length,
   sourceParsedRows: producerLineageRows.length,
   sourceRejectedRows: 1,
   sourceFileHashes: producerSourceFiles,
   sourceInventorySha256: producerSourceInventorySha256,
+  rawSourceInventorySha256: producerRawSourceInventorySha256,
   identityMapSha256,
+  identityMapContentSha256,
   sourceResponseHashes,
   requestCounts: {
     secCompanyTickerMap: 1,
@@ -249,7 +278,6 @@ producerArtifact.collectionKey = await hashCanonicalJsonSha256({
   schemaVersion: producerArtifact.schemaVersion
 });
 const producerRawText = JSON.stringify(producerArtifact);
-const identityMapRawText = JSON.stringify(identityMap);
 const appliedLineage = await applyStage0FinancialPublicationLineage({
   rows: completeUniverse,
   sourceFiles: completeSources,
@@ -257,7 +285,7 @@ const appliedLineage = await applyStage0FinancialPublicationLineage({
   lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
   lineageArtifactRawBytes: new TextEncoder().encode(producerRawText),
   identityMap,
-  identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+  identityMapRawBytes,
   referenceTime: GENERATED_AT,
   quoteFreshnessMaxAgeMs: FRESHNESS_MS
 });
@@ -287,7 +315,7 @@ recurringProducerArtifact.collectionKey = await hashCanonicalJsonSha256({
 });
 assert.equal(
   recurringProducerArtifact.collectionKey,
-  '238f2686b12de90314aa8bb969f788255261a4c93f1e2de51431e4daa2e20007'
+  'a1e0994ccf88d099454e8fa5a76964e96a4da4b80c059dae7cb642069ee531b2'
 );
 const recurringAppliedLineage = await applyStage0FinancialPublicationLineage({
   rows: completeUniverse,
@@ -296,7 +324,7 @@ const recurringAppliedLineage = await applyStage0FinancialPublicationLineage({
   lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
   lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(recurringProducerArtifact)),
   identityMap,
-  identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+  identityMapRawBytes,
   referenceTime: GENERATED_AT,
   quoteFreshnessMaxAgeMs: FRESHNESS_MS
 });
@@ -312,7 +340,7 @@ await assert.rejects(
     lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
     lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(invalidRecurringCollectionKey)),
     identityMap,
-    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    identityMapRawBytes,
     referenceTime: GENERATED_AT
   }),
   /STAGE0_SEC_FINANCIAL_LINEAGE_CONTRACT_INVALID/
@@ -328,7 +356,7 @@ await assert.rejects(
     lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
     lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(tamperedRecordHash)),
     identityMap,
-    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    identityMapRawBytes,
     referenceTime: GENERATED_AT
   }),
   /STAGE0_SEC_FINANCIAL_LINEAGE_CONTRACT_INVALID/
@@ -345,7 +373,7 @@ await assert.rejects(
     lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
     lineageArtifactRawBytes: new TextEncoder().encode(producerRawText),
     identityMap,
-    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    identityMapRawBytes,
     referenceTime: GENERATED_AT
   }),
   /STAGE0_SEC_FINANCIAL_LINEAGE_CONTRACT_INVALID/
@@ -364,14 +392,14 @@ await assert.rejects(
     lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
     lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(wrongFileLineage)),
     identityMap,
-    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    identityMapRawBytes,
     referenceTime: GENERATED_AT
   }),
   /STAGE0_SEC_FINANCIAL_LINEAGE_ROW_MATCH_INVALID/
 );
 
 const changedCurrentSource = structuredClone(completeSources);
-changedCurrentSource[0].canonicalContentSha256 = 'f'.repeat(64);
+changedCurrentSource[0].contentSha256 = 'f'.repeat(64);
 await assert.rejects(
   applyStage0FinancialPublicationLineage({
     rows: completeUniverse,
@@ -380,7 +408,7 @@ await assert.rejects(
     lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
     lineageArtifactRawBytes: new TextEncoder().encode(producerRawText),
     identityMap,
-    identityMapRawBytes: new TextEncoder().encode(identityMapRawText),
+    identityMapRawBytes,
     referenceTime: GENERATED_AT
   }),
   /STAGE0_SEC_FINANCIAL_LINEAGE_SOURCE_HASH_MISMATCH/
