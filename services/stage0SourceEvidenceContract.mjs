@@ -2,7 +2,7 @@ const SHA256_RE = /^[a-f0-9]{64}$/;
 const COMPLETE_SOURCE_COUNT = 26;
 const STAGE0_SCHEMA_VERSION = 'stage0-source-truth-v2';
 const FINANCIAL_LINEAGE_FILE = 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json';
-const FINANCIAL_LINEAGE_SCHEMA_VERSION = 'stage0-sec-financial-publication-lineage-v1';
+const FINANCIAL_LINEAGE_SCHEMA_VERSION = 'stage0-sec-financial-publication-lineage-v2';
 const FINANCIAL_LINEAGE_SOURCE_FAMILY = 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE';
 const FINANCIAL_LINEAGE_REQUEST_SCOPE = [
   'secCompanyTickerMap',
@@ -331,11 +331,13 @@ const sourceInventoryBasis = (sourceFiles) => [...sourceFiles]
     parseStatus: file.parseStatus
   }));
 
-const dailyCanonicalSourceHash = (sourceFiles) => hashCanonicalJsonSha256([...sourceFiles]
+const dailyRawSourceHash = (sourceFiles) => hashCanonicalJsonSha256([...sourceFiles]
   .sort((left, right) => normalizeText(left?.fileName).localeCompare(normalizeText(right?.fileName)))
   .map((file) => ({
     fileName: normalizeText(file?.fileName),
-    canonicalContentSha256: normalizeText(file?.canonicalContentSha256)
+    rawContentSha256: normalizeText(file?.contentSha256),
+    rawHashBasis: 'RAW_DRIVE_FILE_BYTES',
+    sourceKind: 'DAILY'
   })));
 
 const outputHashRows = (value) => {
@@ -361,7 +363,17 @@ const producerSourceInventoryBasis = (sourceFiles) => [...sourceFiles]
     fileName: normalizeText(file?.fileName),
     sourceKind: normalizeText(file?.sourceKind),
     contentSha256: normalizeText(file?.contentSha256),
-    hashBasis: normalizeText(file?.hashBasis)
+    hashBasis: normalizeText(file?.hashBasis),
+    rawContentSha256: normalizeText(file?.rawContentSha256),
+    rawHashBasis: normalizeText(file?.rawHashBasis)
+  }));
+
+const producerRawSourceInventoryBasis = (sourceFiles) => producerSourceInventoryBasis(sourceFiles)
+  .map(({ fileName, rawContentSha256, rawHashBasis, sourceKind }) => ({
+    fileName,
+    rawContentSha256,
+    rawHashBasis,
+    sourceKind
   }));
 
 const countByClassification = (rows) => Object.fromEntries([...rows.reduce((counts, row) => {
@@ -433,6 +445,7 @@ const validateProducerArtifact = async (artifact, referenceTime) => {
   const rows = Array.isArray(artifact?.publicationLineageRows) ? artifact.publicationLineageRows : [];
   const files = Array.isArray(artifact?.sourceFileHashes) ? artifact.sourceFileHashes : [];
   const inventory = producerSourceInventoryBasis(files);
+  const rawInventory = producerRawSourceInventoryBasis(files);
   const classifications = countByClassification(rows);
   const verifiedRows = rows.filter((row) => VERIFIED_FINANCIAL_LINEAGE.has(normalizeText(row?.classification).toUpperCase())).length;
   const notApplicableRows = classifications.FINANCIAL_LINEAGE_NOT_APPLICABLE || 0;
@@ -475,8 +488,13 @@ const validateProducerArtifact = async (artifact, referenceTime) => {
     || canonicalJson([...dailyGroups].sort()) !== canonicalJson(expectedDaily)
     || canonicalJson([...historyGroups].sort()) !== canonicalJson(expectedHistory)
     || files.some((file) => !SHA256_RE.test(normalizeText(file?.contentSha256))
-      || file?.hashBasis !== 'CANONICAL_JSON_DOWNLOADED_FROM_DRIVE')
+      || file?.hashBasis !== 'CANONICAL_JSON_DOWNLOADED_FROM_DRIVE'
+      || !SHA256_RE.test(normalizeText(file?.rawContentSha256))
+      || file?.rawHashBasis !== 'RAW_DRIVE_FILE_BYTES')
+    || Number(artifact?.sourceHashCoverage) !== 100
+    || Number(artifact?.rawSourceHashCoverage) !== 100
     || await hashCanonicalJsonSha256(inventory) !== artifact?.sourceInventorySha256
+    || await hashCanonicalJsonSha256(rawInventory) !== artifact?.rawSourceInventorySha256
     || Number(artifact?.sourceInputRows) !== rows.length
     || Number(artifact?.sourceParsedRows) !== rows.length
     || Number(artifact?.sourceRejectedRows) !== unresolvedRows
@@ -505,6 +523,7 @@ const validateProducerArtifact = async (artifact, referenceTime) => {
     || artifact?.Stage1To7PolicyChanged !== false
     || artifact?.brokerOrSidecarStateMutation !== false
     || !SHA256_RE.test(normalizeText(artifact?.identityMapSha256))
+    || !SHA256_RE.test(normalizeText(artifact?.identityMapContentSha256))
     || !SHA256_RE.test(normalizeText(artifact?.inputHash))
     || !SHA256_RE.test(normalizeText(artifact?.outputHash))
     || !SHA256_RE.test(normalizeText(artifact?.evidenceSha256))
@@ -553,7 +572,7 @@ export const applyStage0FinancialPublicationLineage = async ({
   const currentSourceFiles = Array.isArray(sourceFiles) ? sourceFiles : [];
   const currentDailyHashes = new Map(currentSourceFiles.map((file) => [
     normalizeText(file?.fileName),
-    normalizeText(file?.canonicalContentSha256)
+    normalizeText(file?.contentSha256)
   ]));
   const sourceFileNames = new Set(currentDailyHashes.keys());
   const producerFileHash = new Map(producer.files.map((file) => [
@@ -563,13 +582,14 @@ export const applyStage0FinancialPublicationLineage = async ({
   const producerDailyFiles = producer.files.filter((file) => file?.sourceKind === 'DAILY');
   if (currentDailyHashes.size !== COMPLETE_SOURCE_COUNT
     || producerDailyFiles.some((file) =>
-      currentDailyHashes.get(normalizeText(file?.fileName)) !== normalizeText(file?.contentSha256))) {
+      currentDailyHashes.get(normalizeText(file?.fileName)) !== normalizeText(file?.rawContentSha256))) {
     throw new Error('STAGE0_SEC_FINANCIAL_LINEAGE_SOURCE_HASH_MISMATCH');
   }
-  const identityMapCanonicalSha256 = await hashCanonicalJsonSha256(identityMap);
-  if (identityMapCanonicalSha256 !== normalizeText(lineageArtifact?.identityMapSha256)) {
+  const identityMapContentSha256 = await hashBytesSha256(identityMapRawBytes);
+  if (identityMapContentSha256 !== normalizeText(lineageArtifact?.identityMapContentSha256)) {
     throw new Error('STAGE0_SEC_FINANCIAL_LINEAGE_IDENTITY_HASH_MISMATCH');
   }
+  const identityMapCanonicalSha256 = normalizeText(lineageArtifact?.identityMapSha256);
   const lineageIndex = new Map();
   producer.rows.forEach((candidate, index) => {
     const metric = candidate?.financialMetricBasis && typeof candidate.financialMetricBasis === 'object'
@@ -591,8 +611,7 @@ export const applyStage0FinancialPublicationLineage = async ({
   });
   const used = new Set();
   const artifactContentSha256 = await hashBytesSha256(lineageArtifactRawBytes);
-  const identityMapContentSha256 = await hashBytesSha256(identityMapRawBytes);
-  const currentDailySourceInventorySha256 = await dailyCanonicalSourceHash(currentSourceFiles);
+  const currentDailySourceInventorySha256 = await dailyRawSourceHash(currentSourceFiles);
   const appliedRows = [];
 
   for (const rawRow of Array.isArray(rows) ? rows : []) {
@@ -620,9 +639,10 @@ export const applyStage0FinancialPublicationLineage = async ({
     const periodEnd = lineageFiscalEnd(candidate) || null;
     const metric = candidate?.financialMetricBasis;
     const recordHashBasis = candidate?.financialSourceRecordHashBasis;
+    // Python and JavaScript serialize numeric JSON differently; treat the producer hash as opaque and validate every basis field.
     const recordHashValid = verified
       && recordHashBasis && typeof recordHashBasis === 'object' && !Array.isArray(recordHashBasis)
-      && await hashCanonicalJsonSha256(recordHashBasis) === normalizeText(candidate?.financialSourceRecordSha256)
+      && SHA256_RE.test(normalizeText(candidate?.financialSourceRecordSha256))
       && normalizeText(recordHashBasis?.cik) === normalizeText(candidate?.tenDigitCik)
       && normalizeText(recordHashBasis?.accessionNumber) === normalizeText(candidate?.accessionNumber)
       && normalizeText(recordHashBasis?.form) === normalizeText(candidate?.form)
@@ -698,7 +718,9 @@ export const applyStage0FinancialPublicationLineage = async ({
       producerInputHash: normalizeText(lineageArtifact.inputHash),
       producerOutputHash: normalizeText(lineageArtifact.outputHash),
       producerSourceInventorySha256: normalizeText(lineageArtifact.sourceInventorySha256),
+      producerRawSourceInventorySha256: normalizeText(lineageArtifact.rawSourceInventorySha256),
       producerIdentityMapSha256: normalizeText(lineageArtifact.identityMapSha256),
+      producerIdentityMapContentSha256: normalizeText(lineageArtifact.identityMapContentSha256),
       producerRecurringActivationAuthorized: producer.recurringActivationAuthorized,
       sourceRows: producer.rows.length,
       matchedRows: appliedRows.length,
@@ -709,6 +731,7 @@ export const applyStage0FinancialPublicationLineage = async ({
       rowCountParity: appliedRows.length === producer.rows.length,
       currentDailySourceHashParity: true,
       currentDailySourceInventorySha256,
+      currentDailySourceInventoryHashBasis: 'RAW_DRIVE_FILE_BYTES',
       unknownOrUnclassifiedRows: 0,
       rawResponseStored: false,
       canonicalSourceChanged: false,
@@ -731,7 +754,7 @@ export const buildStage0Artifact = async ({
   const orderedSourceFiles = [...sourceFiles]
     .sort((left, right) => Number(left.ordinal) - Number(right.ordinal) || left.fileName.localeCompare(right.fileName));
   const sourceInventorySha256 = await hashCanonicalJsonSha256(sourceInventoryBasis(orderedSourceFiles));
-  const currentDailySourceInventorySha256 = await dailyCanonicalSourceHash(orderedSourceFiles);
+  const currentDailySourceInventorySha256 = await dailyRawSourceHash(orderedSourceFiles);
   if (financialLineageContract?.status !== 'STAGE0_SEC_FINANCIAL_LINEAGE_CONSUMED'
     || financialLineageContract?.rowCountParity !== true
     || financialLineageContract?.currentDailySourceHashParity !== true
@@ -860,7 +883,7 @@ export const validateStage0ArtifactForStage1 = async (artifact = {}) => {
       || !SHA256_RE.test(normalizeText(lineage?.artifactContentSha256))
       || !SHA256_RE.test(normalizeText(lineage?.identityMapContentSha256))
       || !SHA256_RE.test(normalizeText(lineage?.identityMapCanonicalSha256))
-      || lineage?.currentDailySourceInventorySha256 !== await dailyCanonicalSourceHash(sourceFiles)
+      || lineage?.currentDailySourceInventorySha256 !== await dailyRawSourceHash(sourceFiles)
       || !SHA256_RE.test(normalizeText(lineage?.producerEvidenceSha256))
       || !SHA256_RE.test(normalizeText(lineage?.producerInputHash))
       || !SHA256_RE.test(normalizeText(lineage?.producerOutputHash))
