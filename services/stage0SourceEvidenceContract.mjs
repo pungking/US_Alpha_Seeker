@@ -618,7 +618,9 @@ export const applyStage0FinancialPublicationLineage = async ({
     const row = stripPrivateFinancialIdentifiers(rawRow);
     const identity = identityForSymbol(identityMap, row?.symbol);
     const fiscalPeriod = normalizeText(row?.netIncomeAsOf ?? row?.netIncomeFiscalPeriod ?? row?.fiscalPeriod);
-    const value = exactValue(row?.netIncomeEvidenceValue ?? row?.netIncome);
+    const value = exactValue(Object.prototype.hasOwnProperty.call(row || {}, 'netIncomeEvidenceValue')
+      ? row.netIncomeEvidenceValue
+      : row?.netIncome);
     const matches = lineageIndex.get(lineageMatchKey({
       identity,
       sourceDailyFile: row?.sourceDailyFile,
