@@ -304,6 +304,46 @@ assert.notEqual(appliedLineage.rows.at(-1).financialEvidenceStatus, 'FINANCIAL_E
 assert.equal('accessionNumber' in appliedLineage.rows[0], false);
 assert.equal('tenDigitCik' in appliedLineage.rows[0], false);
 
+const missingFinancialValueRows = structuredClone(completeUniverse);
+Object.assign(missingFinancialValueRows.at(-1), {
+  netIncomeEvidenceValue: null,
+  netIncome: 0,
+  netIncomeAsOf: null,
+  fiscalPeriod: null,
+  netIncomeSource: null,
+  financialSource: null
+});
+const missingFinancialValueArtifact = structuredClone(producerArtifact);
+Object.assign(missingFinancialValueArtifact.publicationLineageRows.at(-1), {
+  value: null,
+  fiscalPeriod: null,
+  sourceMetricLabel: null,
+  inputStatus: 'FINANCIAL_LINEAGE_NOT_APPLICABLE',
+  classification: 'FINANCIAL_LINEAGE_NOT_APPLICABLE'
+});
+missingFinancialValueArtifact.classificationCounts = {
+  FINANCIAL_LINEAGE_NOT_APPLICABLE: 1,
+  FINANCIAL_LINEAGE_VERIFIED_ORIGINAL: producerLineageRows.length - 1
+};
+missingFinancialValueArtifact.sourceRejectedRows = 0;
+missingFinancialValueArtifact.unresolvedRows = 0;
+const missingFinancialValueApplied = await applyStage0FinancialPublicationLineage({
+  rows: missingFinancialValueRows,
+  sourceFiles: completeSources,
+  lineageArtifact: missingFinancialValueArtifact,
+  lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+  lineageArtifactRawBytes: new TextEncoder().encode(JSON.stringify(missingFinancialValueArtifact)),
+  identityMap,
+  identityMapRawBytes,
+  referenceTime: GENERATED_AT,
+  quoteFreshnessMaxAgeMs: FRESHNESS_MS
+});
+assert.equal(missingFinancialValueApplied.contract.matchedRows, completeUniverse.length);
+assert.equal(
+  missingFinancialValueApplied.rows.at(-1).financialLineageClassification,
+  'FINANCIAL_LINEAGE_NOT_APPLICABLE'
+);
+
 const recurringProducerArtifact = structuredClone(producerArtifact);
 recurringProducerArtifact.recurringActivationAuthorized = true;
 recurringProducerArtifact.collectionKey = await hashCanonicalJsonSha256({
