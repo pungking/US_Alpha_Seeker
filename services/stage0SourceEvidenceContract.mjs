@@ -617,7 +617,9 @@ export const applyStage0FinancialPublicationLineage = async ({
   for (const rawRow of Array.isArray(rows) ? rows : []) {
     const row = stripPrivateFinancialIdentifiers(rawRow);
     const identity = identityForSymbol(identityMap, row?.symbol);
-    const fiscalPeriod = normalizeText(row?.netIncomeAsOf ?? row?.netIncomeFiscalPeriod ?? row?.fiscalPeriod);
+    const fiscalPeriod = normalizeText(Object.prototype.hasOwnProperty.call(row || {}, 'netIncomeEvidenceAsOf')
+      ? row.netIncomeEvidenceAsOf
+      : row?.netIncomeAsOf ?? row?.netIncomeFiscalPeriod ?? row?.fiscalPeriod);
     const value = exactValue(Object.prototype.hasOwnProperty.call(row || {}, 'netIncomeEvidenceValue')
       ? row.netIncomeEvidenceValue
       : row?.netIncome);
