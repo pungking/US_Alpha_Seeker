@@ -58,9 +58,12 @@ const completeRow = classifyStage0RowEvidence({
   quoteSource: 'FIXTURE_QUOTE',
   quoteTimestamp: Date.parse('2026-08-26T09:00:00.000Z') / 1000,
   quoteRetrievedAt: GENERATED_AT,
-  netIncome: 100,
+  netIncome: 999,
+  netIncomeEvidenceValue: 100,
+  netIncomeEvidenceAsOf: '2026-06-30',
+  netIncomeEvidenceSource: 'HISTORY',
   netIncomeSource: 'HISTORY',
-  netIncomeAsOf: '2026-06-30',
+  netIncomeAsOf: '2026-03-31',
   financialSource: 'YFINANCE_HISTORY_SEC_EDGAR_EXACT_LINEAGE',
   financialMetricBasis: {
     metric: 'NET_INCOME',
@@ -164,8 +167,8 @@ const producerLineageRows = await Promise.all(completeUniverse.map(async (row, i
     identityMapSha256,
     financialMetricBasis: 'NET_INCOME',
     sourceMetricLabel: 'Net Income',
-    value: row.netIncome,
-    fiscalPeriod: row.netIncomeAsOf,
+    value: row.netIncomeEvidenceValue,
+    fiscalPeriod: row.netIncomeEvidenceAsOf,
     sourceDailyFile: row.sourceDailyFile,
     sourceDailyFileSha256: producerSourceFiles.find((file) =>
       file.sourceKind === 'DAILY' && file.fileName === row.sourceDailyFile
@@ -192,7 +195,7 @@ const producerLineageRows = await Promise.all(completeUniverse.map(async (row, i
       concept: 'NetIncomeLoss',
       unit: 'USD'
     },
-    fiscalPeriod: { start: '2026-04-01', end: row.netIncomeAsOf },
+    fiscalPeriod: { start: '2026-04-01', end: row.netIncomeEvidenceAsOf },
     form: '10-Q',
     accessionNumber: `fixture-accession-${index}`,
     tenDigitCik: `fixture-cik-${index}`,
@@ -307,10 +310,12 @@ assert.equal('tenDigitCik' in appliedLineage.rows[0], false);
 const missingFinancialValueRows = structuredClone(completeUniverse);
 Object.assign(missingFinancialValueRows.at(-1), {
   netIncomeEvidenceValue: null,
-  netIncome: 0,
-  netIncomeAsOf: null,
+  netIncomeEvidenceAsOf: null,
+  netIncomeEvidenceSource: null,
+  netIncome: 777,
+  netIncomeAsOf: '2026-03-31',
   fiscalPeriod: null,
-  netIncomeSource: null,
+  netIncomeSource: 'INFO',
   financialSource: null
 });
 const missingFinancialValueArtifact = structuredClone(producerArtifact);
@@ -697,6 +702,15 @@ for (const token of [
 ]) {
   assert.ok(stage0Producer.includes(token), `Stage0 producer integration missing: ${token}`);
 }
+for (const token of [
+  "Object.prototype.hasOwnProperty.call(root, 'netIncomeEvidenceValue')",
+  'root.netIncomeEvidenceValue ?? null',
+  'root.netIncomeEvidenceAsOf ?? null',
+  'root.netIncomeEvidenceSource ?? null'
+]) {
+  assert.ok(stage0Producer.includes(token), `Stage0 explicit financial evidence mapping missing: ${token}`);
+}
+assert.doesNotMatch(stage0Producer, /netIncomeEvidenceValue:\s*root\.netIncome\s*\?\?\s*null/);
 assert.doesNotMatch(stage0Producer, /dataQuality:\s*\(price > 0 \? 'HIGH' : 'LOW'\)/);
 
 const stage1Consumer = fs.readFileSync(path.join(REPO_ROOT, 'components/PreliminaryFilter.tsx'), 'utf8');

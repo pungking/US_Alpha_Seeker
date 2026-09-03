@@ -1096,6 +1096,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   pegRatio = per / growthPctForPeg;
               }
 
+              const hasExplicitNetIncomeEvidence =
+                  Object.prototype.hasOwnProperty.call(root, 'netIncomeEvidenceValue')
+                  || Object.prototype.hasOwnProperty.call(root, 'netIncomeEvidenceAsOf')
+                  || Object.prototype.hasOwnProperty.call(root, 'netIncomeEvidenceSource');
               const legacyDataQuality = (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW';
               return classifyStage0RowEvidence({
                   // 1. Basic Info & Price
@@ -1148,7 +1152,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   revenueGrowth: toPercent(root.revenueGrowth),
                   operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
                   netIncome: Number(root.netIncome || 0),
-                  netIncomeEvidenceValue: root.netIncome ?? null,
+                  netIncomeEvidenceValue: hasExplicitNetIncomeEvidence
+                      ? root.netIncomeEvidenceValue ?? null
+                      : root.netIncome ?? null,
+                  netIncomeEvidenceAsOf: hasExplicitNetIncomeEvidence
+                      ? root.netIncomeEvidenceAsOf ?? null
+                      : root.netIncomeAsOf ?? null,
+                  netIncomeEvidenceSource: hasExplicitNetIncomeEvidence
+                      ? root.netIncomeEvidenceSource ?? null
+                      : root.netIncomeSource ?? null,
                   netIncomeCommonStockholders: Number(root.netIncomeCommonStockholders || root.netIncome || 0),
 
                   // 5. Dividend
