@@ -5,6 +5,8 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GITHUB_DISPATCH_CONFIG } from '../con
 import { ApiProvider } from '../types';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
+import { validateStage2ArtifactForStage3 } from '../services/stage2QualityTruthContract.mjs';
 
 interface Props {
   autoStart?: boolean;
@@ -971,7 +973,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 ? `name contains 'STAGE2_ELITE_UNIVERSE' and '${stage2FolderId}' in parents and trashed = false`
                 : `name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`;
             const q = encodeURIComponent(stage2Query);
-            const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=5`, {
+            const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1&fields=files(id%2Cname%2CcreatedTime%2CmodifiedTime%2Csize)`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
             await assertDriveOk(listRes, "loadStage2.list");
@@ -979,37 +981,26 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             if (!listData.files?.length) throw new Error("Stage 2 Data Missing. Please run Stage 2.");
 
-            let stage2Content: any = null;
-            let selectedStage2FileName = '';
-
-            for (const file of listData.files) {
-                const candidateRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
-                await assertDriveOk(candidateRes, `loadStage2.content(${file.id})`);
-                const candidateText = await candidateRes.text();
-                const candidateContent = parseDriveJsonText(candidateText);
-
-                const candidateUniverse = Array.isArray(candidateContent?.elite_universe) ? candidateContent.elite_universe : [];
-                if (candidateUniverse.length > 0) {
-                    stage2Content = candidateContent;
-                    selectedStage2FileName = file.name;
-                    break;
-                }
+            const stage2File = listData.files[0];
+            const candidateRes = await fetch(`https://www.googleapis.com/drive/v3/files/${stage2File.id}?alt=media`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            await assertDriveOk(candidateRes, 'loadStage2.latest');
+            const candidateText = await candidateRes.text();
+            const stage2Content = parseDriveJsonText(candidateText);
+            const stage2Validation = await validateStage2ArtifactForStage3(stage2Content);
+            if (!stage2Validation.valid) {
+                throw new Error(`Latest Stage 2 source contract invalid: ${stage2Validation.reasons.join(',')}`);
+            }
+            if (stage2Validation.eliteUniverse.length === 0) {
+                throw new Error("Latest Stage 2 universe is empty. Re-run Stage 2 to completion.");
             }
 
-            if (!stage2Content) {
-                throw new Error("Latest Stage 2 files are empty. Re-run Stage 2 to completion.");
-            }
-
-            if (selectedStage2FileName !== listData.files[0]?.name) {
-                addLog(`[WARN] Latest Stage 2 file was empty. Fallback engaged: ${selectedStage2FileName}`, "warn");
-            }
-
-            const stage2RawCandidates = Array.isArray(stage2Content?.elite_universe)
-                ? stage2Content.elite_universe
-                : [];
-            const stage2InputCount = Number(stage2Content?.manifest?.inputCount || stage2RawCandidates.length);
+            const selectedStage2FileName = stage2File.name;
+            const sourceStage2ContentSha256 = await hashTextSha256(candidateText);
+            const stage2Manifest = stage2Validation.manifest;
+            const stage2RawCandidates = stage2Validation.eliteUniverse;
+            const stage2InputCount = Number(stage2Manifest.inputCount);
             const candidates = stage2RawCandidates.filter(isAnalysisEligibleTicker);
             const excludedByInstrumentType = Math.max(0, stage2RawCandidates.length - candidates.length);
             addLog(`[OK] Stage 2 Source Locked: ${selectedStage2FileName}`, "ok");
@@ -1383,6 +1374,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     inputCount: stage2InputCount,
                     eligibleCount: candidates.length,
                     excludedByInstrumentType,
+                    sourceStage2File: selectedStage2FileName,
+                    sourceStage2ContentSha256,
+                    sourceStage2SchemaVersion: stage2Manifest.schemaVersion,
+                    sourceStage2RunId: stage2Manifest.runId,
+                    sourceStage2DecisionAt: stage2Manifest.decisionAt,
+                    sourceStage2InputHash: stage2Manifest.inputHash,
+                    sourceStage2OutputHash: stage2Manifest.outputHash,
+                    sourceStage2EvaluationHash: stage2Manifest.evaluationHash,
+                    sourceStage2PolicyContractSha256: stage2Manifest.policyContractSha256,
                     timestamp: new Date().toISOString(),
                     engine: "Pure_Quant_Algorithm"
                 },
