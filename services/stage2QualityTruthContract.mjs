@@ -307,7 +307,8 @@ const decorateRow = async (rawRow, options) => {
   const historySourceRecordSha256 = SHA256_RE.test(sourceHash) && rawHistory.length
     ? await hashCanonicalJsonSha256(rawHistory)
     : null;
-  const stage2EvidenceStatus = historyEvidenceStatus.startsWith('HISTORY_EVIDENCE_VERIFIED') && regimeVerified
+  const stage2EvidenceStatus = historyEvidenceStatus === 'HISTORY_EVIDENCE_VERIFIED'
+    && trend.available && seasonality.available && regimeVerified
     ? 'STAGE2_EVIDENCE_COMPLETE'
     : 'STAGE2_EVIDENCE_PARTIAL';
   return {
@@ -621,6 +622,14 @@ export const validateStage2ArtifactForStage3 = async (artifact = {}) => {
     || !SEASONALITY_STATUSES.has(row?.seasonalityEvidenceStatus)
     || !REGIME_STATUSES.has(row?.regimeEvidenceStatus)
     || Number(row?.targetScoreImpact) !== 0), 'EVALUATION_ROW_CONTRACT_INVALID');
+  addReason(reasons, evaluationRows.some((row) => row.stage2EvidenceStatus !== (
+    row.historyEvidenceStatus === 'HISTORY_EVIDENCE_VERIFIED'
+      && row.trendEvidenceStatus === 'TREND_EVIDENCE_VERIFIED'
+      && row.seasonalityEvidenceStatus === 'SEASONALITY_EVIDENCE_VERIFIED'
+      && row.regimeEvidenceStatus === 'REGIME_EVIDENCE_VERIFIED'
+      ? 'STAGE2_EVIDENCE_COMPLETE'
+      : 'STAGE2_EVIDENCE_PARTIAL'
+  )), 'EVIDENCE_COMPLETENESS_INVALID');
   const policy = manifest.policyContract || {};
   const rankedEligible = evaluationRows.filter((row) => Number(row?.qualityScore) > Number(policy.qualityThreshold))
     .sort((left, right) => Number(right.qualityScore) - Number(left.qualityScore) || text(left.symbol).localeCompare(text(right.symbol)));
