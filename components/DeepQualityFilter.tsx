@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
+import { GOOGLE_DRIVE_TARGET } from '../constants';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 import { validateStage1ArtifactForStage2 } from '../services/stage1PointInTimeFilterContract.mjs';
+import { hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
+import { buildStage2Artifact } from '../services/stage2QualityTruthContract.mjs';
 
 interface Props {
   autoStart?: boolean;
@@ -14,26 +14,6 @@ interface Props {
   onStockSelected?: (stock: any) => void;
   isVisible?: boolean; // [NEW] Added prop
 }
-
-const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
-    const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === 'common') return 'common';
-    if (normalized === 'warrant') return 'warrant';
-    if (normalized === 'unit') return 'unit';
-    if (normalized === 'right') return 'right';
-    if (normalized === 'hybrid') return 'hybrid';
-    return 'unknown';
-};
-
-const isAnalysisEligibleTicker = (item: any): boolean => {
-    const instrumentType = normalizeInstrumentType(item?.instrumentType);
-    const lifecycleState = String(item?.symbolLifecycleState || '').trim().toUpperCase();
-    if (lifecycleState === 'RETIRED' || lifecycleState === 'EXCLUDED') return false;
-    if (typeof item?.analysisEligible === 'boolean') {
-        return item.analysisEligible && instrumentType === 'common';
-    }
-    return instrumentType === 'common';
-};
 
 // [KNOWLEDGE BASE] Quant Metric Definitions
 const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
@@ -70,382 +50,6 @@ const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 };
 
 // ... (Rest of utils code remains same) ...
-
-// --- QUANT ENGINE UTILS ---
-
-const imputeValue = (val: any, fallback: number, allowZero: boolean = false): number => {
-    if (val === null || val === undefined || val === '') return fallback;
-    const num = Number(val);
-    if (isNaN(num) || !isFinite(num)) return fallback;
-    if (num === 0 && !allowZero) return fallback; 
-    return num;
-};
-
-const winsorize = (val: number, min: number, max: number): number => {
-    return Math.max(min, Math.min(max, val));
-};
-
-const clampScore = (val: number): number => Math.min(100, Math.max(0, val));
-const clamp01 = (val: number): number => Math.min(1, Math.max(0, val));
-
-type DistressScoreModel = 'ALTMAN_Z' | 'FINANCIAL_STABILITY' | 'SAFETY_PROXY';
-type DistressScoreResult = {
-    value: number;
-    model: DistressScoreModel;
-    coveragePct: number;
-    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
-};
-
-const toFiniteNumber = (value: any): number | null => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
-};
-
-const firstFiniteNumber = (...values: any[]): number | null => {
-    for (const value of values) {
-        const n = toFiniteNumber(value);
-        if (n !== null) return n;
-    }
-    return null;
-};
-
-const toDistressConfidence = (coveragePct: number): 'HIGH' | 'MEDIUM' | 'LOW' => {
-    if (coveragePct >= 90) return 'HIGH';
-    if (coveragePct >= 70) return 'MEDIUM';
-    return 'LOW';
-};
-
-const computeDistressScore = (
-    item: any,
-    isFinancial: boolean,
-    roe: number,
-    roa: number,
-    rawDebtRatio: any
-): DistressScoreResult => {
-    const totalAssets = toFiniteNumber(item.totalAssets);
-    const totalLiabilities = toFiniteNumber(item.totalLiabilities);
-    const currentAssets = toFiniteNumber(item.currentAssets);
-    const currentLiabilities = toFiniteNumber(item.currentLiabilities);
-    const workingCapital = firstFiniteNumber(
-        item.workingCapital,
-        currentAssets !== null && currentLiabilities !== null ? currentAssets - currentLiabilities : null
-    );
-    const retainedEarnings = toFiniteNumber(item.retainedEarnings);
-    const ebit = toFiniteNumber(item.ebit);
-    const totalRevenue = toFiniteNumber(item.totalRevenue);
-    const marketCap = firstFiniteNumber(item.marketCap, item.marketCapRaw, item.market_cap);
-    const debtRatio = toFiniteNumber(rawDebtRatio);
-
-    if (!isFinancial) {
-        const inputs = [workingCapital, retainedEarnings, ebit, marketCap, totalRevenue];
-        const available = inputs.filter((v) => v !== null).length;
-        const coveragePct = Number(((available / inputs.length) * 100).toFixed(1));
-
-        if (
-            totalAssets !== null &&
-            totalAssets > 0 &&
-            totalLiabilities !== null &&
-            totalLiabilities > 0 &&
-            workingCapital !== null &&
-            retainedEarnings !== null &&
-            ebit !== null &&
-            marketCap !== null &&
-            totalRevenue !== null
-        ) {
-            const altman =
-                1.2 * (workingCapital / totalAssets) +
-                1.4 * (retainedEarnings / totalAssets) +
-                3.3 * (ebit / totalAssets) +
-                0.6 * (marketCap / totalLiabilities) +
-                1.0 * (totalRevenue / totalAssets);
-            return {
-                value: Number(winsorize(altman, -2, 8).toFixed(2)),
-                model: 'ALTMAN_Z',
-                coveragePct,
-                confidence: toDistressConfidence(coveragePct)
-            };
-        }
-
-        // If raw financial statements are partially missing, degrade to a transparent safety proxy.
-        const roeNorm = clamp01((roe + 10) / 35);
-        const roaNorm = clamp01((roa + 2) / 10);
-        const debtNorm = debtRatio === null ? 0.45 : clamp01(1 - (Math.max(debtRatio, 0) / 2.5));
-        const liquidityNorm =
-            currentAssets !== null && currentLiabilities !== null && currentLiabilities > 0
-                ? clamp01((currentAssets / currentLiabilities) / 2)
-                : 0.5;
-        const proxy = 1 + ((roeNorm * 0.35) + (roaNorm * 0.2) + (debtNorm * 0.35) + (liquidityNorm * 0.1)) * 2.5;
-        return {
-            value: Number(proxy.toFixed(2)),
-            model: 'SAFETY_PROXY',
-            coveragePct,
-            confidence: toDistressConfidence(coveragePct)
-        };
-    }
-
-    // Financial sector model: Altman is not structurally valid for banks/insurers.
-    const financialInputs = [
-        Number.isFinite(roe) ? 1 : 0,
-        Number.isFinite(roa) ? 1 : 0,
-        debtRatio !== null ? 1 : 0,
-        totalAssets !== null && totalLiabilities !== null && totalAssets > 0 ? 1 : 0
-    ];
-    const coveragePct = Number(((financialInputs.reduce((sum, v) => sum + v, 0) / financialInputs.length) * 100).toFixed(1));
-    const roeNorm = clamp01((roe + 5) / 20);
-    const roaNorm = clamp01((roa + 1) / 4);
-    const leverageNorm = debtRatio === null ? 0.5 : clamp01(1 - (Math.max(debtRatio, 0) / 8));
-    const capitalRatio =
-        totalAssets !== null && totalLiabilities !== null && totalAssets > 0
-            ? (totalAssets - totalLiabilities) / totalAssets
-            : null;
-    const capitalNorm = capitalRatio === null ? 0.5 : clamp01((capitalRatio + 0.1) / 0.3);
-    const stability = 1 + ((roeNorm * 0.35) + (roaNorm * 0.25) + (leverageNorm * 0.2) + (capitalNorm * 0.2)) * 2.5;
-    return {
-        value: Number(stability.toFixed(2)),
-        model: 'FINANCIAL_STABILITY',
-        coveragePct,
-        confidence: toDistressConfidence(coveragePct)
-    };
-};
-
-const sanitizeData = (item: any) => {
-    let { dividendYield, roe, operatingMargins, pbr, debtToEquity } = item;
-    if (dividendYield > 50) dividendYield = dividendYield / 100;
-    if (roe > 200) roe = roe / 100;
-    if (operatingMargins > 100) operatingMargins = operatingMargins / 100;
-    if (pbr > 500) pbr = 0;
-    return { ...item, dividendYield, roe, operatingMargins, pbr, debtToEquity };
-};
-
-const HISTORY_REVENUE_KEYS = ['Total Revenue', 'Revenue', 'Operating Revenue', 'Net Sales', 'Sales'];
-const HISTORY_OPERATING_INCOME_KEYS = ['Operating Income', 'Operating Income Loss'];
-const HISTORY_NET_INCOME_KEYS = ['Net Income', 'Net Income Common Stockholders', 'Net Income Including Noncontrolling Interests'];
-const HISTORY_DEBT_KEYS = [
-    'Total Debt',
-    'Total Debt And Capital Lease Obligation',
-    'Long Term Debt',
-    'Current Debt',
-    'Current Debt And Capital Lease Obligation'
-];
-
-const getHistoryDateMs = (row: any): number => {
-    const raw = row?.date || row?.asOfDate || row?.periodEndDate;
-    const t = raw ? new Date(raw).getTime() : NaN;
-    return Number.isFinite(t) ? t : NaN;
-};
-
-const getHistoryNumber = (row: any, keys: string[]): number | null => {
-    if (!row || typeof row !== 'object') return null;
-    for (const key of keys) {
-        const value = row[key];
-        const num = Number(value);
-        if (Number.isFinite(num)) return num;
-    }
-    return null;
-};
-
-const normalizeHistoryRows = (raw: any): any[] => {
-    if (Array.isArray(raw)) return raw;
-    if (raw && typeof raw === 'object') {
-        if (Array.isArray(raw.financials)) return raw.financials;
-        const keys = Object.keys(raw).filter((k) => !k.startsWith('_'));
-        return keys.map((k) => ({ date: k, ...(raw[k] || {}) }));
-    }
-    return [];
-};
-
-const normalizeScore = (val: number, min: number, max: number) => {
-    if (val <= min) return 0;
-    if (val >= max) return 100;
-    return ((val - min) / (max - min)) * 100;
-};
-
-const computeFiveYearTrendSignals = (rawHistory: any, maxAdjustment = 5) => {
-    const rows = normalizeHistoryRows(rawHistory)
-        .map((row) => ({ ...row, __dateMs: getHistoryDateMs(row) }))
-        .filter((row) => Number.isFinite(row.__dateMs))
-        .sort((a, b) => a.__dateMs - b.__dateMs);
-
-    if (!rows.length) {
-        return { available: false, score: 50, adjustment: 0, coverage: 0, revenueCagrPct: null, marginDeltaPct: null, debtImprovementPct: null };
-    }
-
-    const annualRows = rows.filter((row) => String(row._periodType || '').toUpperCase() === 'ANNUAL');
-    const trendRows = annualRows.length >= 3 ? annualRows : rows;
-
-    const firstLastMetric = (resolver: (row: any) => number | null) => {
-        const values = trendRows
-            .map((row) => ({ row, value: resolver(row) }))
-            .filter((x) => x.value !== null && Number.isFinite(Number(x.value)));
-        if (values.length < 2) return null;
-        return { first: Number(values[0].value), last: Number(values[values.length - 1].value), firstRow: values[0].row, lastRow: values[values.length - 1].row };
-    };
-
-    const revenuePair = firstLastMetric((row) => {
-        const revenue = getHistoryNumber(row, HISTORY_REVENUE_KEYS);
-        return revenue && revenue > 0 ? revenue : null;
-    });
-    let revenueCagrPct: number | null = null;
-    let revenueScore: number | null = null;
-    if (revenuePair) {
-        const yearSpan = Math.max(1, (revenuePair.lastRow.__dateMs - revenuePair.firstRow.__dateMs) / (1000 * 60 * 60 * 24 * 365));
-        if (revenuePair.first > 0 && revenuePair.last > 0) {
-            revenueCagrPct = (Math.pow(revenuePair.last / revenuePair.first, 1 / yearSpan) - 1) * 100;
-            revenueScore = normalizeScore(revenueCagrPct, -10, 18);
-        }
-    }
-
-    const marginPair = firstLastMetric((row) => {
-        const revenue = getHistoryNumber(row, HISTORY_REVENUE_KEYS);
-        if (!revenue || revenue <= 0) return null;
-        const operatingIncome = getHistoryNumber(row, HISTORY_OPERATING_INCOME_KEYS);
-        const netIncome = getHistoryNumber(row, HISTORY_NET_INCOME_KEYS);
-        const numerator = operatingIncome !== null ? operatingIncome : netIncome;
-        if (numerator === null) return null;
-        return (numerator / revenue) * 100;
-    });
-    let marginDeltaPct: number | null = null;
-    let marginScore: number | null = null;
-    if (marginPair) {
-        marginDeltaPct = marginPair.last - marginPair.first;
-        marginScore = normalizeScore(marginDeltaPct, -6, 8);
-    }
-
-    const debtPair = firstLastMetric((row) => {
-        const debt = getHistoryNumber(row, HISTORY_DEBT_KEYS);
-        return debt && debt > 0 ? debt : null;
-    });
-    let debtImprovementPct: number | null = null;
-    let debtScore: number | null = null;
-    if (debtPair && debtPair.first > 0) {
-        debtImprovementPct = ((debtPair.first - debtPair.last) / debtPair.first) * 100;
-        debtScore = normalizeScore(debtImprovementPct, -30, 30);
-    }
-
-    const components: Array<{ score: number; weight: number }> = [];
-    if (revenueScore !== null) components.push({ score: revenueScore, weight: 0.45 });
-    if (marginScore !== null) components.push({ score: marginScore, weight: 0.35 });
-    if (debtScore !== null) components.push({ score: debtScore, weight: 0.20 });
-
-    if (!components.length) {
-        return { available: false, score: 50, adjustment: 0, coverage: 0, revenueCagrPct, marginDeltaPct, debtImprovementPct };
-    }
-
-    const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
-    const score = components.reduce((sum, c) => sum + (c.score * c.weight), 0) / totalWeight;
-    const adjustment = Math.max(-maxAdjustment, Math.min(maxAdjustment, ((score - 50) / 50) * maxAdjustment));
-    const coverage = Math.round((components.length / 3) * 100);
-
-    return {
-        available: true,
-        score,
-        adjustment,
-        coverage,
-        revenueCagrPct,
-        marginDeltaPct,
-        debtImprovementPct
-    };
-};
-
-const getQuarterKey = (row: any): string | null => {
-    const raw = row?.date || row?.asOfDate || row?.periodEndDate;
-    if (!raw) return null;
-    const d = new Date(raw);
-    if (!Number.isFinite(d.getTime())) return null;
-    const q = Math.floor(d.getUTCMonth() / 3) + 1;
-    return `${d.getUTCFullYear()}-Q${q}`;
-};
-
-const quarterSortValue = (quarterKey: string): number => {
-    const m = /^(\d{4})-Q([1-4])$/.exec(quarterKey);
-    if (!m) return -1;
-    return Number(m[1]) * 10 + Number(m[2]);
-};
-
-const computeFinancialSeasonalitySignals = (rawHistory: any, maxAdjustment = 4) => {
-    const rows = normalizeHistoryRows(rawHistory);
-    if (!rows.length) {
-        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
-    }
-
-    const quarterlyRows = rows
-        .filter((row) => String(row?._periodType || '').toUpperCase() === 'QUARTERLY')
-        .map((row) => ({
-            quarterKey: getQuarterKey(row),
-            revenue: getHistoryNumber(row, HISTORY_REVENUE_KEYS)
-        }))
-        .filter((row) => !!row.quarterKey && row.revenue !== null && Number(row.revenue) > 0) as Array<{ quarterKey: string; revenue: number | null }>;
-
-    const byQuarter = new Map<string, number>();
-    quarterlyRows.forEach((row) => {
-        byQuarter.set(row.quarterKey, Number(row.revenue));
-    });
-
-    const keys = Array.from(byQuarter.keys()).sort((a, b) => quarterSortValue(a) - quarterSortValue(b));
-    const yoyList: number[] = [];
-
-    for (const key of keys) {
-        const [yearStr, qStr] = key.split('-Q');
-        const prevKey = `${Number(yearStr) - 1}-Q${qStr}`;
-        const curr = byQuarter.get(key);
-        const prev = byQuarter.get(prevKey);
-        if (!curr || !prev || prev <= 0) continue;
-        yoyList.push(((curr / prev) - 1) * 100);
-    }
-
-    if (!yoyList.length) {
-        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
-    }
-
-    const avgYoYGrowthPct = yoyList.reduce((sum, v) => sum + v, 0) / yoyList.length;
-    const positiveRatioPct = (yoyList.filter((v) => v > 0).length / yoyList.length) * 100;
-    const avgScore = normalizeScore(avgYoYGrowthPct, -12, 20);
-    const ratioScore = normalizeScore(positiveRatioPct, 35, 90);
-    const score = (avgScore * 0.6) + (ratioScore * 0.4);
-    const quarterCoverage = Math.min(100, Math.round((keys.length / 12) * 100));
-    const yoyCoverage = Math.min(100, Math.round((yoyList.length / 4) * 100));
-    const coverage = Math.round((quarterCoverage * 0.4) + (yoyCoverage * 0.6));
-    const confidenceScale = Math.max(0.2, coverage / 100);
-    const adjustment = Math.max(
-        -maxAdjustment,
-        Math.min(maxAdjustment, (((score - 50) / 50) * maxAdjustment) * confidenceScale)
-    );
-
-    return {
-        available: true,
-        score,
-        adjustment,
-        coverage,
-        avgYoYGrowthPct,
-        positiveRatioPct
-    };
-};
-
-const DEFENSIVE_SECTOR_HINTS = ['healthcare', 'consumer defensive', 'utilities', 'financial', 'insurance', 'telecom', 'communication services'];
-const CYCLICAL_SECTOR_HINTS = ['technology', 'consumer cyclical', 'industrials', 'energy', 'materials', 'real estate'];
-
-const resolveRegimeSectorAdjustment = (
-    sector: string,
-    regimeState: string,
-    vixRef: number | null
-) => {
-    const s = String(sector || '').toLowerCase();
-    const isDefensive = DEFENSIVE_SECTOR_HINTS.some((x) => s.includes(x));
-    const isCyclical = CYCLICAL_SECTOR_HINTS.some((x) => s.includes(x));
-    const boost = (vixRef !== null && vixRef >= 24) ? 2 : 1.5;
-
-    if (regimeState === 'RISK_OFF') {
-        if (isDefensive) return { adjustment: boost, tilt: 'DEFENSIVE_FAVOR' as const };
-        if (isCyclical) return { adjustment: -boost, tilt: 'CYCLICAL_CUT' as const };
-        return { adjustment: -0.3, tilt: 'RISK_OFF_NEUTRAL' as const };
-    }
-    if (regimeState === 'RISK_ON') {
-        if (isCyclical) return { adjustment: boost, tilt: 'CYCLICAL_FAVOR' as const };
-        if (isDefensive) return { adjustment: -boost, tilt: 'DEFENSIVE_CUT' as const };
-        return { adjustment: 0.4, tilt: 'RISK_ON_NEUTRAL' as const };
-    }
-    return { adjustment: 0, tilt: 'NEUTRAL' as const };
-};
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, isVisible = true }) => {
   const [loading, setLoading] = useState(false);
@@ -601,16 +205,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return data.files?.[0]?.id || null;
   };
 
-  const downloadFile = async (token: string, fileId: string) => {
+  const downloadJsonWithEvidence = async (token: string, fileId: string, label: string) => {
       const res = await fetchDriveWithRetry(
           `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
           { headers: { 'Authorization': `Bearer ${token}` } },
           [30000, 60000, 90000],
-          `downloadFile(${fileId})`
+          label
       );
-      await assertDriveOk(res, `downloadFile(${fileId})`);
+      await assertDriveOk(res, label);
       const text = await res.text();
-      return parseDriveJsonText(text);
+      return {
+          data: parseDriveJsonText(text),
+          contentSha256: await hashTextSha256(text),
+          retrievedAt: new Date().toISOString()
+      };
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -694,329 +302,137 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               throw new Error(`Stage 1 source contract invalid: ${stage1Validation.reasons.join(',')}`);
           }
           const stage1RawCandidates = stage1Validation.investableUniverse;
-          const stage1Manifest = stage1Validation.manifest;
-          const stage1InputCount = Number(stage1Manifest?.inputCount || stage1RawCandidates.length);
           if (stage1RawCandidates.length === 0) {
-              const primaryBlocker = Object.entries(stage1Manifest?.statusCounts || {})
+              const primaryBlocker = Object.entries(stage1Validation.manifest?.statusCounts || {})
                   .sort(([leftKey, leftCount]: any, [rightKey, rightCount]: any) =>
                       Number(rightCount) - Number(leftCount) || String(leftKey).localeCompare(String(rightKey))
                   )[0];
               const blocker = primaryBlocker ? `${primaryBlocker[0]}=${primaryBlocker[1]}` : 'UNCLASSIFIED=0';
               throw new Error(`Stage 1 point-in-time evidence gate produced zero rows (${blocker}).`);
           }
-          const candidates = stage1RawCandidates.filter(isAnalysisEligibleTicker);
-          const excludedByInstrumentType = Math.max(0, stage1RawCandidates.length - candidates.length);
+          const candidates = stage1RawCandidates;
+          const stage1ContentSha256 = await hashTextSha256(stage1Text);
           addLog(`Targets Acquired: ${candidates.length} candidates.`, "ok");
-          if (excludedByInstrumentType > 0) {
-              addLog(
-                  `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols from Stage 2 pipeline.`,
-                  "warn"
-              );
-          }
-          if (candidates.length === 0) {
-              throw new Error("Stage 1 eligible universe is empty (instrument gate).");
-          }
           setProgress({ current: 0, total: candidates.length, msg: 'Initializing History Vault...' });
 
-          // Map System setup
           let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
           if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
           const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
           const marketRegimeFileId = systemMapId ? await findFileId(accessToken, 'MARKET_REGIME_SNAPSHOT.json', systemMapId) : null;
-          let regimeState = 'UNKNOWN';
-          let regimeVixRef: number | null = null;
+
+          let regimeEvidence: Record<string, any> = {};
           if (marketRegimeFileId) {
               try {
-                  const marketRegime = await downloadFile(accessToken, marketRegimeFileId);
-                  regimeState = String(marketRegime?.regime?.state || 'UNKNOWN').toUpperCase();
-                  const vixCandidate = Number(marketRegime?.benchmarks?.vix?.close);
-                  regimeVixRef = Number.isFinite(vixCandidate) ? vixCandidate : null;
-                  addLog(`[REGIME] ${regimeState} | vix=${regimeVixRef ?? 'N/A'}`, "ok");
-              } catch (e: any) {
-                  addLog(`[WARN] Market regime snapshot parse failed: ${e?.message || 'unknown'}`, "warn");
+                  const evidence = await downloadJsonWithEvidence(accessToken, marketRegimeFileId, 'stage2.marketRegime');
+                  const state = String(evidence.data?.regime?.state || '').toUpperCase();
+                  if (!['RISK_ON', 'NEUTRAL', 'RISK_OFF'].includes(state)) {
+                      throw new Error('unsupported regime state');
+                  }
+                  const vixCandidate = Number(evidence.data?.benchmarks?.vix?.close);
+                  regimeEvidence = {
+                      state,
+                      vixRef: Number.isFinite(vixCandidate) ? vixCandidate : null,
+                      fileName: 'MARKET_REGIME_SNAPSHOT.json',
+                      contentSha256: evidence.contentSha256,
+                      retrievedAt: evidence.retrievedAt,
+                      status: 'REGIME_EVIDENCE_VERIFIED'
+                  };
+                  addLog(`[REGIME] ${state} | vix=${regimeEvidence.vixRef ?? 'N/A'}`, "ok");
+              } catch (error: any) {
+                  addLog(`[WARN] Market regime evidence unavailable: ${error?.message || 'unknown'}`, "warn");
               }
           } else {
               addLog("Market regime snapshot not found. Regime factor disabled.", "warn");
           }
-          
-          if (!historyFolderId) addLog("History folder not found. Proceeding with Snapshot data only.", "warn");
 
-          const groupedByLetter: Record<string, any[]> = {};
-          candidates.forEach((c: any) => {
-              const letter = c.symbol.charAt(0).toUpperCase();
-              if (!groupedByLetter[letter]) groupedByLetter[letter] = [];
-              groupedByLetter[letter].push(c);
-          });
+          if (!historyFolderId) addLog("History folder not found. Proceeding with explicitly partial evidence.", "warn");
+          const historyByIdentity: Record<string, any[]> = {};
+          const historySourceEvidenceByIdentity: Record<string, string> = {};
+          const historySourceFiles: any[] = [];
+          const letters = [...new Set(candidates.map((candidate: any) => String(candidate.symbol || '').charAt(0).toUpperCase()))]
+              .filter(Boolean)
+              .sort();
 
-          const results: any[] = [];
-          const sortedLetters = Object.keys(groupedByLetter).sort();
-
-          for (const letter of sortedLetters) {
-              setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
-              
-              let historyDataMap = new Map();
-              if (historyFolderId) {
-                  const histFileName = `${letter}_stocks_history.json`;
-                  try {
-                      const histFileId = await findFileId(accessToken, histFileName, historyFolderId);
-                      if (histFileId) {
-                          const content = await downloadFile(accessToken, histFileId);
-                          if (Array.isArray(content)) {
-                              content.forEach((d: any) => d.symbol && historyDataMap.set(d.symbol, Array.isArray(d.financials) ? d.financials : []));
-                          } else {
-                              Object.keys(content).forEach(sym => historyDataMap.set(sym, Array.isArray(content[sym].financials) ? content[sym].financials : []));
-                          }
+          for (const [index, letter] of letters.entries()) {
+              setProgress({ current: index, total: letters.length, msg: `Loading History ${letter}...` });
+              if (!historyFolderId) continue;
+              const fileName = `${letter}_stocks_history.json`;
+              try {
+                  const fileId = await findFileId(accessToken, fileName, historyFolderId);
+                  if (!fileId) continue;
+                  const evidence = await downloadJsonWithEvidence(accessToken, fileId, `stage2.history.${letter}`);
+                  const entries = Array.isArray(evidence.data)
+                      ? evidence.data.map((record: any) => [record?.symbol, record])
+                      : Object.entries(evidence.data || {});
+                  const fileIdentities = new Set<string>();
+                  const fileHistory: Array<{ identity: string; rows: any[] }> = [];
+                  for (const [key, record] of entries as Array<[any, any]>) {
+                      const identity = String(record?.symbol || key || '').trim();
+                      if (!identity || fileIdentities.has(identity)) {
+                          throw new Error('duplicate or missing history identity');
                       }
-                  } catch (historyError: any) {
-                      addLog(
-                          `[WARN] History load skipped for ${letter}: ${historyError?.message || 'unknown'}. Continuing with snapshot-only scoring.`,
-                          "warn"
-                      );
-                  }
-              }
-
-              const batch = groupedByLetter[letter];
-              for (const rawItem of batch) {
-                  let fullHistory = historyDataMap.get(rawItem.symbol) || [];
-                  if (!Array.isArray(fullHistory)) fullHistory = [];
-
-                  // [V5.6.1] Apply Data Sanitizer First
-                  const item = sanitizeData(rawItem);
-
-                  // --- QUANT LOGIC IMPLEMENTATION (V5.6.0) ---
-
-                  // 1. Sector Logic
-                  const sector = (item.sector || '').toLowerCase();
-                  const isFinancial = sector.includes('financial') || sector.includes('bank') || sector.includes('insurance');
-                  
-                  // 2. Data Cleaning & Imputation
-                  const rawRoe = item.roe;
-                  const roeMissing =
-                      rawRoe === null ||
-                      rawRoe === undefined ||
-                      rawRoe === '' ||
-                      !isFinite(Number(rawRoe));
-                  const roe = winsorize(imputeValue(rawRoe, -5, true), -50, 100);
-                  const roa = winsorize(imputeValue(item.roa, -2, false), -20, 50);
-                  const rawDebt = item.debtToEquity;
-                  const distressScore = computeDistressScore(item, isFinancial, roe, roa, rawDebt);
-                  
-                  // [LOGIC] Negative Debt/Equity means Negative Equity (Insolvency Risk)
-                  let debtScore = 0;
-                  if (rawDebt < 0) {
-                      debtScore = 0; // Insolvency
-                  } else {
-                      // debtToEquity=0 means debt-free and must be treated as a valid value.
-                      const debtVal = imputeValue(rawDebt, isFinancial ? 0.5 : 1.5, true);
-                      debtScore = Math.max(0, 100 - (debtVal * 50)); 
-                  }
-                  
-                  // 3. Value Score (Thresholds instead of 1/PE)
-                  let valueScore = 0;
-                  const pe = item.pe || 0;
-                  
-                  if (pe <= 0) valueScore = 0; // Loss making or error
-                  else if (pe < 10) valueScore = 100; // Deep Value
-                  else if (pe < 20) valueScore = 80;  // Good Value
-                  else if (pe < 35) valueScore = 60;  // Fair Value
-                  else if (pe < 50) valueScore = 40;  // Premium
-                  else valueScore = 20;               // Bubble
-                  
-                  // 4. Profit Score
-                  let profitScore = 0;
-                  if (isFinancial) {
-                      // ROA is key for financials
-                      profitScore = (Math.max(0, roa * 30)) + (Math.max(0, roe * 2)); 
-                  } else {
-                      profitScore = Math.max(0, roe * 3);
-                  }
-                  profitScore = clampScore(profitScore);
-
-                  // 5. Data Quality Guard
-                  let dataQuality = 'HIGH';
-                  let penalty = 0;
-                  
-                  if (roeMissing) { penalty += 10; dataQuality = 'MEDIUM'; }
-                  if (!item.targetMeanPrice || item.targetMeanPrice <= 0) {
-                      penalty += 20;
-                      dataQuality = 'LOW_VISIBILITY';
-                  }
-
-                  // 6. Final Quality Score
-                  let rawQuality = (profitScore * 0.4 + debtScore * 0.3 + valueScore * 0.3) - penalty;
-                  const trendSignals = computeFiveYearTrendSignals(fullHistory, 5);
-                  const seasonalitySignals = computeFinancialSeasonalitySignals(fullHistory, 4);
-                  const qualityFactorScore = clampScore((profitScore * 0.5) + (debtScore * 0.35) + ((100 - Math.min(100, penalty * 3)) * 0.15));
-                  const qualityFactorAdjustment = Math.max(-3, Math.min(3, ((qualityFactorScore - 55) / 45) * 3));
-                  const regimeSignals = resolveRegimeSectorAdjustment(item.sector || '', regimeState, regimeVixRef);
-                  
-                  // [ICT STRATEGY BOOST] Upside Potential Bonus
-                  // If Target Price > Current Price * 1.2 (20% Upside), add bonus
-                  if (item.targetMeanPrice > item.price * 1.2) {
-                      rawQuality += 10; 
-                  }
-                  // Stage2 factor stack: 5Y trend + 5Y seasonality + regime tilt + quality factor.
-                  rawQuality += trendSignals.adjustment;
-                  rawQuality += seasonalitySignals.adjustment;
-                  rawQuality += qualityFactorAdjustment;
-                  rawQuality += regimeSignals.adjustment;
-                  
-                  const qualityScore = clampScore(rawQuality);
-
-                  if (qualityScore > 35) {
-                      // [STAGE 5 SAFEGUARD] Data Integrity & Imputation
-                      let isImputed = false;
-                      let safeTargetPrice = item.targetMeanPrice;
-                      let safeHigh52 = item.fiftyTwoWeekHigh;
-                      let safeLow52 = item.fiftyTwoWeekLow;
-
-                      if (!safeTargetPrice || safeTargetPrice === 0) {
-                          safeTargetPrice = item.price * 1.15;
-                          isImputed = true;
-                      }
-                      if (!safeHigh52 || safeHigh52 === 0) {
-                          safeHigh52 = item.price * 1.05;
-                          isImputed = true;
-                      }
-                      if (!safeLow52 || safeLow52 === 0) {
-                          safeLow52 = item.price * 0.95;
-                          isImputed = true;
-                      }
-
-                      // [ICT CALCULATION] Position in Range
-                      const range = safeHigh52 - safeLow52;
-                      const ictPos = range === 0 ? 0.5 : (item.price - safeLow52) / range;
-                      const pdZoneHint = ictPos < 0.5 ? "DISCOUNT" : "PREMIUM";
-
-                      results.push({
-                          ...item,
-                          roe: roe || 0,
-                          debtToEquity: rawDebt || 0,
-                          zScoreProxy: distressScore.value,
-                          zScoreModel: distressScore.model,
-                          zScoreCoveragePct: distressScore.coveragePct,
-                          zScoreConfidence: distressScore.confidence,
-                          profitScore: Math.round(profitScore),
-                          safeScore: Math.round(debtScore),
-                          valueScore: Math.round(valueScore),
-                          qualityScore: Number(qualityScore.toFixed(2)),
-                          fundamentalScore: Number(qualityScore.toFixed(2)), // [SYNC] Stage 6
-                          dataQuality,
-                          trendScore: Number((trendSignals.score || 50).toFixed(2)),
-                          trendAdjustment: Number((trendSignals.adjustment || 0).toFixed(2)),
-                          trendCoverage: trendSignals.coverage || 0,
-                          revenueCagrPct: trendSignals.revenueCagrPct,
-                          marginTrendDeltaPct: trendSignals.marginDeltaPct,
-                          debtImprovementPct: trendSignals.debtImprovementPct,
-                          seasonalityScore: Number((seasonalitySignals.score || 50).toFixed(2)),
-                          seasonalityAdjustment: Number((seasonalitySignals.adjustment || 0).toFixed(2)),
-                          seasonalityCoverage: seasonalitySignals.coverage || 0,
-                          seasonalityYoYGrowthPct: seasonalitySignals.avgYoYGrowthPct,
-                          seasonalityPositiveRatioPct: seasonalitySignals.positiveRatioPct,
-                          qualityFactorScore: Number(qualityFactorScore.toFixed(2)),
-                          qualityFactorAdjustment: Number(qualityFactorAdjustment.toFixed(2)),
-                          regimeState,
-                          regimeVixRef,
-                          regimeAdjustment: Number(regimeSignals.adjustment.toFixed(2)),
-                          regimeSectorTilt: regimeSignals.tilt,
-                          
-                          // [CRITICAL] Preserve ICT Data Fields with Safeguards
-                          fiftyTwoWeekHigh: safeHigh52,
-                          fiftyTwoWeekLow: safeLow52,
-                          fiftyDayAverage: item.fiftyDayAverage || 0,
-                          twoHundredDayAverage: item.twoHundredDayAverage || 0,
-                          targetMeanPrice: safeTargetPrice,
-
-                          // [NEW] Stage 5/6 Compatibility
-                          isImputed,
-                          ictPos: Number(ictPos.toFixed(4)),
-                          pdZoneHint,
-
-                          radarData: [
-                            { subject: 'Profit', A: Math.round(profitScore), fullMark: 100 },
-                            { subject: 'Safety', A: Math.round(debtScore), fullMark: 100 },
-                            { subject: 'Value', A: Math.round(valueScore), fullMark: 100 },
-                          ],
-                          fullHistory: fullHistory.slice(0, 4) 
+                      fileIdentities.add(identity);
+                      fileHistory.push({
+                          identity,
+                          rows: Array.isArray(record)
+                          ? record
+                          : Array.isArray(record?.financials) ? record.financials : []
                       });
                   }
+                  if (fileHistory.some(({ identity }) => Object.prototype.hasOwnProperty.call(historyByIdentity, identity))) {
+                      throw new Error('duplicate history identity across source files');
+                  }
+                  for (const { identity, rows } of fileHistory) {
+                      historyByIdentity[identity] = rows;
+                      historySourceEvidenceByIdentity[identity] = evidence.contentSha256;
+                  }
+                  historySourceFiles.push({
+                      fileName,
+                      contentSha256: evidence.contentSha256,
+                      retrievedAt: evidence.retrievedAt,
+                      inputRows: entries.length,
+                      parseStatus: 'PARSED'
+                  });
+              } catch (error: any) {
+                  addLog(`[WARN] History evidence unavailable for ${letter}: ${error?.message || 'unknown'}`, "warn");
               }
-              setProgress(prev => ({ ...prev, current: results.length }));
-              await new Promise(r => setTimeout(r, 0));
           }
 
-          results.sort((a, b) => b.qualityScore - a.qualityScore);
-
-          const distressModelCounts = results.reduce<Record<string, number>>((acc, item) => {
-              const model = String(item?.zScoreModel || 'SAFETY_PROXY');
-              acc[model] = (acc[model] || 0) + 1;
-              return acc;
+          const decisionAt = new Date().toISOString();
+          const payload = await buildStage2Artifact({
+              decisionAt,
+              sourceStage1File: stage1File.name,
+              sourceStage1ContentSha256: stage1ContentSha256,
+              sourceStage1Artifact: stage1Content,
+              historyByIdentity,
+              historySourceEvidenceByIdentity,
+              historySourceFiles,
+              regimeEvidence
+          });
+          const eliteCandidates = payload.elite_universe;
+          const distressModelCounts = eliteCandidates.reduce<Record<string, number>>((counts, row) => {
+              const model = String(row?.zScoreModel || 'UNCLASSIFIED');
+              counts[model] = (counts[model] || 0) + 1;
+              return counts;
           }, {});
-          const avgDistressCoverage =
-              results.length > 0
-                  ? results.reduce((sum, item) => sum + Number(item?.zScoreCoveragePct || 0), 0) / results.length
-                  : 0;
+          const avgDistressCoverage = eliteCandidates.length
+              ? eliteCandidates.reduce((sum, row) => sum + Number(row?.zScoreCoveragePct || 0), 0) / eliteCandidates.length
+              : 0;
           addLog(
               `[DISTRESS] ALTMAN_Z=${distressModelCounts.ALTMAN_Z || 0} | FIN_STABILITY=${distressModelCounts.FINANCIAL_STABILITY || 0} | SAFETY_PROXY=${distressModelCounts.SAFETY_PROXY || 0} | avgCoverage=${avgDistressCoverage.toFixed(1)}%`,
               "ok"
           );
-
-          // [DYNAMIC SCALING] Market Condition Analysis
-          const avgScore = results.reduce((sum, item) => sum + item.qualityScore, 0) / (results.length || 1);
-          let targetCount = 300; // Neutral
-          
-          if (avgScore >= 70) {
-             targetCount = 450; // Bull
-          } else if (avgScore < 50) {
-             targetCount = 150; // Bear
-          }
-
-          addLog(`[DYNAMIC-SCALE] Market Condition Detected. Target: ${targetCount} Assets.`, "info");
-
-          const eliteCandidates = results.slice(0, targetCount);
-          const avgAdj = (key: string) => {
-              if (!eliteCandidates.length) return 0;
-              return eliteCandidates.reduce((sum, item) => sum + Number(item?.[key] || 0), 0) / eliteCandidates.length;
-          };
-          addLog(
-              `[5Y_FACTOR] trend=${avgAdj('trendAdjustment').toFixed(2)} seasonality=${avgAdj('seasonalityAdjustment').toFixed(2)} quality=${avgAdj('qualityFactorAdjustment').toFixed(2)} regime=${avgAdj('regimeAdjustment').toFixed(2)}`,
-              "ok"
-          );
-          
-          // [QUANT ONLY] No AI Audit
-          addLog(`[OK] 5-Factor Quant Engine: Scan Complete`, "ok");
+          addLog(`[DYNAMIC-SCALE] Deterministic target: ${payload.manifest.dynamicTargetCount} assets.`, "info");
+          addLog(`[POINT-IN-TIME] future history rejected=${payload.manifest.futureHistoryRowsRejected} | target score influence=0`, "ok");
+          addLog(`[OK] Stage 2 deterministic quality scan complete`, "ok");
 
           setProcessedData(eliteCandidates);
           if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
+          setProgress({ current: candidates.length, total: candidates.length, msg: 'Complete' });
 
-          addLog(`[DATA-SYNC] Field Integrity Guaranteed for Stages 3-6`, "ok");
-          
           const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
-          
           const timestamp = formatKstFilenameTimestamp();
           const resultFileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
-
-          const payload = {
-              manifest: { 
-                  version: "5.6.2", 
-                  count: eliteCandidates.length, 
-                  inputCount: stage1InputCount,
-                  eligibleCount: candidates.length,
-                  excludedByInstrumentType,
-                  sourceStage1File: stage1File.name || null,
-                  sourceStage1SchemaVersion: stage1Manifest.schemaVersion,
-                  sourceStage1RunId: stage1Manifest.runId,
-                  sourceStage1DecisionAt: stage1Manifest.decisionAt,
-                  sourceStage1InputHash: stage1Manifest.inputHash,
-                  sourceStage1OutputHash: stage1Manifest.outputHash,
-                  sourceStage1ThresholdContractSha256: stage1Manifest.thresholdContractSha256,
-                  timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model_Sanitized",
-                  aiAudit: "Skipped (Quant-Only Optimization)"
-              },
-              elite_universe: eliteCandidates
-          };
-
           await uploadFile(accessToken, saveFolderId, resultFileName, payload);
           addLog(`Vault Saved: ${resultFileName}`, "ok");
           
