@@ -62,7 +62,8 @@ const rows = [
     targetSource: null,
     fiftyTwoWeekHigh: null,
     fiftyTwoWeekLow: null
-  }
+  },
+  { ...baseRow, symbol: 'SHORT_HISTORY' }
 ];
 const sourceStage0Manifest = {
   schemaVersion: 'stage0-source-truth-v2',
@@ -123,17 +124,19 @@ const quarterlyHistory = [
 ];
 const historyByIdentity = {
   BASE: [...annualHistory, ...quarterlyHistory, { date: 'invalid', Revenue: 1_000 }],
-  FIN: [...annualHistory.slice(0, 3), ...quarterlyHistory]
+  FIN: [...annualHistory.slice(0, 3), ...quarterlyHistory],
+  SHORT_HISTORY: [annualHistory[0]]
 };
 const sourceEvidenceByIdentity = {
   BASE: HASH('6'),
-  FIN: HASH('6')
+  FIN: HASH('6'),
+  SHORT_HISTORY: HASH('6')
 };
 const historySourceFiles = [{
   fileName: 'fixture_history.json',
   contentSha256: HASH('6'),
   retrievedAt: '2026-09-03T13:38:00.000Z',
-  inputRows: 2,
+  inputRows: 3,
   parseStatus: 'PARSED'
 }];
 const regimeEvidence = {
@@ -193,6 +196,11 @@ assert.equal(bySymbol.get('BASE').historyEvidenceStatus, 'HISTORY_EVIDENCE_VERIF
 assert.equal(bySymbol.get('NO_HISTORY').historyEvidenceStatus, 'HISTORY_EVIDENCE_UNAVAILABLE');
 assert.equal(bySymbol.get('NO_HISTORY').trendEvidenceStatus, 'TREND_EVIDENCE_UNAVAILABLE_NEUTRAL');
 assert.equal(bySymbol.get('NO_HISTORY').seasonalityEvidenceStatus, 'SEASONALITY_EVIDENCE_UNAVAILABLE_NEUTRAL');
+assert.equal(bySymbol.get('NO_HISTORY').stage2EvidenceStatus, 'STAGE2_EVIDENCE_PARTIAL');
+assert.equal(bySymbol.get('SHORT_HISTORY').historyEvidenceStatus, 'HISTORY_EVIDENCE_VERIFIED');
+assert.equal(bySymbol.get('SHORT_HISTORY').trendEvidenceStatus, 'TREND_EVIDENCE_UNAVAILABLE_NEUTRAL');
+assert.equal(bySymbol.get('SHORT_HISTORY').seasonalityEvidenceStatus, 'SEASONALITY_EVIDENCE_UNAVAILABLE_NEUTRAL');
+assert.equal(bySymbol.get('SHORT_HISTORY').stage2EvidenceStatus, 'STAGE2_EVIDENCE_PARTIAL');
 assert.equal(bySymbol.get('NO_HISTORY').targetMeanPrice, 0);
 assert.equal(bySymbol.get('NO_HISTORY').fiftyTwoWeekHigh, null);
 assert.equal(bySymbol.get('NO_HISTORY').fiftyTwoWeekLow, null);
@@ -233,6 +241,12 @@ assert.equal((await validateStage2ArtifactForStage3(aggregateTampered)).valid, f
 const evaluationTampered = structuredClone(artifact);
 evaluationTampered.stage2_evaluation[0].stage2Status = 'STAGE2_BLOCKED_QUALITY_SCORE';
 assert.equal((await validateStage2ArtifactForStage3(evaluationTampered)).valid, false);
+
+const completenessTampered = structuredClone(artifact);
+completenessTampered.stage2_evaluation.find((row) => row.symbol === 'SHORT_HISTORY').stage2EvidenceStatus = 'STAGE2_EVIDENCE_COMPLETE';
+const completenessValidation = await validateStage2ArtifactForStage3(completenessTampered);
+assert.equal(completenessValidation.valid, false);
+assert.ok(completenessValidation.reasons.includes('EVIDENCE_COMPLETENESS_INVALID'));
 
 const deepQualitySource = await readFile(new URL('../components/DeepQualityFilter.tsx', import.meta.url), 'utf8');
 assert.match(deepQualitySource, /await buildStage2Artifact\(\{/);
