@@ -674,6 +674,7 @@ const triggerGitHubHarvester = async (meta?: {
           timestamp: meta?.timestamp ?? new Date().toISOString(),
           trigger_file: meta?.triggerFile ?? '',
           artifact_hash: meta?.triggerFileSha256 ?? '',
+          artifact_hash_basis: 'UTF8_JSON_BYTES',
           triggeredBy: 'FundamentalAnalysis-v5',
         },
       }),
