@@ -8,7 +8,10 @@ import remarkGfm from 'remark-gfm';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 import { hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
-import { validateStage3ArtifactForStage4 } from '../services/stage3FundamentalTruthContract.mjs';
+import {
+  stage3ReadyHashMatches,
+  validateStage3ArtifactForStage4
+} from '../services/stage3FundamentalTruthContract.mjs';
 import {
   buildTossShadowEvidence,
   summarizeTossShadowEvidence,
@@ -2043,8 +2046,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const stage3ContentSha256 = await hashTextSha256(contentText);
       const stage3SourceSha256 = await sha256Json(content);
       if (!stage3SourceSha256
-        || readyData?.trigger_hash_basis !== 'CANONICAL_JSON'
-        || readyData?.trigger_sha256 !== stage3SourceSha256) {
+        || !stage3ReadyHashMatches({
+          readyData,
+          contentSha256: stage3ContentSha256,
+          canonicalSha256: stage3SourceSha256
+        })) {
         addLog("Stage 3 file hash does not match the Stage 4 ready signal. Pipeline Aborted.", "err");
         return;
       }

@@ -6,6 +6,7 @@ import { buildStage2Artifact } from '../services/stage2QualityTruthContract.mjs'
 import { hashCanonicalJsonSha256 } from '../services/stage0SourceEvidenceContract.mjs';
 import {
   buildStage3Artifact,
+  stage3ReadyHashMatches,
   validateStage3ArtifactForStage4
 } from '../services/stage3FundamentalTruthContract.mjs';
 
@@ -317,10 +318,51 @@ const tamperedValidation = await validateStage3ArtifactForStage4(tampered);
 assert.equal(tamperedValidation.valid, false);
 assert.ok(tamperedValidation.reasons.includes('OUTPUT_HASH_MISMATCH'));
 
+const contentHash = HASH('7');
+const canonicalHash = HASH('8');
+assert.equal(stage3ReadyHashMatches({
+  readyData: {
+    trigger_content_hash_basis: 'UTF8_JSON_BYTES',
+    trigger_content_sha256: contentHash,
+    trigger_hash_basis: 'CANONICAL_JSON',
+    trigger_sha256: HASH('9')
+  },
+  contentSha256: contentHash,
+  canonicalSha256: canonicalHash
+}), true);
+assert.equal(stage3ReadyHashMatches({
+  readyData: {
+    trigger_content_hash_basis: 'UTF8_JSON_BYTES',
+    trigger_content_sha256: HASH('0'),
+    trigger_hash_basis: 'CANONICAL_JSON',
+    trigger_sha256: canonicalHash
+  },
+  contentSha256: contentHash,
+  canonicalSha256: canonicalHash
+}), false);
+assert.equal(stage3ReadyHashMatches({
+  readyData: {
+    trigger_content_sha256: contentHash,
+    trigger_hash_basis: 'CANONICAL_JSON',
+    trigger_sha256: canonicalHash
+  },
+  contentSha256: contentHash,
+  canonicalSha256: canonicalHash
+}), false);
+assert.equal(stage3ReadyHashMatches({
+  readyData: {
+    trigger_hash_basis: 'CANONICAL_JSON',
+    trigger_sha256: canonicalHash
+  },
+  contentSha256: contentHash,
+  canonicalSha256: canonicalHash
+}), true);
+
 const fundamentalSource = await readFile(new URL('../components/FundamentalAnalysis.tsx', import.meta.url), 'utf8');
 assert.match(fundamentalSource, /buildStage3Artifact/);
 assert.match(fundamentalSource, /hashCanonicalJsonSha256\(rawHistory\)/);
 assert.match(fundamentalSource, /artifact_hash:\s*meta\?\.triggerFileSha256/);
+assert.match(fundamentalSource, /artifact_hash_basis:\s*'UTF8_JSON_BYTES'/);
 assert.doesNotMatch(fundamentalSource, /itemToAnalyze\.roe\s*=\s*toPct\(dData\.roe\)/);
 assert.doesNotMatch(fundamentalSource, /itemToAnalyze\.debtToEquity\s*=\s*baseline\.debtToEquity/);
 assert.match(fundamentalSource, /idx < top20Count/);
@@ -329,6 +371,6 @@ const technicalSource = await readFile(new URL('../components/TechnicalAnalysis.
 assert.match(technicalSource, /validateStage3ArtifactForStage4/);
 assert.match(technicalSource, /stage3AnalysisEligible === true/);
 assert.match(technicalSource, /sourceStage3ContentSha256:\s*stage3ContentSha256/);
-assert.match(technicalSource, /readyData\?\.trigger_sha256 !== stage3SourceSha256/);
+assert.match(technicalSource, /stage3ReadyHashMatches/);
 
 console.log('[STAGE3_FUNDAMENTAL_TRUTH_CONTRACT] PASS');

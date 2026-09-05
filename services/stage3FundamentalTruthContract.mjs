@@ -49,6 +49,31 @@ const SOURCE_FIELDS = [
 ];
 
 const text = (value) => String(value ?? '').trim();
+
+/**
+ * @param {{
+ *   readyData?: Record<string, unknown>,
+ *   contentSha256?: string | null,
+ *   canonicalSha256?: string | null
+ * }} options
+ */
+export const stage3ReadyHashMatches = ({
+  readyData = {},
+  contentSha256,
+  canonicalSha256
+} = {}) => {
+  const contentBasis = text(readyData?.trigger_content_hash_basis);
+  const advertisedContentHash = text(readyData?.trigger_content_sha256);
+  if (contentBasis || advertisedContentHash) {
+    return contentBasis === 'UTF8_JSON_BYTES'
+      && SHA256_RE.test(text(contentSha256))
+      && advertisedContentHash === text(contentSha256);
+  }
+  return readyData?.trigger_hash_basis === 'CANONICAL_JSON'
+    && SHA256_RE.test(text(canonicalSha256))
+    && text(readyData?.trigger_sha256) === text(canonicalSha256);
+};
+
 const finite = (value) => {
   if (value === null || value === undefined || value === '') return null;
   const result = Number(value);
