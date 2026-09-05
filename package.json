@@ -41,6 +41,7 @@
     "ops:test:stage0-source-contract": "node scripts/test-stage0-source-evidence-contract.mjs",
     "ops:test:stage1-point-in-time-contract": "node scripts/test-stage1-point-in-time-filter-contract.mjs",
     "ops:test:stage2-quality-truth-contract": "node scripts/test-stage2-quality-truth-contract.mjs",
+    "ops:test:stage3-fundamental-truth-contract": "node scripts/test-stage3-fundamental-truth-contract.mjs",
     "ops:stage6:structure:audit": "node scripts/build-current-entry-structure-audit.mjs",
     "ops:stage6:current-entry:review": "node scripts/build-current-entry-execution-review.mjs",
     "ops:stage6:current-entry:canary": "node scripts/canary-stage6-current-entry-promotion.mjs",

@@ -7,6 +7,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
+import { validateStage3ArtifactForStage4 } from '../services/stage3FundamentalTruthContract.mjs';
 import {
   buildTossShadowEvidence,
   summarizeTossShadowEvidence,
@@ -2038,7 +2040,19 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       await assertDriveOk(stage3ContentRes, `loadStage3.content(${stage3FileId})`);
       const contentText = await stage3ContentRes.text();
       const content = parseDriveJsonText(contentText);
+      const stage3ContentSha256 = await hashTextSha256(contentText);
       const stage3SourceSha256 = await sha256Json(content);
+      if (!stage3SourceSha256
+        || readyData?.trigger_hash_basis !== 'CANONICAL_JSON'
+        || readyData?.trigger_sha256 !== stage3SourceSha256) {
+        addLog("Stage 3 file hash does not match the Stage 4 ready signal. Pipeline Aborted.", "err");
+        return;
+      }
+      const stage3Validation = await validateStage3ArtifactForStage4(content);
+      if (!stage3Validation.valid) {
+        addLog(`Triggered Stage 3 source contract invalid: ${stage3Validation.reasons.join(',')}`, "err");
+        return;
+      }
 
       let tossShadow = validateTossShadowArtifact(null);
       try {
@@ -2083,8 +2097,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       const stage3UniverseRaw = Array.isArray(content?.fundamental_universe) ? content.fundamental_universe : [];
       const stage3InputCount = Number(content?.manifest?.inputCount || stage3UniverseRaw.length);
-      const stage3EligibleUniverse = stage3UniverseRaw.filter(isAnalysisEligibleTicker);
-      const excludedByInstrumentType = Math.max(0, stage3UniverseRaw.length - stage3EligibleUniverse.length);
+      const stage3InstrumentEligibleUniverse = stage3UniverseRaw.filter(isAnalysisEligibleTicker);
+      const stage3EligibleUniverse = stage3InstrumentEligibleUniverse.filter((row: any) => row?.stage3AnalysisEligible === true);
+      const stage3EvidenceBlockedRows = stage3UniverseRaw.filter((row: any) => row?.stage3AnalysisEligible !== true).length;
+      const excludedByInstrumentType = Math.max(0, stage3UniverseRaw.length - stage3InstrumentEligibleUniverse.length);
       if (excludedByInstrumentType > 0) {
           addLog(
               `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols before Stage 4 analysis.`,
@@ -2914,6 +2930,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               strategy: "Hybrid_Heuristic_Fusion_ADX_LogRVOL_RS",
               survivalRate,
               sourceStage3File: stage3TriggerFile,
+              sourceStage3ContentSha256: stage3ContentSha256,
+              sourceStage3Sha256: stage3SourceSha256,
+              sourceStage3HashBasis: 'CANONICAL_JSON',
+              sourceStage3RunId: content?.manifest?.runId || null,
+              sourceStage3InputHash: content?.manifest?.inputHash || null,
+              sourceStage3OutputHash: content?.manifest?.outputHash || null,
+              stage3EvidenceBlockedRows,
               readyTimestamp: readyData?.timestamp || null,
               dataSource: GOOGLE_DRIVE_TARGET.financialOhlcvFolder,
               marketRegimeState: marketRegimeSnapshot?.regime?.state || null,
