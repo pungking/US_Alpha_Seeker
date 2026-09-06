@@ -134,7 +134,13 @@ assert.ok(component.includes('earningsEventLineage: earningsEventContext.lineage
 assert.ok(component.includes('...eventRiskOverlay'));
 assert.ok(component.includes('eventPenalty: Number((techData.scoreBreakdown.eventPenalty + eventRiskOverlay.eventRiskPenalty)'));
 const stage5 = await readFile(new URL('../components/ICTAnalysis.tsx', import.meta.url), 'utf8');
-assert.ok(stage5.includes('...ticker'));
+const stage5Mapping = stage5.slice(stage5.indexOf('const finalRankedResults = diversifiedResults.map('), stage5.indexOf('finalRankedResults.slice(0, 5)'));
+assert.ok(stage5Mapping.includes('...ticker'));
+const runStage5Mapping = new Function('diversifiedResults', ts.transpile(stage5Mapping, {
+  target: ts.ScriptTarget.ES2022
+}) + '\nreturn finalRankedResults;');
+const [stage5Row] = runStage5Mapping([{ techMetrics: good }]);
+assert.deepEqual(stage5Row.techMetrics, good, 'actual Stage5 ranking mapper preserves earnings evidence');
 const stage6 = await readFile(new URL('../components/AlphaAnalysis.tsx', import.meta.url), 'utf8');
 // Exercise the actual downstream reader, not a second implementation of its precedence.
 const scalars = stage6.slice(stage6.indexOf('const normalizeOptionalText ='), stage6.indexOf('const toPositiveFiniteNumber ='));
@@ -145,7 +151,7 @@ const js = ts.transpile(scalars + reader + '\nexport { readCanonicalEarningsLine
 });
 const exports = {};
 new Function('exports', js)(exports);
-const consumed = exports.readCanonicalEarningsLineage({ techMetrics: good });
+const consumed = exports.readCanonicalEarningsLineage(stage5Row);
 assert.equal(consumed.earningsCoverageStatus, 'EARNINGS_PRESENT');
 assert.equal(consumed.earningsDate, good.earningsDate);
 assert.equal(consumed.earningsDaysToEvent, good.daysToEarnings);
