@@ -133,7 +133,7 @@ assert.ok(/calculateEventRiskOverlay\(\s*earningsEventContext,/.test(component))
 assert.ok(component.includes('earningsEventLineage: earningsEventContext.lineage'));
 assert.ok(component.includes('...eventRiskOverlay'));
 assert.ok(component.includes('eventPenalty: Number((techData.scoreBreakdown.eventPenalty + eventRiskOverlay.eventRiskPenalty)'));
-const stage5 = await readFile(new URL('../components/ICTAnalysis.tsx', import.meta.url), 'utf8');
+const stage5 = await readFile(new URL('../components/IctAnalysis.tsx', import.meta.url), 'utf8');
 const stage5Mapping = stage5.slice(stage5.indexOf('const finalRankedResults = diversifiedResults.map('), stage5.indexOf('finalRankedResults.slice(0, 5)'));
 assert.ok(stage5Mapping.includes('...ticker'));
 const runStage5Mapping = new Function('diversifiedResults', ts.transpile(stage5Mapping, {
