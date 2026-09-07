@@ -43,6 +43,8 @@
     "ops:test:stage2-quality-truth-contract": "node scripts/test-stage2-quality-truth-contract.mjs",
     "ops:test:stage3-fundamental-truth-contract": "node scripts/test-stage3-fundamental-truth-contract.mjs",
     "ops:test:stage4-earnings-event-contract": "node scripts/test-stage4-earnings-event-contract.mjs",
+    "ops:test:stage5-evidence-contract": "node scripts/test-stage5-evidence-contract.mjs",
+    "ops:test:stage5-stage6-ingest-contract": "node scripts/test-stage5-stage6-ingest-contract.mjs",
     "ops:stage6:structure:audit": "node scripts/build-current-entry-structure-audit.mjs",
     "ops:stage6:current-entry:review": "node scripts/build-current-entry-execution-review.mjs",
     "ops:stage6:current-entry:canary": "node scripts/canary-stage6-current-entry-promotion.mjs",

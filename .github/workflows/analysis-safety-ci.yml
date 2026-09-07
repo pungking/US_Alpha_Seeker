@@ -37,6 +37,8 @@ jobs:
         run: npm run ops:test:stage3-fundamental-truth-contract
       - name: Stage4 earnings consumer and risk-window contract fixture
         run: npm run ops:test:stage4-earnings-event-contract
+      - name: Stage5 evidence, numerical and Stage6 ingestion contract fixtures
+        run: npm run ops:test:stage5-stage6-ingest-contract
       - name: Stage6 fillability contract fixture
         run: npm run ops:stage6:fillability-contract:validate
       - name: Stage6 fresh-focus formula coverage fixture

@@ -3,8 +3,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from '../constants';
 import { formatKstFilenameTimestamp } from '../services/timeService';
-import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { assertDriveOk } from '../services/driveJsonUtils';
 import { summarizeTossShadowEvidence } from '../services/tossShadowContract.mjs';
+import { hashTextSha256, hashBytesSha256 } from '../services/stage0SourceEvidenceContract.mjs';
+import { STAGE4_RECENT_HINT_KEY, buildStage5InputContext, buildStage5EvidenceArtifact } from '../services/stage5EvidenceContract.mjs';
 
 interface IctScoredTicker {
   symbol: string;
@@ -75,20 +77,6 @@ interface IctScoredTicker {
   [key: string]: any;
 }
 
-interface Stage5MarketRegimeSnapshot {
-  trigger_file?: string;
-  sourceStage3File?: string;
-  stage3_file?: string;
-  manifest?: {
-    sourceStage3File?: string;
-  };
-  benchmarks?: {
-    vix?: {
-      close?: number;
-    };
-  };
-}
-
 interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
@@ -118,45 +106,29 @@ const isAnalysisEligibleTicker = (item: any): boolean => {
     return instrumentType === 'common';
 };
 
-// [KNOWLEDGE BASE] Institutional Grade Definitions
+// These names describe OHLCV heuristics, not observed institutional orders or calibrated probabilities.
 const ICT_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
-    'DISPLACEMENT': {
-        title: "Displacement (세력 개입)",
-        desc: "기관(Smart Money)의 의도적인 가격 이동입니다. 높은 RVOL과 장대 양봉(Expansion)은 세력이 시장가로 물량을 쓸어담았다는(Aggressive Buy) 증거입니다.",
-        interpretation: "Score > 70: 단순 변동성이 아닌, 세력의 자금이 투입된 '진짜 상승'입니다."
-    },
-    'MSS': {
-        title: "Market Structure (시장 구조)",
-        desc: "하락 파동(Lower Highs)을 깨고 상승 파동(Higher Highs)으로 전환되는 지점입니다. 추세 반전의 가장 신뢰도 높은 기술적 신호입니다.",
-        interpretation: "BREAK 확인 시: 눌림목(Retracement)은 매도 기회가 아니라 '강력한 매수 기회'가 됩니다."
-    },
-    'SWEEP': {
-        title: "Liquidity Sweep (유동성 확보)",
-        desc: "주요 지지/저항 라인을 살짝 붕괴시켜 개인의 손절 물량(Stop Loss)을 유도하고, 그 유동성을 이용해 포지션을 진입하는 기관의 테크닉입니다.",
-        interpretation: "YES: 세력이 개미를 털어내고(Stop Hunt) 연료를 확보했습니다. 곧 급반전이 예상됩니다."
-    },
-    'WHALES': {
-        title: "Smart Money Flow (노력 vs 결과)",
-        desc: "와이코프(Wyckoff) 이론에 기반하여 거래량(노력) 대비 가격 변동(결과)의 효율성을 분석합니다. 거래량은 터지는데 가격이 지켜진다면 매집입니다.",
-        interpretation: "80% 이상: 완벽한 매집. 기관이 유통 물량을 잠그고(Lock-up) 슈팅을 준비 중입니다."
-    }
+    DISPLACEMENT: { title: 'Displacement proxy', desc: '거래량 점수와 모멘텀, 캔들 몸통 및 인접 봉 갭의 가중 휴리스틱입니다.', interpretation: '기관 주문이나 실제 자금 유입을 확인한 값이 아닙니다.' },
+    MSS: { title: 'Market structure proxy', desc: '추세, 방향성 지표와 displacement의 합성 점수입니다.', interpretation: '스윙 고점 돌파 또는 구조 전환을 직접 검증하는 이벤트 검출기가 아닙니다.' },
+    SWEEP: { title: 'Liquidity sweep proxy', desc: '아래꼬리, squeeze, RSI와 거래량 배율을 사용하는 패턴 점수입니다.', interpretation: '실제 손절 주문 체결이나 향후 반전을 확인한 값이 아닙니다.' },
+    WHALES: { title: 'Volume/price flow proxy', desc: '거래량 배율 대비 가격 변화와 MFI를 사용하는 휴리스틱입니다.', interpretation: '기관 보유, 매집 또는 투자 성공 확률을 의미하지 않습니다.' }
 };
 
 const MARKET_STATE_INFO: Record<string, string> = {
-    'ACCUMULATION': "매집 (Accumulation): 세력이 바닥권에서 물량을 조용히 모으는 단계. 하락은 멈췄으나 상승 전 에너지를 응축 중.",
-    'MARKUP': "상승 (Markup): 매집 완료 후 가격을 들어 올리는 단계. 추세가 형성되었으므로 적극적인 추격 매수(Momentum) 유효.",
-    'DISTRIBUTION': "분산 (Distribution): 고점에서 거래량은 터지지만 가격이 못 가는 단계. 세력이 개인에게 물량을 떠넘기는 중. 매도 관점.",
-    'MANIPULATION': "속임수 (Manipulation): 방향성을 주기 전 위아래로 흔들어 손절을 유도하는 구간. 휩소(Whipsaw) 주의.",
-    'RE-ACCUMULATION': "재매집 (Re-Accumulation): 상승 도중 숨고르기. 차익 실현 물량을 세력이 다시 받아내며 2차 상승을 준비하는 건전한 조정."
+    ACCUMULATION: '매집 유사 패턴: 가격/거래량 휴리스틱 분류. 실제 매집 미확인.',
+    MARKUP: '상승 유사 패턴: 추세/변위 휴리스틱 분류. 최종 진입 판단은 Stage6에 있음.',
+    DISTRIBUTION: '분산/기타 패턴: 앞선 조건 미충족 시의 기본 분류. 실제 매도 물량 미확인.',
+    MANIPULATION: '휩소 유사 패턴: sweep 점수 기반 분류. 시장 조작 증거가 아님.',
+    'RE-ACCUMULATION': '재매집 유사 패턴: 추세/지지 점수 기반 분류. 기관 재매수 미확인.'
 };
 
 // [QUANT ENGINE v6.9] Robust ICT Logic (Algorithmic)
 const calculateIctScore = (item: any) => {
-    const rvol = item.techMetrics?.rawRvol || item.techMetrics?.rvol || 1.0;
-    const momentum = item.techMetrics?.momentum || 50;
-    const trendScore = item.techMetrics?.trend || 50;
+    const rvol = item.techMetrics.rawRvol;
+    const momentum = item.techMetrics.momentum;
+    const trendScore = item.techMetrics.trend;
     const macdHistogram = item.techMetrics?.macdHistogram || 0;
-    const mfi = item.techMetrics?.mfi || 50;
+    const mfi = item.techMetrics.mfi;
     const diPlus = item.techMetrics?.diPlus || 0;
     const diMinus = item.techMetrics?.diMinus || 0;
     const minerviniScore = item.techMetrics?.minerviniScore || 0;
@@ -173,18 +145,16 @@ const calculateIctScore = (item: any) => {
     let wickScore = 0;
     let bodyStrength = 0;
     let recentGap = 0;
-    let hasFullData = false;
 
     if (priceHistory.length >= 5) {
-        hasFullData = true;
         const lastCandle = priceHistory[priceHistory.length - 1];
         const prevCandle = priceHistory[priceHistory.length - 2];
         
         // Calculate Candle Parts
-        const open = lastCandle.open || prevCandle.close; 
+        const open = lastCandle.open;
         const close = lastCandle.close;
-        const high = lastCandle.high || Math.max(open, close); 
-        const low = lastCandle.low || Math.min(open, close);   
+        const high = lastCandle.high;
+        const low = lastCandle.low;
         
         const bodySize = Math.abs(close - open);
         const totalRange = high - low;
@@ -205,15 +175,12 @@ const calculateIctScore = (item: any) => {
         if (prevCandle && low > prevCandle.high) recentGap = 100; // Gap Up
         
     } else {
-        // [FALLBACK] Heuristic for missing history
-        // If high RVOL and High Daily Change -> Strong Body
-        if (absChange > 2.0 && rvol > 1.2) bodyStrength = 80; 
-        else if (absChange < 0.5) bodyStrength = 20; 
+        throw new Error('STAGE5_EMPIRICAL_BARS_REQUIRED');
     }
 
     // --- 2. Displacement (Force of Move) ---
     // Log normalized RVOL is already in item.techMetrics.rvol (0-100 scale), rawRvol is the ratio
-    const rvolScore = item.techMetrics?.rvol || 50;
+    const rvolScore = item.techMetrics.rvol;
     
     let displacement = Math.min(100, (rvolScore * 0.4) + (momentum * 0.4));
     if (bodyStrength > 60) displacement += 15; 
@@ -223,8 +190,6 @@ const calculateIctScore = (item: any) => {
     else if (macdHistogram < -0.3) displacement -= 4;
     if (signalComboBonus > 0) displacement += Math.min(6, signalComboBonus * 2);
     
-    // Normalize Fallback: if data missing but change is high positive
-    if (!hasFullData && dailyChange > 1.5) displacement = Math.max(displacement, 70);
 
     // --- 3. Market Structure (MSS) ---
     // If trend is strong and displacement is high, structure is bullish
@@ -237,7 +202,7 @@ const calculateIctScore = (item: any) => {
 
     // --- 4. Liquidity Sweep (Stop Hunt Detection) ---
     const isSqueeze = item.techMetrics?.squeezeState === 'SQUEEZE_ON';
-    const rsi = item.techMetrics?.rsRating || 50;
+    const rsi = item.techMetrics.rsi;
     
     let sweepScore = 50;
     if (isSqueeze) sweepScore += 30; 
@@ -290,11 +255,11 @@ const calculateIctScore = (item: any) => {
     return {
         score: Number(Math.min(100, Math.max(0, finalScore)).toFixed(2)),
         metrics: {
-            displacement: Number(Math.min(100, displacement).toFixed(2)),
-            liquiditySweep: Number(Math.min(100, sweepScore).toFixed(2)),
-            marketStructure: Number(Math.min(100, mss).toFixed(2)),
-            orderBlock: Number(Math.min(100, obScore).toFixed(2)),
-            smartMoneyFlow: Number(Math.min(100, smFlow).toFixed(2))
+            displacement: Number(Math.max(0, Math.min(100, displacement)).toFixed(2)),
+            liquiditySweep: Number(Math.max(0, Math.min(100, sweepScore)).toFixed(2)),
+            marketStructure: Number(Math.max(0, Math.min(100, mss)).toFixed(2)),
+            orderBlock: Number(Math.max(0, Math.min(100, obScore)).toFixed(2)),
+            smartMoneyFlow: Number(Math.max(0, Math.min(100, smFlow)).toFixed(2))
         }
     };
 };
@@ -319,6 +284,7 @@ const calibrateCompositeAlpha = (rawComposite: number) => {
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 const toFiniteNumber = (value: any, fallback = 0) => {
+    if (value === null || value === undefined || value === '') return fallback;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
 };
@@ -327,9 +293,9 @@ const computeStage5FactorCarry = (item: any, dataQualityState: string) => {
     const coverageRaw = item?.factorCoverage ?? item?.techMetrics?.factorCoverage;
     const confidenceRaw = item?.factorConfidence ?? item?.techMetrics?.factorConfidence;
     const qualityRaw = item?.factorQualityScore ?? item?.techMetrics?.factorQualityScore;
-    const hasCoverageMeta = Number.isFinite(Number(coverageRaw));
-    const hasConfidenceMeta = Number.isFinite(Number(confidenceRaw));
-    const hasQualityMeta = Number.isFinite(Number(qualityRaw));
+    const hasCoverageMeta = Number.isFinite(toFiniteNumber(coverageRaw, NaN));
+    const hasConfidenceMeta = Number.isFinite(toFiniteNumber(confidenceRaw, NaN));
+    const hasQualityMeta = Number.isFinite(toFiniteNumber(qualityRaw, NaN));
     const hasFactorMeta = hasCoverageMeta || hasConfidenceMeta || hasQualityMeta;
 
     const stage4Adjustment = clamp(
@@ -417,27 +383,10 @@ type PriceHistoryBar = {
 };
 
 const normalizePriceHistoryBars = (priceHistory: any): PriceHistoryBar[] => {
-    if (!Array.isArray(priceHistory)) return [];
-
-    return priceHistory
-        .map((candle: any) => {
-            const highRaw = Number(candle?.high);
-            const lowRaw = Number(candle?.low);
-            const closeRaw = Number(candle?.close ?? candle?.c);
-
-            // Guard against corrupted OHLC rows (zero/negative lows) that can fabricate
-            // unrealistic ICT stops (for example 0.01) and pollute Stage6 decisions.
-            if (!Number.isFinite(highRaw) || !Number.isFinite(lowRaw)) return null;
-            if (highRaw <= 0 || lowRaw <= 0) return null;
-            const high = Math.max(highRaw, lowRaw);
-            const low = Math.min(highRaw, lowRaw);
-            const mid = (high + low) / 2;
-            const close = Number.isFinite(closeRaw) ? closeRaw : mid;
-            if (!(close > 0)) return null;
-
-            return { high, low, close };
-        })
-        .filter((bar): bar is PriceHistoryBar => Boolean(bar));
+    if (!Array.isArray(priceHistory) || priceHistory.some(bar =>
+        !['high', 'low', 'close'].every(key => typeof bar?.[key] === 'number' && Number.isFinite(bar[key]) && bar[key] > 0)
+        || bar.high < bar.low || bar.close > bar.high || bar.close < bar.low)) return [];
+    return priceHistory.map(({ high, low, close }) => ({ high, low, close }));
 };
 
 const calculateAtrFromBars = (bars: PriceHistoryBar[], period = 20): number | null => {
@@ -471,14 +420,14 @@ const resolveIctExecutionGeometry = (item: any) => {
         if (entryValue != null && stopValue >= entryValue) return null;
         return stopValue;
     };
-    const high52 = Number(item?.fiftyTwoWeekHigh || item?.high52 || item?.price * 1.2 || 0);
-    const low52 = Number(item?.fiftyTwoWeekLow || item?.low52 || item?.price * 0.8 || 0);
+    const high52 = Number(item?.fiftyTwoWeekHigh ?? item?.high52 ?? NaN);
+    const low52 = Number(item?.fiftyTwoWeekLow ?? item?.low52 ?? NaN);
     const fallbackRange = Math.max(0, high52 - low52);
     const fallbackOteRaw = fallbackRange > 0
         ? high52 - (fallbackRange * Number(STRATEGY_CONFIG.ICT_OTE_LEVEL ?? 0.705))
-        : Number(item?.price || 0);
+        : Number.NaN;
     const fallbackOte = toFinitePositive(fallbackOteRaw);
-    const fallbackStopRaw = low52 > 0 ? low52 * 0.985 : Number(item?.price || 0) * 0.9;
+    const fallbackStopRaw = low52 > 0 ? low52 * 0.985 : Number.NaN;
     const fallbackStop = ensureStopBelowEntry(toFinitePositive(fallbackStopRaw), fallbackOte);
     const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
     const fallbackIctPos = fallbackRange > 0 ? clamp01((Number(item?.price || 0) - low52) / fallbackRange) : 0.5;
@@ -539,6 +488,8 @@ const resolveIctExecutionGeometry = (item: any) => {
         executionAtr: null
     };
 };
+
+const compareStage5Identity = (a: any, b: any) => a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0;
 
 const determineMarketState = (metrics: any): 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION' | 'RE-ACCUMULATION' => {
     if (metrics.marketStructure > 75 && metrics.displacement > 70) return 'MARKUP';
@@ -645,249 +596,53 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
     addLog("Phase 5: Initiating Institutional Liquidity Sieve...", "info");
     
     try {
+      window.sessionStorage.removeItem(STAGE5_RECENT_HINT_KEY);
+      const decisionAt = new Date().toISOString();
       const stage4FolderId = await findFolderId(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
-      const fullQueryRaw = stage4FolderId
-          ? `name contains 'STAGE4_TECHNICAL_FULL' and '${stage4FolderId}' in parents and trashed = false`
-          : `name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`;
-      const fullQuery = encodeURIComponent(fullQueryRaw);
-
-      // [RESILIENCE] Retry Logic for Drive Latency (3 Attempts)
-      let fullRes: any = { files: [] };
-      for (let attempt = 1; attempt <= 3; attempt++) {
-          try {
-              const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${fullQuery}&orderBy=createdTime desc&pageSize=10&fields=files(id,name,createdTime,modifiedTime)`, {
-                  headers: { 'Authorization': `Bearer ${accessToken}` }
-              });
-              if (res.ok) {
-                  fullRes = await res.json();
-                  if (fullRes.files?.length > 0) break;
-              }
-          } catch (e) { console.warn(`Drive Scan Attempt ${attempt} failed.`); }
-          
-          if (attempt < 3) {
-              addLog(`Scanning Vault... (Attempt ${attempt}/3)`, "warn");
-              await new Promise(r => setTimeout(r, 2000)); // Wait 2s
-          }
+      if (!stage4FolderId) throw new Error('STAGE4_FOLDER_MISSING');
+      const hintText = window.sessionStorage.getItem(STAGE4_RECENT_HINT_KEY);
+      const expectedHint = hintText ? JSON.parse(hintText) : null;
+      if (autoStart && !expectedHint) throw new Error('STAGE4_SAME_RUN_HANDOFF_MISSING');
+      if (expectedHint && !/^STAGE4_TECHNICAL_FULL_[A-Za-z0-9_.-]+\.json$/.test(expectedHint.fileName || '')) {
+          throw new Error('STAGE4_HANDOFF_NAME_INVALID');
       }
-
-      let mergedUniverse: any[] = [];
-      let stage4SourceStage3File: string | null = null;
-      let selectedStage4Id: string | null = null;
-      let selectedStage4Name: string | null = null;
-      let selectedStage4Timestamp: string | null = null;
-      let selectedStage4FactorReady = false;
-
-      const isFactorReady = (rows: any[]) => {
-          if (!Array.isArray(rows) || rows.length === 0) return false;
-          return rows.some((row: any) => {
-              const coverage = Number(row?.factorCoverage ?? row?.techMetrics?.factorCoverage);
-              const confidence = Number(row?.factorConfidence ?? row?.techMetrics?.factorConfidence);
-              const quality = Number(row?.factorQualityScore ?? row?.techMetrics?.factorQualityScore);
-              return Number.isFinite(coverage) && Number.isFinite(confidence) && Number.isFinite(quality);
-          });
-      };
-
-      if (fullRes.files?.length) {
-          for (const fileMeta of fullRes.files) {
-              try {
-                  const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileMeta.id}?alt=media`, {
-                      headers: { 'Authorization': `Bearer ${accessToken}` }
-                  });
-                  await assertDriveOk(contentRes, `loadStage4.content(${fileMeta.id})`);
-                  const contentText = await contentRes.text();
-                  const content = parseDriveJsonText(contentText);
-                  const rows = Array.isArray(content?.technical_universe) ? content.technical_universe : [];
-                  if (rows.length === 0) continue;
-
-                  const factorReady = isFactorReady(rows);
-                  if (mergedUniverse.length === 0) {
-                      mergedUniverse = rows;
-                      stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
-                      selectedStage4Id = fileMeta.id || null;
-                      selectedStage4Name = fileMeta.name || null;
-                      selectedStage4Timestamp = content?.manifest?.timestamp || fileMeta.createdTime || null;
-                      selectedStage4FactorReady = factorReady;
-                  }
-
-                  // Prefer latest factor-ready Stage4 file to keep Stage5 carry contract consistent.
-                  if (factorReady) {
-                      mergedUniverse = rows;
-                      stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
-                      selectedStage4Id = fileMeta.id || null;
-                      selectedStage4Name = fileMeta.name || null;
-                      selectedStage4Timestamp = content?.manifest?.timestamp || fileMeta.createdTime || null;
-                      selectedStage4FactorReady = true;
-                      break;
-                  }
-              } catch (e) {
-                  console.warn(`Failed to load Stage 4 full file ${fileMeta.name}`, e);
-                  addLog(`Warning: Failed to load ${fileMeta.name}`, "warn");
-              }
-          }
+      const nameQuery = expectedHint
+          ? `name = '${expectedHint.fileName}'`
+          : "name contains 'STAGE4_TECHNICAL_FULL_'";
+      const query = encodeURIComponent(`${nameQuery} and '${stage4FolderId}' in parents and trashed = false`);
+      const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc&pageSize=2&fields=files(id,name,createdTime)`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      await assertDriveOk(listResponse, 'stage5.stage4.list');
+      const listing = await listResponse.json();
+      if (!listing.files?.length || (expectedHint && listing.files.length !== 1)
+        || (listing.files.length > 1 && listing.files[0].name === listing.files[1].name)) {
+          throw new Error('STAGE4_EXACT_SOURCE_MISSING_OR_AMBIGUOUS');
       }
-
-      if (selectedStage4Name) {
-          if (selectedStage4FactorReady) {
-              addLog(`Stage 4 Full Vault Locked: ${selectedStage4Name} (factor-ready)`, "ok");
-          } else {
-              addLog(`Stage 4 Full Vault Locked: ${selectedStage4Name} (legacy factor schema)`, "warn");
-          }
-      }
-
-      if (mergedUniverse.length === 0) {
-          addLog("CRITICAL: Stage 4 data missing or unreadable. Pipeline Aborted.", "err");
-          setLoading(false);
-          return;
-      }
-
-      const stage4InputCount = mergedUniverse.length;
-      mergedUniverse = mergedUniverse.filter(isAnalysisEligibleTicker);
-      const excludedByInstrumentType = Math.max(0, stage4InputCount - mergedUniverse.length);
-      if (excludedByInstrumentType > 0) {
-          addLog(
-              `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols before Stage 5 analysis.`,
-              "warn"
-          );
-      }
-      if (mergedUniverse.length === 0) {
-          addLog("CRITICAL: all Stage 4 candidates were excluded by instrument eligibility gate.", "err");
-          setLoading(false);
-          return;
-      }
-
-      addLog(`Data Load Complete. ${mergedUniverse.length} Tickers Loaded.`, "ok");
-
-      // [Stage5-B] Contract validation (warn-only): required field completeness check
-      const contractRequiredChecks: Array<{ label: string; valid: (ticker: any) => boolean }> = [
-          { label: 'symbol', valid: (t) => typeof t?.symbol === 'string' && t.symbol.trim().length > 0 },
-          { label: 'name', valid: (t) => typeof t?.name === 'string' && t.name.trim().length > 0 },
-          { label: 'price', valid: (t) => Number.isFinite(Number(t?.price)) && Number(t.price) > 0 },
-          { label: 'fundamentalScore', valid: (t) => Number.isFinite(Number(t?.fundamentalScore)) },
-          { label: 'technicalScore', valid: (t) => Number.isFinite(Number(t?.technicalScore)) },
-          { label: 'techMetrics', valid: (t) => !!t?.techMetrics && typeof t.techMetrics === 'object' },
-          { label: 'techMetrics.rsRating', valid: (t) => Number.isFinite(Number(t?.techMetrics?.rsRating)) },
-          { label: 'techMetrics.rvol', valid: (t) => Number.isFinite(Number(t?.techMetrics?.rvol)) }
-      ];
-      const factorContractChecks: Array<{ label: string; valid: (ticker: any) => boolean }> = [
-          { label: 'factorAdjustmentTotal', valid: (t) => Number.isFinite(Number(t?.factorAdjustmentTotal ?? t?.techMetrics?.factorAdjustmentTotal)) },
-          { label: 'factorCoverage', valid: (t) => Number.isFinite(Number(t?.factorCoverage ?? t?.techMetrics?.factorCoverage)) },
-          { label: 'factorConfidence', valid: (t) => Number.isFinite(Number(t?.factorConfidence ?? t?.techMetrics?.factorConfidence)) },
-          { label: 'factorQualityScore', valid: (t) => Number.isFinite(Number(t?.factorQualityScore ?? t?.techMetrics?.factorQualityScore)) }
-      ];
-
-      const missingRows = mergedUniverse
-          .map((ticker: any, idx: number) => {
-              const missing = contractRequiredChecks
-                  .filter((check) => !check.valid(ticker))
-                  .map((check) => check.label);
-              return {
-                  symbol: ticker?.symbol || `IDX_${idx + 1}`,
-                  missing
-              };
-          })
-          .filter((row) => row.missing.length > 0);
-
-      const missingRate = mergedUniverse.length > 0
-          ? (missingRows.length / mergedUniverse.length) * 100
-          : 0;
-      const contractWarnThresholdPct = 5;
-      const contractAbortThresholdPct = 10;
-
-      if (missingRows.length > 0) {
-          addLog(
-              `Stage4 Contract Check: ${missingRows.length}/${mergedUniverse.length} incomplete rows (${missingRate.toFixed(1)}%).`,
-              "warn"
-          );
-          missingRows.slice(0, 3).forEach((row) => {
-              addLog(`[CONTRACT_WARN] ${row.symbol} missing -> ${row.missing.join(', ')}`, "warn");
-          });
-          if (missingRate >= contractAbortThresholdPct) {
-              addLog(
-                  `Stage4 Contract Hard Stop: missing rate ${missingRate.toFixed(1)}% >= ${contractAbortThresholdPct}%. Pipeline aborted.`,
-                  "err"
-              );
-              throw new Error("STAGE4_CONTRACT_ABORT_THRESHOLD_EXCEEDED");
-          }
-          if (missingRate >= contractWarnThresholdPct) {
-              addLog(
-                  `Stage4 Contract Alert: missing rate ${missingRate.toFixed(1)}% >= ${contractWarnThresholdPct}%.`,
-                  "warn"
-              );
-          }
-      } else {
-          addLog(`Stage4 Contract Check: 0/${mergedUniverse.length} incomplete rows.`, "ok");
-      }
-
-      // Warn-only: factor contract coverage (no abort)
-      const factorCoverageSummary = factorContractChecks
-          .map((check) => {
-              const presentCount = mergedUniverse.filter((ticker: any) => check.valid(ticker)).length;
-              const coveragePct = mergedUniverse.length > 0 ? (presentCount / mergedUniverse.length) * 100 : 0;
-              return {
-                  label: check.label,
-                  presentCount,
-                  coveragePct: Number(coveragePct.toFixed(1))
-              };
-          })
-          .sort((a, b) => a.coveragePct - b.coveragePct);
-
-      const factorCoverageLine = factorCoverageSummary
-          .map((row) => `${row.label}:${row.coveragePct}%`)
-          .join(', ');
-      const lowFactorCoverage = factorCoverageSummary.filter((row) => row.coveragePct < 80);
-      if (lowFactorCoverage.length > 0) {
-          addLog(`Stage4 Factor Contract (warn-only): ${factorCoverageLine}`, "warn");
-      } else {
-          addLog(`Stage4 Factor Contract: ${factorCoverageLine}`, "ok");
-      }
-
-        // [CHECK] Sort by technical score to prioritize momentum, but also respect Fundamental
-      const targets = mergedUniverse
-         .map((t: any) => ({
-             ...t,
-             // Create a temporary Total Alpha for pre-sorting
-             tempScore: (t.technicalScore * 0.6) + (t.fundamentalScore * 0.4) 
-         }))
-         .sort((a: any, b: any) => b.tempScore - a.tempScore);
-         
-      // [Stage5 P0-1] Sync VIX from Stage4 snapshot (fallback to 20 only when unavailable)
-      let vix = 20;
-      const regimeSourceFolderId =
-          (await findFolderId(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder)) ||
-          (await findFolderId(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder));
-      if (regimeSourceFolderId) {
-          const snapshotRes = await loadLatestJsonFromFolder<Stage5MarketRegimeSnapshot>(
-              accessToken,
-              regimeSourceFolderId,
-              'MARKET_REGIME_SNAPSHOT.json'
-          );
-          const snapshotTrigger =
-              snapshotRes?.data?.trigger_file ||
-              snapshotRes?.data?.sourceStage3File ||
-              snapshotRes?.data?.stage3_file ||
-              snapshotRes?.data?.manifest?.sourceStage3File ||
-              null;
-
-          if (stage4SourceStage3File && snapshotTrigger) {
-              if (stage4SourceStage3File === snapshotTrigger) {
-                  addLog(`Stage4↔Regime Contract: trigger matched (${stage4SourceStage3File})`, "ok");
-              } else {
-                  addLog(`Stage4↔Regime Contract mismatch: Stage4=${stage4SourceStage3File} / Regime=${snapshotTrigger}`, "warn");
-              }
-          } else {
-              addLog(`Stage4↔Regime Contract: trigger metadata incomplete (warn-only).`, "warn");
-          }
-
-          const snapshotVix = Number(snapshotRes?.data?.benchmarks?.vix?.close);
-          if (Number.isFinite(snapshotVix) && snapshotVix > 0) {
-              vix = snapshotVix;
-              addLog(`Risk Protocol Synced: VIX ${vix.toFixed(2)} from ${snapshotRes.name}`, "ok");
-          } else {
-              addLog(`Risk Protocol Fallback: VIX 20 (snapshot unavailable)`, "warn");
-          }
-      } else {
-          addLog(`Risk Protocol Fallback: VIX 20 (Stage4 folder not found)`, "warn");
-      }
+      // Lock one input. An invalid current artifact must never select an older factor-ready file.
+      const selected = listing.files[0];
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${selected.id}?alt=media`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      await assertDriveOk(response, 'stage5.stage4.content');
+      const contentBytes = await response.arrayBuffer();
+      const content = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(contentBytes));
+      const context = await buildStage5InputContext({ payload: content,
+          contentSha256: await hashBytesSha256(contentBytes), fileName: selected.name, expectedHint, decisionAt });
+      const selectedStage4Id = selected.id;
+      const selectedStage4Name = selected.name;
+      const selectedStage4Timestamp = content.manifest.generatedAt || selected.createdTime || null;
+      const stage4SourceStage3File = context.sourceStage3File;
+      const stage4InputCount = context.inputRows;
+      const excludedByInstrumentType = context.evaluations.filter(row => row.status === 'STAGE5_INSTRUMENT_EXCLUDED').length;
+      const mergedUniverse = content.technical_universe.filter((_: any, index: number) => context.evaluations[index].status === 'STAGE5_INPUT_VERIFIED');
+      const selectedStage4FactorReady = mergedUniverse.length > 0;
+      addLog(`Stage4 exact input: ${stage4InputCount} rows; verified ${mergedUniverse.length}; blocked ${stage4InputCount - mergedUniverse.length}.`, 'ok');
+      if (!mergedUniverse.length) throw new Error('STAGE5_NO_VERIFIED_INPUT_ROWS');
+      const targets = mergedUniverse.map((row: any) => ({ ...row,
+          tempScore: row.technicalScore * 0.6 + row.fundamentalScore * 0.4
+      })).sort((a: any, b: any) => b.tempScore - a.tempScore || compareStage5Identity(a, b));
+      const vix = context.vix;
 
       const total = targets.length;
       setProgress({ current: 0, total });
@@ -897,6 +652,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       if (isFearMode) addLog(`Risk Protocol: VIX ${vix} > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL}. Defensive Mode Active.`, "warn");
 
       const results: IctScoredTicker[] = [];
+      const inputEvaluation = new Map(context.evaluations.map(row => [row.symbol, row]));
       let c9RecentGeometryCount = 0;
       let c9FallbackGeometryCount = 0;
       let factorCarryBoostCount = 0;
@@ -919,9 +675,17 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         // [ICT 5-Step Logic] P/D Array & OTE Calculation
         // C9: prefer recent swing/ATR geometry, fallback to 52w when data is sparse
         const geometry = resolveIctExecutionGeometry(item);
+        if (!Number.isFinite(geometry.otePrice) || geometry.otePrice <= 0
+            || !Number.isFinite(geometry.ictStopLoss) || geometry.ictStopLoss <= 0
+            || geometry.ictStopLoss >= geometry.otePrice) {
+            const evaluation = inputEvaluation.get(item.symbol)!;
+            evaluation.status = 'STAGE5_GEOMETRY_INVALID';
+            evaluation.reasons = ['NO_VALID_EMPIRICAL_EXECUTION_GEOMETRY'];
+            continue;
+        }
         if (geometry.executionGeometrySource === "RECENT_SWING_ATR") c9RecentGeometryCount++;
         else c9FallbackGeometryCount++;
-        let ictPos = Number(item?.ictPos);
+        let ictPos = typeof item?.ictPos === 'number' ? item.ictPos : Number.NaN;
         if (!Number.isFinite(ictPos)) ictPos = geometry.ictPos;
 
         let pdZone: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT' = 'EQUILIBRIUM';
@@ -946,7 +710,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         }
 
         // 3. Liquidity Sweep Enhancement (Volume Confirmation)
-        const rvol = item.techMetrics?.rvol || 1.0;
+        const rvol = item.techMetrics.rawRvol;
         if (ictAnalysis.metrics.liquiditySweep > 50 && rvol > 1.5) {
             ictAnalysis.score += 10;
             ictAnalysis.metrics.liquiditySweep = Math.min(100, ictAnalysis.metrics.liquiditySweep + 20);
@@ -958,7 +722,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         const marketState = determineMarketState(ictAnalysis.metrics);
         
         // [RISK] RSI Penalty & PEG Check
-        const rsi = item.techMetrics?.rsi || item.techMetrics?.rsRating || 50;
+        const rsi = item.techMetrics.rsi;
         const pegRatio = item.pegRatio || 0;
         const revenueGrowth = item.revenueGrowth || 0;
         
@@ -977,7 +741,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         let fallbackPart = 0;
         let scoringMode: 'RISK_OFF' | 'RISK_ON' | 'FALLBACK' = 'FALLBACK';
         
-        if (item.technicalScore > 0) {
+        if (Number.isFinite(item.technicalScore)) {
             if (isFearMode) {
                 // [VIX > 22] Fear Mode: normalized risk-off weights (H1)
                 const rawFundWeight = Number(STRATEGY_CONFIG.RISK_OFF_FUND_WEIGHT ?? 0.70);
@@ -1080,6 +844,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             radarData: [],
             sector: item.sector,
             scoringEngine: "ICT_Wyckoff_Algo_Only",
+            ictEvidenceSemantics: 'OHLCV_HEURISTIC_PROXY',
+            institutionalActivityVerified: false,
             isDataDoubtful, 
             compositeBreakdown: {
                 mode: scoringMode,
@@ -1157,7 +923,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
 
       // [NEW] Sector Diversification Logic (Step 6) - Progressive Penalty Protocol
       // Strategy: Allow Momentum leaders (Top 4) but aggressively kill followers to ensure diversity.
-      results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
+      results.sort((a, b) => b.compositeAlpha - a.compositeAlpha || compareStage5Identity(a, b));
 
       const sectorCounts: Record<string, number> = {};
       const diversifiedResults = results.map((ticker, rawIndex) => {
@@ -1207,7 +973,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       });
 
       // Final Sort after Penalty
-      diversifiedResults.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
+      diversifiedResults.sort((a, b) => b.compositeAlpha - a.compositeAlpha || compareStage5Identity(a, b));
 
       const finalRankedResults = diversifiedResults.map((ticker, finalIndex) => {
           const breakdown = ticker.compositeBreakdown;
@@ -1286,14 +1052,14 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           ? 'stage4_source_stage3_missing'
           : 'present';
       
-      const payload = {
+      const legacyPayload = {
         manifest: {
           version: "6.9.0",
           count: finalSurvivors.length,
           inputCount: stage4InputCount,
           eligibleCount: mergedUniverse.length,
           excludedByInstrumentType,
-          timestamp: new Date().toISOString(),
+          timestamp: decisionAt,
           strategy: "Smart_Money_Composite_Wyckoff_Algo_V2",
           sourceStage4File: selectedStage4Name || null,
           sourceStage4FileId: selectedStage4Id || null,
@@ -1336,10 +1102,14 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         ict_universe: finalSurvivors
       };
 
+      const payload = await buildStage5EvidenceArtifact({ context, manifest: legacyPayload.manifest,
+          rankedRows: finalRankedResults, selectedRows: finalSurvivors });
+      const payloadText = JSON.stringify(payload, null, 2);
+      const contentSha256 = await hashTextSha256(payloadText);
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+      form.append('file', new Blob([payloadText], { type: 'application/json' }));
 
       const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
@@ -1357,13 +1127,14 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           const hint = {
             fileId: uploadedFileId || undefined,
             fileName,
+            contentSha256,
             createdAt: new Date().toISOString()
           };
           window.sessionStorage.setItem(STAGE5_RECENT_HINT_KEY, JSON.stringify(hint));
           (window as any).__LATEST_STAGE5_FILE_HINT = hint;
         }
       } catch {
-        // Ignore storage errors; Stage6 can still fall back to Drive latest search.
+        throw new Error('STAGE5_EXACT_HANDOFF_PERSISTENCE_FAILED');
       }
 
       addLog(`Elite 50 Selection Complete. Vault Synchronized.`, "ok");
@@ -1372,7 +1143,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       if (onComplete) onComplete();
 
     } catch (e: any) {
-      addLog(`Institutional Protocol Failure: ${e.message}`, "err");
+      const reason = /^STAGE[45]_[A-Z0-9_:,]+$/.test(String(e?.message)) ? e.message : 'STAGE5_SOURCE_IO_OR_JSON_INVALID';
+      addLog(reason, "err");
     } finally {
       setLoading(false);
       startTimeRef.current = 0;
@@ -1408,31 +1180,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
     await assertDriveOk(listRes, `findFolderId(${name})`);
     const listed = await listRes.json();
     return listed.files?.[0]?.id || null;
-  };
-
-  const loadLatestJsonFromFolder = async <T,>(token: string, folderId: string, fileName: string): Promise<{ data: T | null; name: string | null }> => {
-    try {
-      const q = encodeURIComponent(`name = '${fileName}' and '${folderId}' in parents and trashed = false`);
-      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      await assertDriveOk(searchRes, `loadLatestJsonFromFolder.list(${fileName})`);
-      const search = await searchRes.json();
-
-      const latest = search.files?.[0];
-      if (!latest?.id) return { data: null, name: null };
-
-      const dataRes = await fetch(`https://www.googleapis.com/drive/v3/files/${latest.id}?alt=media`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      await assertDriveOk(dataRes, `loadLatestJsonFromFolder.content(${latest.id})`);
-      const dataText = await dataRes.text();
-      const data = parseDriveJsonText<T>(dataText);
-
-      return { data, name: latest.name || fileName };
-    } catch {
-      return { data: null, name: null };
-    }
   };
 
   const getSectorStyle = (sector: string) => {

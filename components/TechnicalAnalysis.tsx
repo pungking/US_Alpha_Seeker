@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 import { hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
+import { STAGE4_RECENT_HINT_KEY } from '../services/stage5EvidenceContract.mjs';
 import { buildStage4EarningsContext, calculateEventRiskOverlay } from '../services/stage4EarningsEventContract.mjs';
 import {
   stage3ReadyHashMatches,
@@ -1860,6 +1861,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     
     try {
       addLog("Phase 1: Resolving Stage 4 Ready Signal...", "info");
+      window.sessionStorage.removeItem(STAGE4_RECENT_HINT_KEY);
 
       const systemMapId = await resolveSystemMapFolderId(accessToken);
 
@@ -2863,6 +2865,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const payload = {
           manifest: {
               version: "7.5.2",
+              generatedAt: new Date().toISOString(),
               count: auditReadyResults.length,
               inputCount: stage3InputCount,
               eligibleCount: stage3EligibleUniverse.length,
@@ -2967,10 +2970,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           technical_universe: auditReadyResults
       };
 
+      const payloadText = JSON.stringify(payload, null, 2);
+      const contentSha256 = await hashTextSha256(payloadText);
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+      form.append('file', new Blob([payloadText], { type: 'application/json' }));
 
       const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
           method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
@@ -2980,6 +2985,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           throw new Error(`Drive upload failed (${fileName}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
       }
 
+      window.sessionStorage.setItem(STAGE4_RECENT_HINT_KEY, JSON.stringify({
+          fileName, contentSha256, sourceStage3File: stage3TriggerFile
+      }));
       addLog(`Vault Saved: ${fileName}`, "ok");
       addLog(`Tech Analysis Complete. ${auditReadyResults.length} OHLCV-backed assets preserved.`, "ok");
       if (onComplete) onComplete();

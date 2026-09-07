@@ -17,6 +17,8 @@ import { formatKstFilenameTimestamp } from '../services/timeService';
 import { enforceStageDriveRetention } from '../services/driveRetentionService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 import { syncPipelineToNotion, type NotionSyncCandidate } from '../services/notionSyncService';
+import { hashBytesSha256 } from '../services/stage0SourceEvidenceContract.mjs';
+import { validateStage5EvidenceArtifact } from '../services/stage5EvidenceContract.mjs';
 import { sanitizeTossShadowEvidence, summarizeTossShadowEvidence } from '../services/tossShadowContract.mjs';
 
 declare global {
@@ -450,6 +452,10 @@ interface BacktestResult {
 }
 
 interface Stage5SourceMeta {
+  contentSha256?: string;
+  contentHashBasis?: 'UTF8_JSON_BYTES';
+  schemaValidationStatus?: 'STAGE5_EVIDENCE_CONTRACT_VALID';
+  expectedHashStatus?: 'EXPECTED_CONTENT_HASH_MATCHED' | 'OBSERVED_CONTENT_HASH_ONLY';
   fileId: string;
   fileName: string;
   count: number;
@@ -473,6 +479,7 @@ interface Stage5LockDriveFile {
 }
 
 interface Stage5RecentHint {
+  contentSha256?: string;
   fileId?: string;
   fileName?: string;
   createdAt?: string;
@@ -4216,7 +4223,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixLoading, setMatrixLoading] = useState(false);
   
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
-  const [stage5PrefetchAttempted, setStage5PrefetchAttempted] = useState(false);
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
@@ -4635,34 +4641,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   }, [selectedBrain, currentResults, selectedStock, onStockSelected]);
 
   useEffect(() => {
-    let cancelled = false;
-    const prefetchStage5 = async () => {
-      if (!accessToken || elite50.length > 0) return;
-      await loadStage5Data();
-      if (!cancelled) setStage5PrefetchAttempted(true);
-    };
-    prefetchStage5();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, elite50.length]);
-
-  useEffect(() => {
     if (!autoStart || autoPhase !== 'IDLE' || loading) return;
-
-    if (elite50.length > 0) {
-      addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
-      setAutoPhase('ENGINE');
-      handleExecuteEngine();
-      return;
-    }
-
-    if (stage5PrefetchAttempted) {
-      addLog("AUTO-PILOT ABORT: Stage 5 lock failed (no eligible Stage5 universe).", "err");
-      setAutoPhase('DONE');
-      if (onComplete) onComplete(toAutoControlPayload("STAGE6_FAILED"));
-    }
-  }, [autoStart, autoPhase, loading, elite50.length, stage5PrefetchAttempted, onComplete]);
+    addLog("AUTO-PILOT: Locking the current Stage5 evidence...", "signal");
+    setAutoPhase('ENGINE');
+    handleExecuteEngine();
+  }, [autoStart, autoPhase, loading]);
 
   useEffect(() => {
       // Logic for moving from ENGINE -> MATRIX
@@ -5679,23 +5662,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const resolveStage5RecentHint = (): Stage5RecentHint | null => {
-    try {
-      if (typeof window === 'undefined') return null;
-      const raw = window.sessionStorage.getItem(STAGE5_RECENT_HINT_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as Stage5RecentHint;
-      const fileId = String(parsed?.fileId || '').trim();
-      const fileName = String(parsed?.fileName || '').trim();
-      const createdAt = String(parsed?.createdAt || '').trim();
-      if (!fileId && !fileName) return null;
-      if (createdAt) {
-        const age = Date.now() - Date.parse(createdAt);
-        if (Number.isFinite(age) && age > STAGE5_RECENT_HINT_MAX_AGE_MS) return null;
-      }
-      return { fileId: fileId || undefined, fileName: fileName || undefined, createdAt: createdAt || undefined };
-    } catch {
-      return null;
+    if (typeof window === 'undefined') return null;
+    const raw = window.sessionStorage.getItem(STAGE5_RECENT_HINT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Stage5RecentHint;
+    const age = Date.now() - Date.parse(String(parsed.createdAt || ''));
+    if ((!parsed.fileId && !parsed.fileName) || !Number.isFinite(age) || age < 0
+      || age > STAGE5_RECENT_HINT_MAX_AGE_MS || !/^[a-f0-9]{64}$/.test(parsed.contentSha256 || '')) {
+      throw new Error('STAGE5_RECENT_HINT_INVALID_OR_EXPIRED');
     }
+    return parsed;
   };
 
   const persistStage5LockOverride = (config: Stage5LockOverrideConfig) => {
@@ -5848,8 +5824,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const loadStage5Data = async () => {
-    if (!accessToken) return [];
     stage5SourceRef.current = null;
+    setElite50([]);
+    if (!accessToken) return [];
     stage5EligibilityRef.current = { inputCount: 0, eligibleCount: 0, excludedByInstrumentType: 0 };
     try {
       const lockOverride = resolveStage5LockOverride();
@@ -5857,19 +5834,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         addLog("Vault Error: Stage5 lock override is enabled but fileId/fileName is missing.", "err");
         return [];
       }
+      if (lockOverride.fileName && !/^STAGE5_ICT_ELITE_[A-Za-z0-9_.-]+\.json$/.test(lockOverride.fileName)) {
+        throw new Error('STAGE5_OVERRIDE_NAME_INVALID');
+      }
       let latestFile: any = null;
+      let expectedHint: Stage5RecentHint | null = null;
       let lockMode: Stage5SourceMeta['lockMode'] = 'LATEST';
 
       if (lockOverride.enabled && lockOverride.fileId) {
         lockMode = 'OVERRIDE_ID';
-        addLog(`Stage5 Lock Override: ENABLED (fileId=${lockOverride.fileId})`, "info");
+        addLog("Stage5 Lock Override: ENABLED (exact ID)", "info");
         latestFile = await fetch(
           `https://www.googleapis.com/drive/v3/files/${lockOverride.fileId}?fields=id,name,createdTime&supportsAllDrives=true`,
           { headers: { 'Authorization': `Bearer ${accessToken}` } }
         ).then(r => r.ok ? r.json() : null);
       } else if (lockOverride.enabled && lockOverride.fileName) {
         lockMode = 'OVERRIDE_NAME';
-        addLog(`Stage5 Lock Override: ENABLED (fileName=${lockOverride.fileName})`, "info");
+        addLog("Stage5 Lock Override: ENABLED (exact name)", "info");
         const qByName = encodeURIComponent(`name = '${lockOverride.fileName}' and trashed = false`);
         const listByName = await fetch(
           `https://www.googleapis.com/drive/v3/files?q=${qByName}&orderBy=createdTime desc&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`,
@@ -5878,16 +5859,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         latestFile = listByName.files?.[0] || null;
       } else {
         const recentHint = resolveStage5RecentHint();
+        expectedHint = recentHint;
+        if (autoStart && !recentHint) throw new Error('STAGE5_SAME_RUN_HINT_REQUIRED');
         if (recentHint?.fileId) {
           lockMode = 'AUTO_HINT_ID';
-          addLog(`Stage5 Auto Hint: using same-run fileId=${recentHint.fileId}`, "info");
+          addLog("Stage5 Auto Hint: using exact same-run ID", "info");
           latestFile = await fetch(
             `https://www.googleapis.com/drive/v3/files/${recentHint.fileId}?fields=id,name,createdTime&supportsAllDrives=true`,
             { headers: { 'Authorization': `Bearer ${accessToken}` } }
           ).then(r => (r.ok ? r.json() : null));
         } else if (recentHint?.fileName) {
           lockMode = 'AUTO_HINT_NAME';
-          addLog(`Stage5 Auto Hint: using same-run fileName=${recentHint.fileName}`, "info");
+          addLog("Stage5 Auto Hint: using exact same-run name", "info");
           const qByHint = encodeURIComponent(`name = '${recentHint.fileName}' and trashed = false`);
           const listByHint = await fetch(
             `https://www.googleapis.com/drive/v3/files?q=${qByHint}&orderBy=createdTime desc&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`,
@@ -5896,7 +5879,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           latestFile = listByHint.files?.[0] || null;
         }
 
-        if (!latestFile) {
+        if (!latestFile && !recentHint) {
           const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
           const listRes = await fetch(
             `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`,
@@ -5908,21 +5891,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
       
       if (latestFile?.id) {
+        if (!/^STAGE5_ICT_ELITE_[A-Za-z0-9_.-]+\.json$/.test(latestFile.name || '')) throw new Error('STAGE5_SOURCE_NAME_INVALID');
         const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media&supportsAllDrives=true`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
-        await assertDriveOk(contentRes, `loadStage5.content(${latestFile.id})`);
-        const contentText = await contentRes.text();
-        const content = parseDriveJsonText(contentText);
-        
-        if (content && Array.isArray(content.ict_universe) && content.ict_universe.length > 0) {
-            // [VALIDATION] Check for critical fields to prevent "Data Missing" UI
-            const sample = content.ict_universe[0];
-            if (!sample.symbol || typeof sample.price !== 'number') {
-                addLog("Vault Error: Stage 5 data is corrupted or missing critical fields.", "err");
-                return [];
-            }
+        await assertDriveOk(contentRes, 'stage6.stage5.content');
+        const bytes = await contentRes.arrayBuffer();
+        const contentSha256 = await hashBytesSha256(bytes);
+        if (expectedHint && (expectedHint.contentSha256 !== contentSha256
+          || (expectedHint.fileName && expectedHint.fileName !== latestFile.name)
+          || (expectedHint.fileId && expectedHint.fileId !== latestFile.id))) {
+          throw new Error('STAGE5_EXPECTED_CONTENT_HASH_MISMATCH');
+        }
+        const content = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        const validation = await validateStage5EvidenceArtifact(content);
+        if (!validation.ok) throw new Error(`STAGE5_VALIDATION_FAILED:${validation.reasons.join(',')}`);
 
+        if (content.ict_universe.length > 0) {
             const stage5RawUniverse = content.ict_universe;
             const stage5EligibleUniverse = stage5RawUniverse.filter(isAnalysisEligibleTicker);
             const excludedByInstrumentType = Math.max(0, stage5RawUniverse.length - stage5EligibleUniverse.length);
@@ -5942,7 +5927,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               return [];
             }
 
-            stage5SourceRef.current = buildStage5LockMeta(latestFile, content, lockMode);
+            stage5SourceRef.current = { ...buildStage5LockMeta(latestFile, content, lockMode),
+              contentSha256, contentHashBasis: 'UTF8_JSON_BYTES',
+              schemaValidationStatus: 'STAGE5_EVIDENCE_CONTRACT_VALID',
+              expectedHashStatus: expectedHint ? 'EXPECTED_CONTENT_HASH_MATCHED' : 'OBSERVED_CONTENT_HASH_ONLY'
+            };
             stage5SourceRef.current.count = stage5EligibleUniverse.length;
             stage5SourceRef.current.symbols = stage5EligibleUniverse
               .map((item: any) => String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase())
@@ -5951,7 +5940,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             addLog(`Stage 5 Elite Vault Locked: ${latestFile.name}`, "ok");
             addLog(`Vault Synchronized: ${stage5EligibleUniverse.length} Stage 5 leaders loaded.`, "ok");
             addLog(
-              `[STAGE5_LOCK] ${stage5SourceRef.current.fileName} | hash=${stage5SourceRef.current.hash} | symbols=${(stage5SourceRef.current.symbols || []).join(',')}`,
+              `[STAGE5_LOCK] rows=${stage5SourceRef.current.count} | sha256=${contentSha256} | schema=VALID`,
               "info"
             );
             return stage5EligibleUniverse;
@@ -5965,7 +5954,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return [];
     } catch (e: any) {
       stage5SourceRef.current = null;
-      addLog(`Sync Error: ${e.message}`, "err");
+      setElite50([]);
+      const reason = /^STAGE5_[A-Z0-9_:,]+$/.test(String(e?.message)) ? e.message : 'STAGE5_SOURCE_READ_FAILED';
+      addLog(reason, "err");
       return [];
     }
   };
@@ -6421,28 +6412,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     addLog("STAGE 6: Neural Alpha Sieve Initiated...", "signal");
 
     try {
-      // 1. Lock the latest Stage 5 dump from Drive first. Memory is only a fallback.
-      let inputData: AlphaCandidate[] = [];
-      if (accessToken) {
-          addLog("Locking latest Stage 5 Elite vault from Drive...", "info");
-          inputData = await loadStage5Data();
+      // No cached fallback: source validation failure must abort before enrichment.
+      const inputData = await loadStage5Data();
+      if (!inputData.length || stage5SourceRef.current?.schemaValidationStatus !== 'STAGE5_EVIDENCE_CONTRACT_VALID') {
+          throw new Error('STAGE5_VALIDATED_SOURCE_REQUIRED');
       }
-      if ((!inputData || inputData.length === 0) && elite50.length > 0) {
-          addLog("Drive lock unavailable. Falling back to in-memory Stage 5 leaders.", "warn");
-          inputData = elite50;
-      }
-
-      if (!inputData || inputData.length === 0) {
-          throw new Error("Stage 5 Data Not Found. Please run Stage 5 first.");
-      }
-
-      if (stage5SourceRef.current) {
-          const symbols = stage5SourceRef.current.symbols || inputData.map((item: any) => String(item?.symbol || '').toUpperCase());
-          addLog(
-            `[STAGE5_LOCK_AUDIT] file=${stage5SourceRef.current.fileName} | mode=${stage5SourceRef.current.lockMode || 'LATEST'} | hash=${stage5SourceRef.current.hash || 'N/A'} | symbols(${symbols.length})=${symbols.join(',')}`,
-            "info"
-          );
-      }
+      addLog(`[STAGE5_LOCK_AUDIT] rows=${inputData.length} | sha256=${stage5SourceRef.current.contentSha256}`, 'info');
 
       // [NEW] Deep Data Enrichment (Drive Injection) - MOVED TO STAGE 3
       // if (accessToken) {
@@ -6547,6 +6522,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       candidateCount: candidates.length,
                       sourceStage5File: stage5SourceRef.current?.fileName || null,
                       sourceStage5Hash: stage5SourceRef.current?.hash || null,
+                      sourceStage5ContentSha256: stage5SourceRef.current?.contentSha256 || null,
+                      sourceStage5ContentHashBasis: stage5SourceRef.current?.contentHashBasis || null,
+                      sourceStage5SchemaValidationStatus: stage5SourceRef.current?.schemaValidationStatus || null,
+                      sourceStage5ExpectedHashStatus: stage5SourceRef.current?.expectedHashStatus || null,
                       sourceStage5Count: stage5SourceRef.current?.count ?? null
                   });
                   return [];
@@ -6570,6 +6549,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   candidateCount: candidates.length,
                   sourceStage5File: stage5SourceRef.current?.fileName || null,
                   sourceStage5Hash: stage5SourceRef.current?.hash || null,
+                  sourceStage5ContentSha256: stage5SourceRef.current?.contentSha256 || null,
+                  sourceStage5ContentHashBasis: stage5SourceRef.current?.contentHashBasis || null,
+                  sourceStage5SchemaValidationStatus: stage5SourceRef.current?.schemaValidationStatus || null,
+                  sourceStage5ExpectedHashStatus: stage5SourceRef.current?.expectedHashStatus || null,
                   sourceStage5Count: stage5SourceRef.current?.count ?? null
               });
 
@@ -6823,6 +6806,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           usage: readAiUsageSnapshot(),
           sourceStage5File: stage5SourceRef.current?.fileName || null,
           sourceStage5Hash: stage5SourceRef.current?.hash || null,
+          sourceStage5ContentSha256: stage5SourceRef.current?.contentSha256 || null,
+          sourceStage5ContentHashBasis: stage5SourceRef.current?.contentHashBasis || null,
+          sourceStage5SchemaValidationStatus: stage5SourceRef.current?.schemaValidationStatus || null,
+          sourceStage5ExpectedHashStatus: stage5SourceRef.current?.expectedHashStatus || null,
           sourceStage5Count: stage5SourceRef.current?.count ?? null
       };
       await persistStage2AiUsageAudit(stage2AiAudit);
@@ -10812,6 +10799,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   sourceStage5File: stage5SourceRef.current?.fileName || null,
                   sourceStage5LockMode: stage5SourceRef.current?.lockMode || 'LATEST',
                   sourceStage5Hash: stage5SourceRef.current?.hash || null,
+                  sourceStage5ContentSha256: stage5SourceRef.current?.contentSha256 || null,
+                  sourceStage5ContentHashBasis: stage5SourceRef.current?.contentHashBasis || null,
+                  sourceStage5SchemaValidationStatus: stage5SourceRef.current?.schemaValidationStatus || null,
+                  sourceStage5ExpectedHashStatus: stage5SourceRef.current?.expectedHashStatus || null,
                   sourceStage5Symbols: stage5SourceRef.current?.symbols || [],
                   sourceStage5Count: toNonNegativeInt(stage5SourceRef.current?.count, candidates.length),
                   sourceStage5Timestamp: stage5SourceRef.current?.timestamp || null,
@@ -11154,12 +11145,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       setAutoPhase('ENGINE');
 
       try {
-          // Step 0: Load Initial Data (Memory or Drive)
-          let currentData = elite50;
-          if (!currentData || currentData.length === 0) {
-              addLog("Memory Empty. Fetching Stage 5 Data from Vault...", "info");
-              currentData = await loadStage5Data(); 
-              if (!currentData || currentData.length === 0) throw new Error("Stage 5 Data Not Found");
+          const currentData = await loadStage5Data();
+          if (!currentData.length || stage5SourceRef.current?.schemaValidationStatus !== 'STAGE5_EVIDENCE_CONTRACT_VALID') {
+              throw new Error('STAGE5_VALIDATED_SOURCE_REQUIRED');
           }
 
           // [NEW] Deep Data Enrichment (Drive Injection) - MOVED TO STAGE 3
