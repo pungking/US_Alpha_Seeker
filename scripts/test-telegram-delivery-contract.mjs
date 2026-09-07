@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import ts from 'typescript';
 
 const root = path.resolve(import.meta.dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -285,6 +286,40 @@ assert.match(
   /execution_contract:\s*\{[\s\S]*?modelTop6: finalizedModelTop6Pool\.map\(toExecutionContractItem\)[\s\S]*?executablePicks: executableContractPool\.map\(toExecutionContractItem\)[\s\S]*?watchlistTop: finalizedModelTop6Watchlist\.map\(toExecutionContractItem\)/
 );
 assert.match(intelligence, /Model Expected Return/);
+// Exercise the shared AUTO/MANUAL checker with the producer's actual return label.
+const checkerSource = alphaAnalysis.slice(
+  alphaAnalysis.indexOf('  const normalizeContractSymbol ='),
+  alphaAnalysis.indexOf('  const archiveTelegramIntegrityFailure =')
+);
+assert.ok(checkerSource.includes('const checkTelegramContractIntegrity ='));
+const checkerJs = ts.transpileModule(`${checkerSource}\nreturn checkTelegramContractIntegrity;`, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None }
+}).outputText;
+const checkBrief = new Function('isExecutableForTelegramContract', checkerJs)(isExecutableForTelegramContract);
+const candidate = {
+  symbol: 'LABELFIXTURE', finalDecision: 'EXECUTABLE_NOW',
+  entryExecPrice: 100, targetPrice: 125, stopLoss: 90, gatedExpectedReturn: '+25%'
+};
+const producerReturnLine = intelligence.split('\n')
+  .find((line) => line.includes('Model Expected Return: ${expReturn}'));
+assert.ok(producerReturnLine, 'fixture must track the actual producer label');
+const brief = (returnLine) => `1. LABELFIXTURE (fixture)\n진입 $100 | 목표 $125 | 손절 $90\n${returnLine}`;
+const currentBrief = brief(producerReturnLine.trim().replace('${expReturn}', '+25%'));
+assert.equal(checkBrief([candidate], currentBrief).ok, true, 'current producer label must not suppress a valid report');
+for (const label of ['Exp. Return', 'Exp Return']) {
+  assert.equal(checkBrief([candidate], brief(`${label}: +25%`)).ok, true, 'legacy labels remain readable');
+}
+for (const invalid of [
+  currentBrief.replace('+25%', '+45%'),
+  currentBrief.replace('$100', '$110'),
+  currentBrief.replace('$125', '$145'),
+  currentBrief.replace('$90', '$95'),
+  currentBrief.replace('LABELFIXTURE', 'OTHERFIXTURE'),
+  brief(''), brief('Model ER%: +25%'), brief('Consensus Expected Return: +25%')
+]) {
+  assert.equal(checkBrief([candidate], invalid).ok, false, 'missing or conflicting evidence still fails closed');
+}
+assert.deepEqual(checkBrief([candidate], currentBrief), checkBrief([candidate], currentBrief));
 assert.match(intelligence, /Model ER/);
 assert.match(intelligence, /모델확신/);
 assert.match(intelligence, /데이터완전성/);

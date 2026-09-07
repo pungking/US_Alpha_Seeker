@@ -5045,7 +5045,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               current.stop = parseContractNumber(stopMatch[1]);
           }
 
-          const er = line.match(/Exp\.?\s*Return[^0-9+-]*([+-]?\d+(\.\d+)?)\s*%/i);
+          const er = line.match(/(?:Model\s+Expected|Exp\.?)\s*Return[^0-9+-]*([+-]?\d+(\.\d+)?)\s*%/i);
           if (er) {
               current.expectedReturnPct = parseContractNumber(er[1]);
           }
