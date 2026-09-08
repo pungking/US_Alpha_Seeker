@@ -241,7 +241,7 @@ const handler = async (req: any, res: any) => {
         row?.executionBucket || "N/A"
       )} actionable=${String(row?.executionActionableVerdict ?? "N/A")} policy=${String(row?.executionActionablePolicy || "N/A")} waiver=${String(
         row?.executionActionableWaiver ?? "N/A"
-      )}`;
+      )} run=${runId} stage6=${shortText(body.stage6File || "N/A", 240)} hash=${shortText(body.stage6Hash || "N/A", 120)}`;
 
       await upsertByTitle(notionToken, dbScores, "Ticker", symbol, {
         Ticker: titleProp(symbol),
@@ -275,9 +275,8 @@ const handler = async (req: any, res: any) => {
       });
       details.aiAnalysis += 1;
 
-      const status = executablePicks.some((pick: any) => String(pick?.symbol || "").toUpperCase() === symbol)
-        ? "Position Open"
-        : "Watching";
+      // Stage6 eligibility is analysis evidence, never broker-position evidence.
+      const status = "Watching";
       await upsertByTitle(notionToken, dbWatchlist, "Ticker", symbol, {
         Ticker: titleProp(symbol),
         "Added Date": dateProp(runDateOnly),

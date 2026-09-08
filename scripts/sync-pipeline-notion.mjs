@@ -230,7 +230,7 @@ const syncStockScores = async ({ token, databaseId, runDate, rows, runMeta }) =>
       `bucket=${String(row?.executionBucket || "N/A")}`,
       `run=${runMeta.runId || "N/A"}`,
       `stage6=${runMeta.stage6File || "N/A"}`,
-      `hash=${(runMeta.stage6Hash || "").slice(0, 12) || "N/A"}`
+      `hash=${runMeta.stage6Hash || "N/A"}`
     ].join(" ");
 
     const props = {
@@ -306,7 +306,10 @@ const syncAiAnalysis = async ({ token, databaseId, runDate, rows, runMeta }) => 
     const risk = [
       `decision=${String(row?.finalDecision || "N/A")}`,
       `reason=${String(row?.decisionReason || "N/A")}`,
-      `bucket=${String(row?.executionBucket || "N/A")}`
+      `bucket=${String(row?.executionBucket || "N/A")}`,
+      `run=${runMeta.runId || "N/A"}`,
+      `stage6=${runMeta.stage6File || "N/A"}`,
+      `hash=${runMeta.stage6Hash || "N/A"}`
     ].join(" ");
     const props = {
       [titleField]: titleProp(symbol)
@@ -355,7 +358,7 @@ const syncAiAnalysis = async ({ token, databaseId, runDate, rows, runMeta }) => 
   return { skipped: false, reason: "ok", created, updated };
 };
 
-const syncWatchlist = async ({ token, databaseId, runDate, rows, executableSymbols }) => {
+const syncWatchlist = async ({ token, databaseId, runDate, rows, runMeta }) => {
   if (!databaseId) return { skipped: true, reason: "missing_db", created: 0, updated: 0 };
   const db = await notionRequest(token, `/v1/databases/${databaseId}`, { method: "GET" });
   const schema = db?.properties || {};
@@ -369,11 +372,15 @@ const syncWatchlist = async ({ token, databaseId, runDate, rows, executableSymbo
     const symbol = String(row?.symbol || "").trim().toUpperCase();
     if (!symbol) continue;
     const alphaSignal = alphaSignalFromVerdict(row?.aiVerdict);
-    const statusValue = executableSymbols.has(symbol) ? "Position Open" : "Watching";
+    // Stage6 eligibility is analysis evidence, never broker-position evidence.
+    const statusValue = "Watching";
     const notes = [
       `decision=${String(row?.finalDecision || "N/A")}`,
       `reason=${String(row?.decisionReason || "N/A")}`,
-      `bucket=${String(row?.executionBucket || "N/A")}`
+      `bucket=${String(row?.executionBucket || "N/A")}`,
+      `run=${runMeta.runId || "N/A"}`,
+      `stage6=${runMeta.stage6File || "N/A"}`,
+      `hash=${runMeta.stage6Hash || "N/A"}`
     ].join(" ");
     const props = {
       [titleField]: titleProp(symbol)
@@ -495,12 +502,6 @@ const main = async () => {
     stage6Hash: short(payload.stage6Hash || "", 120),
     engine: short(payload.engine || "", 80)
   };
-  const executableSymbols = new Set(
-    executablePicks
-      .map((row) => String(row?.symbol || "").trim().toUpperCase())
-      .filter(Boolean)
-  );
-
   const stock = await syncStockScores({
     token,
     databaseId: dbStockScores,
@@ -520,7 +521,7 @@ const main = async () => {
     databaseId: dbWatchlist,
     runDate,
     rows,
-    executableSymbols
+    runMeta
   });
 
   const missingDb = [];
