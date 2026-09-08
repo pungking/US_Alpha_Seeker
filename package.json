@@ -22,6 +22,7 @@
     "mcp:ops:daily": "npm run mcp:sync:ops && MCP_CHECK_STRICT=true npm run mcp:check && npm run mcp:health",
     "ops:sidecar:drift:audit": "node scripts/audit-sidecar-workflow-drift.mjs",
     "ops:notion:pipeline:sync": "node scripts/sync-pipeline-notion.mjs",
+    "ops:test:notion-analysis-surface": "node scripts/test-notion-analysis-surface.mjs",
     "ops:stage6:exec:audit": "node scripts/build-stage6-execution-gate-audit.mjs",
     "ops:knowledge:sync": "node scripts/sync-knowledge-routines.mjs",
     "ops:knowledge:notebooklm": "node scripts/notebooklm-mcp-collect.mjs",
