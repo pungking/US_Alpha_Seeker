@@ -15,7 +15,7 @@ const payload = {
 };
 
 // Execute both real writers with an in-memory Notion API; no credentials or network.
-async function captureWrites(kind, statusType = 'select') {
+async function captureWrites(kind, statusType = 'select', existing = false) {
   const writes = [];
   const schema = {
     Ticker: { type: 'title' }, Status: { type: statusType },
@@ -32,11 +32,16 @@ async function captureWrites(kind, statusType = 'select') {
       assert.ok(url.startsWith('https://api.notion.com/'));
       let data;
       if (init.method === 'GET') data = { properties: schema };
-      else if (url.endsWith('/query')) data = { results: [] };
+      else if (url.endsWith('/query')) {
+        const databaseId = url.split('/').at(-2);
+        data = { results: existing ? [{ id: `fixture-${databaseId}` }] : [] };
+      }
       else {
-        assert.equal(init.method, 'POST');
-        assert.ok(url.endsWith('/v1/pages'));
-        writes.push(JSON.parse(init.body));
+        assert.equal(init.method, existing ? 'PATCH' : 'POST');
+        assert.ok(existing ? url.includes('/v1/pages/fixture-') : url.endsWith('/v1/pages'));
+        const write = JSON.parse(init.body);
+        if (existing) write.parent = { database_id: url.split('/').at(-1).replace('fixture-', '') };
+        writes.push(write);
         data = {};
       }
       return { ok: true, status: 200, headers: { get: () => 'application/json' }, text: async () => JSON.stringify(data) };
@@ -63,7 +68,8 @@ async function captureWrites(kind, statusType = 'select') {
 }
 
 for (const [kind, type] of [['cli', 'select'], ['cli', 'status'], ['cli', 'rich_text'], ['api', 'select']]) {
-  const writes = await captureWrites(kind, type);
+ for (const existing of [false, true]) {
+  const writes = await captureWrites(kind, type, existing);
   assert.equal(writes.length, 6);
   const watches = writes.filter((write) => write.parent.database_id === 'watch');
   for (const write of watches) {
@@ -81,6 +87,7 @@ for (const [kind, type] of [['cli', 'select'], ['cli', 'status'], ['cli', 'rich_
       `run=${payload.runId}`, `stage6=${payload.stage6File}`, `hash=${payload.stage6Hash}`
     ]) assert.ok(notes.includes(value), `${kind}: missing canonical decision/lineage`);
   }
-  assert.deepEqual(await captureWrites(kind, type), writes, 'deterministic surface');
+  assert.deepEqual(await captureWrites(kind, type, existing), writes, 'deterministic surface');
+ }
 }
 console.log('PASS Notion analysis-only status and exact Stage6 lineage: both writers, network=0');
