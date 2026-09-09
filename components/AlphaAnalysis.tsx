@@ -1,3 +1,4 @@
+import { assertPerplexityBudgetHealthy, isPerplexityStopError, PERPLEXITY_PRICE_BASIS } from '../services/perplexityRequest.mjs';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -5572,7 +5573,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               perplexityStage2RepairChunkSize: PERPLEXITY_CONFIG.STAGE2_REPAIR_CHUNK_SIZE,
               perplexityStage2FullFallbackEnabled: PERPLEXITY_CONFIG.STAGE2_FULL_FALLBACK_ENABLED,
               perplexityStage2MaxTokens: PERPLEXITY_CONFIG.STAGE2_MAX_TOKENS,
-              perplexityTokenWarnThreshold: PERPLEXITY_CONFIG.TOKEN_WARN_THRESHOLD
+              perplexityTokenWarnThreshold: PERPLEXITY_CONFIG.TOKEN_WARN_THRESHOLD,
+              perplexitySessionMaxCostUsd: PERPLEXITY_CONFIG.RUN_MAX_COST_USD,
+              perplexitySessionMaxRequests: PERPLEXITY_CONFIG.RUN_MAX_REQUESTS,
+              perplexityBudgetPriceBasis: PERPLEXITY_PRICE_BASIS
           }
       };
       try {
@@ -9501,6 +9505,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   addLog(`Top6 Detail Pass skipped: ${detailResult.error}`, "warn");
               }
           } catch (detailError: any) {
+              if (isPerplexityStopError(detailError)) throw detailError;
               addLog(`Top6 Detail Pass failed: ${detailError.message}`, "warn");
           }
       } else {
@@ -10891,6 +10896,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               alpha_candidates: top6ArchiveCandidates,
               audit_trail: top6AuditTrail
           };
+          assertPerplexityBudgetHealthy();
           const stage6FinalFileName = `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`;
           const finalPayloadJson = JSON.stringify(finalPayload, null, 2);
           const stage6HashAlgo = (globalThis as any)?.crypto?.subtle ? 'sha256' : 'fnv1a32_fallback';
@@ -11128,6 +11134,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               }
 
           } catch (e: any) {
+              if (isPerplexityStopError(e)) throw e;
               addLog(`Brief Gen Failed: ${e.message}. Sending plain status.`, "err");
               telegramPayload = "Telegram Brief Generation Failed. Check logs.";
           }

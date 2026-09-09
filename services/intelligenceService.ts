@@ -1,4 +1,5 @@
 
+import { AI_USAGE_KEY, requestPerplexity, isPerplexityStopError, assertPerplexityBudgetHealthy } from './perplexityRequest.mjs';
 import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
@@ -20,7 +21,7 @@ export type TelegramBriefContractContext = {
 };
 
 // Usage Tracking System
-const USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
+const USAGE_KEY = AI_USAGE_KEY;
 
 export const trackUsage = (provider: string, tokens: number, isError: boolean = false, errorMsg: string = '') => {
   try {
@@ -1067,43 +1068,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
               max_tokens: PERPLEXITY_CONFIG.STAGE2_MAX_TOKENS
           });
           
-          let res;
-          try {
-             res = await fetchWithRetry(async () => {
-                 const r = await fetch('/api/perplexity', {
-                     method: 'POST',
-                     headers: { 
-                         'Content-Type': 'application/json', 
-                         'Authorization': `Bearer ${pKey}`,
-                         'Accept': 'application/json' 
-                     },
-                     body
-                 });
-                 if (r.status === 404) throw new Error("Proxy 404");
-                 if (!r.ok) {
-                    const errText = await r.text();
-                    throw new Error(`HTTP_${r.status}: ${errText}`);
-                 }
-                 return r;
-             });
-          } catch (e) {
-             res = await fetchWithRetry(async () => {
-                 const r = await fetch('https://api.perplexity.ai/chat/completions', {
-                     method: 'POST',
-                     headers: { 
-                         'Content-Type': 'application/json', 
-                         'Authorization': `Bearer ${pKey}`,
-                         'Accept': 'application/json' 
-                     },
-                     body
-                 });
-                 if (!r.ok) {
-                    const errText = await r.text();
-                    throw new Error(`HTTP_${r.status}: ${errText}`);
-                 }
-                 return r;
-             });
-          }
+          const res = await requestPerplexity(body, pKey, PERPLEXITY_CONFIG);
 
           const data = await res.json();
           if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
@@ -1126,9 +1091,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                   return { data: Array.from(uniqueMap.values()), usedProvider: 'PERPLEXITY', audit };
               }
           }
-          throw new Error(`Output parsing failed for ${model}. Raw: ${content ? content.substring(0, 50) + "..." : "Empty"}`);
+          throw new Error(`Output parsing failed for ${model}`);
           
       } catch (e: any) {
+          if (isPerplexityStopError(e)) throw e;
           console.warn(`Perplexity Model ${model} failed (${scopeLabel}): ${e.message}`);
           lastError = e;
           if (e.message.includes('401') || e.message.includes('402')) break;
@@ -1808,37 +1774,7 @@ export async function generateTop6NeuralOutlook(candidates: any[], provider: Api
           max_tokens: PERPLEXITY_CONFIG.TOP6_MAX_TOKENS
         });
 
-        let res;
-        try {
-          res = await fetchWithRetry(async () => {
-            const r = await fetch('/api/perplexity', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${pKey}`,
-                'Accept': 'application/json'
-              },
-              body
-            });
-            if (r.status === 404) throw new Error("Proxy 404");
-            if (!r.ok) throw new Error(`HTTP_${r.status}: ${await r.text()}`);
-            return r;
-          });
-        } catch {
-          res = await fetchWithRetry(async () => {
-            const r = await fetch('https://api.perplexity.ai/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${pKey}`,
-                'Accept': 'application/json'
-              },
-              body
-            });
-            if (!r.ok) throw new Error(`HTTP_${r.status}: ${await r.text()}`);
-            return r;
-          });
-        }
+        const res = await requestPerplexity(body, pKey, PERPLEXITY_CONFIG);
 
         const data = await res.json();
         if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
@@ -1877,6 +1813,7 @@ export async function generateTop6NeuralOutlook(candidates: any[], provider: Api
 
         return { data: merged, usedProvider: 'PERPLEXITY_TOP6_DETAIL' };
       } catch (e: any) {
+        if (isPerplexityStopError(e)) throw e;
         lastError = e;
       }
     }
@@ -2011,19 +1948,7 @@ export async function analyzePipelineStatus(data: {
         max_tokens: PERPLEXITY_CONFIG.AUDIT_MAX_TOKENS
     });
 
-    let res;
-    try {
-        res = await fetch('/api/perplexity', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-            body
-        });
-        if (res.status === 404) throw new Error("Proxy 404");
-    } catch(e) {
-        res = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
-            body
-        });
-    }
+    const res = await requestPerplexity(body, apiKey, PERPLEXITY_CONFIG);
 
     const json = await res.json();
     if(json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
@@ -2250,24 +2175,13 @@ export async function generateTelegramBrief(
                   max_tokens: PERPLEXITY_CONFIG.MACRO_MAX_TOKENS
               });
               
-              let res;
-              try {
-                 res = await fetch('/api/perplexity', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                    body
-                 });
-                 if (res.status === 404) throw new Error("Proxy 404");
-              } catch(e) {
-                 res = await fetch('https://api.perplexity.ai/chat/completions', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
-                    body
-                 });
-              }
+              const res = await requestPerplexity(body, apiKey, PERPLEXITY_CONFIG);
 
               const json = await res.json();
               macroSection = json?.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500(SPX): ${spx} | ${ndxLabel}: ${ndx})\nVIX: ${vixStr}`;
           }
       } catch (e) {
+         if (isPerplexityStopError(e)) throw e;
          macroSection = `Macro: 시장 데이터 분석 중... (VIX: ${vixStr})`;
       }
       
@@ -2776,6 +2690,7 @@ ${riskNote}
 • **리스크 원칙**: VIX 고변동/실적 근접 구간은 보수적으로, 손절가(Stop) 엄수`.trim();
 
   } catch (criticalError: any) {
+      if (isPerplexityStopError(criticalError)) throw criticalError;
       console.error("CRITICAL_TELEGRAM_GEN_FAILURE", criticalError);
       // Fallback Report for Archiving
       finalReport = `🚀 US Alpha Seeker Report (Recovery Mode) 🚀
@@ -2788,5 +2703,6 @@ Error: ${criticalError?.message || "Unknown Error"}
 데이터는 보존되었으므로 대시보드에서 상세 내용을 확인하시기 바랍니다.`;
   }
 
+  assertPerplexityBudgetHealthy();
   return finalReport;
 }
