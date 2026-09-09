@@ -12,6 +12,7 @@ zero. This intentionally blocks paid Perplexity requests until the operator
 approves a budget. The scheduler validates configuration before analysis.
 Manual workflow inputs supply the limits for that invocation; scheduled runs
 use repository variables, which require a separate recurring budget decision.
+Blank manual inputs remain zero and never inherit the recurring limits.
 This change does not configure variables, rotate keys, refill credit or dispatch
 a workflow. Existing same-SHA failure and duplicate-run guards remain intact.
 
@@ -57,7 +58,10 @@ cannot retroactively prevent an unexpected upstream charge.
   fallback only without the upstream-attempt marker. An upstream 404 does not.
 - HTTP failures, uncertain transport/timeouts and invalid usage evidence latch
   a stop shared by all callers and all model fallback paths in the session.
-- Abort timed-out transport; never refund an uncertain request.
+- Propagate the caller's deadline to paid transport, abort and latch immediately;
+  late completion never refunds or clears an uncertain request.
+- Recognize internal control errors by type, not a prefix in untrusted response
+  text. Malformed response bodies cannot bypass sanitization or the stop.
 - Unconfigured/exhausted/changed budgets remain fail-closed if a caller catches
   the error. Stage6 final publication and Telegram brief generation check the
   stored stop. A budget failure is not a legitimate zero-executable result.

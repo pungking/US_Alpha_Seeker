@@ -6,7 +6,8 @@ const RATES = {
   sonar: { context: 128 * 1024, input: 1, output: 1, fees: { low: 5000, medium: 8000, high: 12000 } },
   'sonar-pro': { context: 200 * 1024, input: 3, output: 15, fees: { low: 6000, medium: 10000, high: 14000 } }
 };
-const fail = code => { throw new Error(`PERPLEXITY_${code}`); };
+class PerplexityControlError extends Error {}
+const fail = code => { throw new PerplexityControlError(`PERPLEXITY_${code}`); };
 export const isPerplexityStopError = error => /PERPLEXITY_(BUDGET_|CIRCUIT_|HTTP_|TRANSPORT_|RESPONSE_|REQUEST_)/.test(String(error?.message || error));
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 
@@ -101,19 +102,31 @@ function reserve(storage, config, payload) {
 
 function stop(storage, reason, code) {
   const usage = readUsage(storage);
+  usage.perplexity.budget ??= { maxMicroUsd: 0, maxRequests: 0, priceBasis: PERPLEXITY_PRICE_BASIS,
+    requestsAttempted: 0, reservedMicroUsd: 0, reportedMicroUsd: 0 };
   usage.perplexity.budget.blockedReason = reason;
   writeUsage(storage, usage);
   fail(code);
 }
 
-export async function requestPerplexity(payload, apiKey, config, { storage = globalThis.sessionStorage, fetchImpl = globalThis.fetch, timeoutMs = 30000 } = {}) {
+export async function requestPerplexity(payload, apiKey, config, { storage = globalThis.sessionStorage, fetchImpl = globalThis.fetch, timeoutMs = 30000, signal = undefined } = {}) {
   const body = validatePerplexityPayload(payload);
   if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) fail('REQUEST_KEY_MISSING');
   const send = async url => {
+    if (signal?.aborted) stop(storage, 'TRANSPORT_UNCERTAIN', 'TRANSPORT_UNCERTAIN_NO_RETRY');
     const reserved = reserve(storage, config, body);
     const controller = new AbortController();
-    let timer;
+    let timer, cancel;
     try {
+      const deadline = new Promise((_, reject) => {
+        cancel = () => {
+          controller.abort();
+          try { stop(storage, 'TRANSPORT_UNCERTAIN', 'TRANSPORT_UNCERTAIN_NO_RETRY'); }
+          catch (error) { reject(error); }
+        };
+        signal?.addEventListener('abort', cancel, { once: true });
+        timer = setTimeout(cancel, timeoutMs);
+      });
       const outcome = (async () => {
         const response = await fetchImpl(url, { method: 'POST', redirect: 'error', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }, body: JSON.stringify(body) });
@@ -131,12 +144,12 @@ export async function requestPerplexity(payload, apiKey, config, { storage = glo
         writeUsage(storage, usage);
         return { ok: true, status: response.status, json: async () => data };
       })();
-      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('PERPLEXITY_TRANSPORT_TIMEOUT')); }, timeoutMs); });
-      return await Promise.race([outcome, timeout]);
+      return await Promise.race([outcome, deadline]);
     } catch (error) {
-      if (isPerplexityStopError(error) && !String(error.message).includes('TRANSPORT_')) throw error;
+      // Only our own error type is trusted; response text may contain any prefix.
+      if (error instanceof PerplexityControlError) throw error;
       stop(storage, 'TRANSPORT_UNCERTAIN', 'TRANSPORT_UNCERTAIN_NO_RETRY');
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
   };
   const response = await send('/api/perplexity');
   if ('routeMissing' in response) {

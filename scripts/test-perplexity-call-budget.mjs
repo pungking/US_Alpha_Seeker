@@ -106,9 +106,10 @@ const config = { ...limits, MODEL_CHAIN: ['sonar', 'sonar-pro'], STAGE2_MAX_TOKE
 const constants = { API_CONFIGS: [{ provider: provider.PERPLEXITY, key: 'fixture' }], PERPLEXITY_CONFIG: config,
   HUGGINGFACE_CONFIG: {}, STRATEGY_CONFIG: {}, GEMINI_MODELS: {} };
 let consumerCalls = 0;
-const fixtureStorage = memory();
+let fixtureStorage = memory();
+let consumerFetch = async () => { consumerCalls++; return new Response('private-raw-error', { status: 402 }); };
 const consumerGuard = { ...guard,
-  requestPerplexity: (body, key, c) => requestPerplexity(body, key, c, { storage: fixtureStorage, fetchImpl: async () => { consumerCalls++; return new Response('private-raw-error', { status: 402 }); } }),
+  requestPerplexity: (body, key, c, options = {}) => requestPerplexity(body, key, c, { ...options, storage: fixtureStorage, fetchImpl: consumerFetch }),
   assertPerplexityBudgetHealthy: () => assertPerplexityBudgetHealthy(fixtureStorage)
 };
 const runtime = vm.createContext({ exports: {}, sessionStorage: fixtureStorage, window: { dispatchEvent() {} },
@@ -154,7 +155,7 @@ for (const file of ['components/PreliminaryFilter.tsx', 'services/intelligenceSe
 }
 const alpha = read('components/AlphaAnalysis.tsx');
 assert.match(alpha, /assertPerplexityBudgetHealthy\(\);\s+const stage6FinalFileName =/);
-assert.match(alpha, /if \(isPerplexityStopError\(e\)\) throw e;\s+addLog\(`Brief Gen Failed/);
+assert.match(alpha, /if \(isPerplexityStopError\(e\)\) throw e;\s+assertPerplexityBudgetHealthy\(\);\s+addLog\(`Brief Gen Failed/);
 for (const name of ['PERPLEXITY_RUN_MAX_COST_USD', 'PERPLEXITY_RUN_MAX_REQUESTS']) {
   for (const file of ['constants.ts', 'automate.js', '.github/workflows/schedule.yml']) assert.ok(read(file).includes(name));
 }
@@ -171,3 +172,57 @@ assert.match(read('constants.ts'), /RUN_MAX_REQUESTS:.*\|\| '0'/);
   assert.throws(() => assertPerplexityBudgetHealthy(storage), /BUDGET_STORAGE_INVALID/);
 }
 console.log('PASS actual synthesis/Top6/audit/Telegram/Stage1 caller stop propagation, configuration wiring, failed-run finalization rejection; paid calls=0');
+{
+  const storage = memory(); let calls = 0;
+  const options = { storage, fetchImpl: async () => { calls++; return new Response('PERPLEXITY_HTTP_502'); } };
+  await assert.rejects(requestPerplexity(payload, 'fixture', limits, options), error => {
+    assert.equal(error.message, 'PERPLEXITY_TRANSPORT_UNCERTAIN_NO_RETRY');
+    assert.ok(!error.message.includes('private-raw-marker')); return true;
+  });
+  await assert.rejects(requestPerplexity(payload, 'fixture', limits, options), /CIRCUIT_OPEN/);
+  assert.equal(calls, 1);
+}
+{
+  const storage = memory(); let calls = 0; let networkSignal;
+  const parent = new AbortController();
+  let complete;
+  const pending = requestPerplexity(payload, 'fixture', limits, { storage, signal: parent.signal, timeoutMs: 1000,
+    fetchImpl: async (_url, init) => { calls++; networkSignal = init.signal; return new Promise(resolve => { complete = resolve; }); } });
+  parent.abort();
+  assert.equal(networkSignal.aborted, true, 'abort must happen at caller deadline, not at the later internal timeout');
+  await assert.rejects(pending, /TRANSPORT_UNCERTAIN_NO_RETRY/);
+  assert.equal(networkSignal.aborted, true, 'outer caller deadline must abort paid transport');
+  const reserved = stats(storage).reservedMicroUsd;
+  complete(good()); await new Promise(resolve => setTimeout(resolve, 0));
+  assert.throws(() => assertPerplexityBudgetHealthy(storage), /CIRCUIT_OPEN/);
+  assert.equal(stats(storage).reservedMicroUsd, reserved, 'late completion cannot refund an uncertain request');
+  await assert.rejects(requestPerplexity(payload, 'fixture', limits, { storage, fetchImpl: () => { calls++; assert.fail('request after caller timeout'); } }), /CIRCUIT_OPEN/);
+  assert.equal(calls, 1);
+  await assert.rejects(requestPerplexity(payload, 'fixture', limits, { storage: memory(), signal: parent.signal, fetchImpl: () => assert.fail('request after aborted parent') }), /TRANSPORT_UNCERTAIN/);
+}
+for (const [name, input] of [['PERPLEXITY_RUN_MAX_COST_USD', 'perplexity_max_cost_usd'], ['PERPLEXITY_RUN_MAX_REQUESTS', 'perplexity_max_requests']]) {
+  const expression = read('.github/workflows/schedule.yml').match(new RegExp(`${name}: \\$\\{\\{ (.*) \\}\\}`))[1];
+  for (const manual of ['', undefined, '0', '2']) {
+    const value = vm.runInNewContext(expression, { github: { event_name: 'workflow_dispatch' }, inputs: { [input]: manual }, vars: { [name]: '50' } });
+    assert.equal(value, manual || '0', 'manual blank/default must not inherit recurring budget');
+  }
+  assert.equal(vm.runInNewContext(expression, { github: { event_name: 'schedule' }, inputs: {}, vars: { [name]: '3' } }), '3');
+}
+console.log('PASS hostile response redaction, outer abort/late completion, manual-vs-recurring budget isolation');
+
+{
+  fixtureStorage = memory(); runtime.sessionStorage = fixtureStorage;
+  let signal; let finish;
+  consumerFetch = async (_url, init) => { signal = init.signal; return new Promise(resolve => { finish = resolve; }); };
+  const parent = new AbortController();
+  const brief = runtime.exports.generateTelegramBrief([candidate], provider.PERPLEXITY, pulse, undefined, parent.signal);
+  parent.abort();
+  assert.equal(signal.aborted, true, 'actual Telegram generator must propagate its caller cancellation');
+  await assert.rejects(brief, /TRANSPORT_UNCERTAIN_NO_RETRY/);
+  finish(good());
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.throws(() => assertPerplexityBudgetHealthy(fixtureStorage), /CIRCUIT_OPEN/);
+  assert.equal((alpha.match(/telegramContext, briefAbort.signal/g) || []).length, 2);
+  assert.equal((alpha.match(/briefAbort.abort\(\)/g) || []).length, 2);
+  assert.equal((alpha.match(/clearTimeout\(briefTimer\)/g) || []).length, 2);
+}

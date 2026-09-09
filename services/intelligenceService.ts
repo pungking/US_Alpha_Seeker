@@ -1970,7 +1970,8 @@ export async function generateTelegramBrief(
   candidates: any[],
   provider: ApiProvider,
   marketPulse?: any,
-  contractContext?: TelegramBriefContractContext
+  contractContext?: TelegramBriefContractContext,
+  signal?: AbortSignal
 ): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = config?.key;
@@ -2175,7 +2176,7 @@ export async function generateTelegramBrief(
                   max_tokens: PERPLEXITY_CONFIG.MACRO_MAX_TOKENS
               });
               
-              const res = await requestPerplexity(body, apiKey, PERPLEXITY_CONFIG);
+              const res = await requestPerplexity(body, apiKey, PERPLEXITY_CONFIG, { signal });
 
               const json = await res.json();
               macroSection = json?.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500(SPX): ${spx} | ${ndxLabel}: ${ndx})\nVIX: ${vixStr}`;
