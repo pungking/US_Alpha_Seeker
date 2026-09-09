@@ -17,6 +17,11 @@ on:
     - cron: '17 14 * * 1-5'
   workflow_dispatch: # 수동 실행 버튼 (테스트용)
     inputs:
+      delivery_proof_only:
+        description: "Manual report delivery proof: skip this workflow's sidecar dispatch and fallback"
+        required: false
+        default: false
+        type: boolean
       perplexity_max_cost_usd:
         description: "Approved Perplexity session reservation cap in USD (0 blocks paid calls; excludes other providers)"
         required: false
@@ -493,7 +498,7 @@ jobs:
           NODE
 
       - name: 7F.2 Dispatch | Sidecar dry-run repository_dispatch
-        if: success() && steps.stage6_dispatch_meta.outputs.sidecar_dispatch_allowed == 'true'
+        if: success() && steps.stage6_dispatch_meta.outputs.sidecar_dispatch_allowed == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.delivery_proof_only)
         env:
           SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
           STAGE6_FILE: ${{ steps.stage6_dispatch_meta.outputs.stage6_file }}
