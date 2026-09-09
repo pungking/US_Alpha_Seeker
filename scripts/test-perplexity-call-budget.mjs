@@ -211,6 +211,28 @@ for (const [name, input] of [['PERPLEXITY_RUN_MAX_COST_USD', 'perplexity_max_cos
 console.log('PASS hostile response redaction, outer abort/late completion, manual-vs-recurring budget isolation');
 
 {
+  const workflow = read('.github/workflows/schedule.yml');
+  assert.match(workflow, /delivery_proof_only:\n\s+description:.*\n\s+required: false\n\s+default: false\n\s+type: boolean/);
+  const condition = workflow.match(/name: 7F\.2 Dispatch \| Sidecar dry-run repository_dispatch\n\s+if: (.+)/)[1];
+  for (const event of ['workflow_dispatch', 'schedule', 'repository_dispatch']) {
+    for (const proofOnly of [undefined, false, true]) {
+      for (const succeeded of [false, true]) {
+        for (const allowed of ['false', 'true']) {
+          const actual = vm.runInNewContext(condition, {
+            success: () => succeeded, github: { event_name: event },
+            inputs: { delivery_proof_only: proofOnly },
+            steps: { stage6_dispatch_meta: { outputs: { sidecar_dispatch_allowed: allowed } } }
+          });
+          assert.equal(actual, succeeded && allowed === 'true' && !(event === 'workflow_dispatch' && proofOnly === true));
+        }
+      }
+    }
+  }
+  assert.equal((workflow.match(/name: 7F\.2 Dispatch \| Sidecar dry-run repository_dispatch/g) || []).length, 1);
+  console.log('PASS manual delivery proof suppresses sidecar step and its fallback without changing recurring dispatch');
+}
+
+{
   fixtureStorage = memory(); runtime.sessionStorage = fixtureStorage;
   let signal; let finish;
   consumerFetch = async (_url, init) => { signal = init.signal; return new Promise(resolve => { finish = resolve; }); };

@@ -93,3 +93,17 @@ post-fix completed analysis: canonical Stage6 full hash, report parity, actual
 Telegram receipt and actual Notion analysis-only row/source hash parity.
 No qualifying completed analysis means pending, not PASS. No forced analysis,
 send, Notion write, broker call or execution activation is authorized here.
+
+## Separately approved manual delivery proof
+
+The manual `delivery_proof_only` boolean skips the scheduler's entire sidecar
+dispatch step, including its fallback workflow dispatch. Report, Telegram and
+Notion delivery remain unchanged and require explicit one-shot approval along
+with the numeric Perplexity limits. The default is false; schedule and
+repository_dispatch behavior and repository variables are unchanged.
+
+This option does not stop independently scheduled sidecar/watchdog jobs or
+claim an account-wide execution lock. Verify the sidecar step is skipped in
+the approved run before accepting its isolation evidence. Budget exhaustion,
+provider failure or missing delivery evidence remains incomplete, not PASS;
+do not rerun or increase the limits automatically.
