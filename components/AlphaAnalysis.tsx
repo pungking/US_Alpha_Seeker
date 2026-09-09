@@ -1,3 +1,4 @@
+import { assertPerplexityBudgetHealthy, isPerplexityStopError, PERPLEXITY_PRICE_BASIS } from '../services/perplexityRequest.mjs';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -4673,7 +4674,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               let telegramPayload = ""; 
               
               // [DEBUG FIX] Wrap Telegram generation in a race to prevent infinite hanging
-              const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Telegram Brief Timeout")), 15000));
+              const briefAbort = new AbortController();
+              let briefTimer: ReturnType<typeof setTimeout>;
+              const timeout = new Promise((_, reject) => {
+                  briefTimer = setTimeout(() => { briefAbort.abort(); reject(new Error("Telegram Brief Timeout")); }, 15000);
+              });
               
               try {
                   // Use the actual Stage2 provider whenever available to keep manual/autopilot consistent.
@@ -4682,7 +4687,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   // [HYDRATION] Explicitly pass market pulse data
                   const marketPulse = (window as any).latestMarketPulse;
                   const telegramContext = resolveTelegramBriefContext();
-                  const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse, telegramContext);
+                  const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse, telegramContext, briefAbort.signal);
                   const brief = await Promise.race([briefPromise, timeout]) as string;
 
                   const contractCheck = checkTelegramContractIntegrity(resultsToCheck, brief);
@@ -4745,7 +4750,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   setAutoPhase('DONE');
                   if (onComplete) onComplete(toAutoControlPayload("BRIEF_GENERATION_FAILED"));
                   return;
-              }
+              } finally { clearTimeout(briefTimer); }
 
               setAutoPhase('DONE');
               if (onComplete) onComplete(telegramPayload);
@@ -5572,7 +5577,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               perplexityStage2RepairChunkSize: PERPLEXITY_CONFIG.STAGE2_REPAIR_CHUNK_SIZE,
               perplexityStage2FullFallbackEnabled: PERPLEXITY_CONFIG.STAGE2_FULL_FALLBACK_ENABLED,
               perplexityStage2MaxTokens: PERPLEXITY_CONFIG.STAGE2_MAX_TOKENS,
-              perplexityTokenWarnThreshold: PERPLEXITY_CONFIG.TOKEN_WARN_THRESHOLD
+              perplexityTokenWarnThreshold: PERPLEXITY_CONFIG.TOKEN_WARN_THRESHOLD,
+              perplexitySessionMaxCostUsd: PERPLEXITY_CONFIG.RUN_MAX_COST_USD,
+              perplexitySessionMaxRequests: PERPLEXITY_CONFIG.RUN_MAX_REQUESTS,
+              perplexityBudgetPriceBasis: PERPLEXITY_PRICE_BASIS
           }
       };
       try {
@@ -9501,6 +9509,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   addLog(`Top6 Detail Pass skipped: ${detailResult.error}`, "warn");
               }
           } catch (detailError: any) {
+              if (isPerplexityStopError(detailError)) throw detailError;
               addLog(`Top6 Detail Pass failed: ${detailError.message}`, "warn");
           }
       } else {
@@ -10891,6 +10900,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               alpha_candidates: top6ArchiveCandidates,
               audit_trail: top6AuditTrail
           };
+          assertPerplexityBudgetHealthy();
           const stage6FinalFileName = `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`;
           const finalPayloadJson = JSON.stringify(finalPayload, null, 2);
           const stage6HashAlgo = (globalThis as any)?.crypto?.subtle ? 'sha256' : 'fnv1a32_fallback';
@@ -11073,12 +11083,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
           
           let telegramPayload = ""; 
-          const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Telegram Brief Timeout")), 15000));
+          const briefAbort = new AbortController();
+          let briefTimer: ReturnType<typeof setTimeout>;
+          const timeout = new Promise((_, reject) => {
+              briefTimer = setTimeout(() => { briefAbort.abort(); reject(new Error("Telegram Brief Timeout")); }, 15000);
+          });
           
           try {
               const brainToUse = stage2ProviderRef.current || selectedBrain; 
               const telegramContext = resolveTelegramBriefContext();
-              const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse, telegramContext);
+              const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse, telegramContext, briefAbort.signal);
               const brief = await Promise.race([briefPromise, timeout]) as string;
 
               const contractCheck = checkTelegramContractIntegrity(resultsToCheck, brief);
@@ -11128,9 +11142,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               }
 
           } catch (e: any) {
+              if (isPerplexityStopError(e)) throw e;
+              assertPerplexityBudgetHealthy();
               addLog(`Brief Gen Failed: ${e.message}. Sending plain status.`, "err");
               telegramPayload = "Telegram Brief Generation Failed. Check logs.";
-          }
+          } finally { clearTimeout(briefTimer); }
 
           return telegramPayload;
       } else {

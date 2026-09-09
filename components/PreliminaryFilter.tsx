@@ -1,3 +1,4 @@
+import { requestPerplexity } from '../services/perplexityRequest.mjs';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
@@ -441,21 +442,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               }
               
               if (perplexityKey) {
-                  const perplexityRequest = fetch('https://api.perplexity.ai/chat/completions', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-                      body: JSON.stringify({
-                          model: PERPLEXITY_CONFIG.MODEL_CHAIN[0] || 'sonar',
-                          messages: [{ role: "user", content: prompt + " Return JSON only." }],
-                          max_tokens: PERPLEXITY_CONFIG.AUDIT_MAX_TOKENS
-                      })
-                  });
-
-                  const res: any = await Promise.race([perplexityRequest, timeoutPromise(15000, "Perplexity Timeout")]);
-                  if (!res.ok) {
-                      const errText = await res.text().catch(() => '');
-                      throw new Error(`Perplexity API Error: ${res.status} ${errText.slice(0, 120)}`);
-                  }
+                  const res = await requestPerplexity({
+                      model: PERPLEXITY_CONFIG.MODEL_CHAIN[0] || 'sonar',
+                      messages: [{ role: "user", content: prompt + " Return JSON only." }],
+                      max_tokens: PERPLEXITY_CONFIG.AUDIT_MAX_TOKENS
+                  }, perplexityKey, PERPLEXITY_CONFIG, { timeoutMs: 15000 });
                   const json = await res.json();
                   
                   if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
