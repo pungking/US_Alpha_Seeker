@@ -7,6 +7,18 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
+import { STAGE4_RECENT_HINT_KEY } from '../services/stage5EvidenceContract.mjs';
+import { buildStage4EarningsContext, calculateEventRiskOverlay } from '../services/stage4EarningsEventContract.mjs';
+import {
+  stage3ReadyHashMatches,
+  validateStage3ArtifactForStage4
+} from '../services/stage3FundamentalTruthContract.mjs';
+import {
+  buildTossShadowEvidence,
+  summarizeTossShadowEvidence,
+  validateTossShadowArtifact
+} from '../services/tossShadowContract.mjs';
 
 // [ADDED] Markdown Components
 const MarkdownComponents: any = {
@@ -74,6 +86,13 @@ interface TechnicalTicker {
       daysToEarnings?: number | null;
       earningsSource?: string | null;
       earningsRetrievedAt?: string | null;
+      earningsEvidenceStatus?: string;
+      earningsCoverageStatus?: string | null;
+      earningsSourceContentSha256?: string | null;
+      earningsDecisionAt?: string | null;
+      earningsDistanceBasis?: string;
+      earningsPublicationTimestampAvailable?: boolean;
+      eventRiskAssessmentStatus?: string;
       eventRiskState?: 'HIGH' | 'MEDIUM' | 'NONE';
       eventDistanceBand?: 'D_MINUS_1_TO_PLUS_1' | 'D_MINUS_2_TO_MINUS_5' | 'NONE';
       eventRiskSource?: 'DISTANCE' | 'LABEL' | 'NONE';
@@ -310,18 +329,6 @@ const buildMarketRegimeLineage = async (
         fallbackSource: null
     };
 };
-
-interface EarningsEventMap {
-    trigger_file?: string;
-    timestamp?: string;
-    source?: string;
-    universe_count?: number;
-    events?: Record<string, {
-        earnings_date?: string;
-        days_to_event?: number;
-        event_risk?: 'HIGH' | 'MEDIUM' | 'NONE';
-    }>;
-}
 
 type TtmSqueezeProfile = 'STRICT' | 'DEFAULT' | 'WIDE';
 type TtmSqueezeMode = 'STATIC' | 'VIX_DYNAMIC' | 'ADAPTIVE_SHADOW' | 'ADAPTIVE_ACTIVE';
@@ -1124,6 +1131,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const MARKET_REGIME_FILE = 'MARKET_REGIME_SNAPSHOT.json';
   const EARNINGS_EVENT_FILE = 'EARNINGS_EVENT_MAP.json';
+  const TOSS_SHADOW_FILE = 'TOSS_MARKET_DATA_SHADOW.json';
 
   const calculateMacroOverlay = (
       snapshot: MarketRegimeSnapshot | null,
@@ -1207,80 +1215,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           vixDistanceFromRiskOff,
           regimeDistancePenalty: Number(regimeDistancePenalty.toFixed(2)),
           macroOverlayScore: Number(Math.max(-10, Math.min(8, macroOverlayScore)).toFixed(2))
-      };
-  };
-
-  const calculateEventRiskOverlay = (
-      eventMap: EarningsEventMap | null,
-      symbol: string,
-      marketRegime: MarketRegimeState = 'UNKNOWN'
-  ) => {
-      const event = eventMap?.events?.[symbol.toUpperCase()];
-      const earningsDate = event?.earnings_date || null;
-      const labelRiskState = (event?.event_risk || 'NONE') as 'HIGH' | 'MEDIUM' | 'NONE';
-      let daysToEarnings = typeof event?.days_to_event === 'number' ? event.days_to_event : null;
-
-      // Fallback: derive D-day distance from earnings_date when numeric distance is unavailable.
-      if (daysToEarnings === null && earningsDate) {
-          const earningsTime = new Date(earningsDate).getTime();
-          if (Number.isFinite(earningsTime)) {
-              const now = new Date();
-              const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-              const earningsUtc = Date.UTC(
-                  new Date(earningsTime).getUTCFullYear(),
-                  new Date(earningsTime).getUTCMonth(),
-                  new Date(earningsTime).getUTCDate()
-              );
-              daysToEarnings = Math.round((earningsUtc - todayUtc) / (24 * 60 * 60 * 1000));
-          }
-      }
-
-      let eventDistanceBand: 'D_MINUS_1_TO_PLUS_1' | 'D_MINUS_2_TO_MINUS_5' | 'NONE' = 'NONE';
-      let eventRiskState: 'HIGH' | 'MEDIUM' | 'NONE' = 'NONE';
-      let eventRiskSource: 'DISTANCE' | 'LABEL' | 'NONE' = 'NONE';
-
-      let eventRiskPenalty = 0;
-      if (typeof daysToEarnings === 'number') {
-          if (daysToEarnings >= -1 && daysToEarnings <= 1) {
-              eventDistanceBand = 'D_MINUS_1_TO_PLUS_1';
-              eventRiskState = 'HIGH';
-              eventRiskPenalty = 8;
-              eventRiskSource = 'DISTANCE';
-          } else if (daysToEarnings >= -5 && daysToEarnings <= -2) {
-              eventDistanceBand = 'D_MINUS_2_TO_MINUS_5';
-              eventRiskState = 'MEDIUM';
-              eventRiskPenalty = 3;
-              eventRiskSource = 'DISTANCE';
-          } else {
-              eventDistanceBand = 'NONE';
-              eventRiskState = 'NONE';
-              eventRiskPenalty = 0;
-              eventRiskSource = 'NONE';
-          }
-      } else if (labelRiskState === 'HIGH') {
-          eventRiskState = 'HIGH';
-          eventRiskPenalty = 8;
-          eventRiskSource = 'LABEL';
-      } else if (labelRiskState === 'MEDIUM') {
-          eventRiskState = 'MEDIUM';
-          eventRiskPenalty = 3;
-          eventRiskSource = 'LABEL';
-      }
-
-      if (marketRegime === 'RISK_OFF') {
-          if (eventRiskState === 'HIGH') eventRiskPenalty += 2;
-          else if (eventRiskState === 'MEDIUM') eventRiskPenalty += 1;
-      }
-
-      return {
-          earningsDate,
-          daysToEarnings,
-          earningsSource: event ? (eventMap?.source || 'EARNINGS_EVENT_MAP') : null,
-          earningsRetrievedAt: event ? (eventMap?.timestamp || null) : null,
-          eventRiskState,
-          eventDistanceBand,
-          eventRiskSource,
-          eventRiskPenalty: Number(eventRiskPenalty.toFixed(2))
       };
   };
 
@@ -1927,6 +1861,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     
     try {
       addLog("Phase 1: Resolving Stage 4 Ready Signal...", "info");
+      window.sessionStorage.removeItem(STAGE4_RECENT_HINT_KEY);
 
       const systemMapId = await resolveSystemMapFolderId(accessToken);
 
@@ -1969,7 +1904,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         stage3TriggerFile,
         new Date().toISOString()
       );
-      let earningsEventMap: EarningsEventMap | null = null;
+      let earningsSnapshot: unknown = null;
+      let earningsContentSha256: string | null = null;
       try {
         const regimeFileId = await findFileId(accessToken, MARKET_REGIME_FILE, systemMapId);
         if (regimeFileId) {
@@ -1999,19 +1935,30 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       try {
         const earningsFileId = await findFileId(accessToken, EARNINGS_EVENT_FILE, systemMapId);
         if (earningsFileId) {
-          const snapshot = await downloadFile(accessToken, earningsFileId);
-          if (snapshot?.trigger_file === stage3TriggerFile) {
-            earningsEventMap = snapshot;
-            addLog(`Earnings Event Map Locked: ${Object.keys(snapshot?.events || {}).length} tracked events`, "ok");
-          } else {
-            addLog("Earnings Event Map trigger mismatch. Event overlay skipped.", "warn");
-          }
+          const response = await fetch(`https://www.googleapis.com/drive/v3/files/${earningsFileId}?alt=media`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+          await assertDriveOk(response, 'loadEarningsEventMap.content');
+          const rawText = await response.text();
+          earningsContentSha256 = await hashTextSha256(rawText);
+          earningsSnapshot = parseDriveJsonText(rawText);
         } else {
           addLog("Earnings Event Map Missing. Event overlay skipped.", "warn");
         }
       } catch {
         addLog("Earnings Event Map Invalid. Event overlay skipped.", "warn");
       }
+
+      // Freeze one decision instant for every event row; never reuse collection-time D-days.
+      const earningsEventContext = buildStage4EarningsContext({
+        snapshot: earningsSnapshot,
+        expectedTriggerFile: stage3TriggerFile,
+        contentSha256: earningsContentSha256,
+        decisionAt: new Date().toISOString()
+      });
+      const earningsEventMap = earningsEventContext.snapshot;
+      addLog(`Earnings Event Contract: ${earningsEventContext.lineage.status}`,
+        earningsEventMap ? 'ok' : 'warn');
 
       addLog("Phase 2: Retrieving Stage 3 Candidates...", "info");
       let stage3FolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
@@ -2032,11 +1979,70 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       await assertDriveOk(stage3ContentRes, `loadStage3.content(${stage3FileId})`);
       const contentText = await stage3ContentRes.text();
       const content = parseDriveJsonText(contentText);
+      const stage3ContentSha256 = await hashTextSha256(contentText);
+      const stage3SourceSha256 = await sha256Json(content);
+      if (!stage3SourceSha256
+        || !stage3ReadyHashMatches({
+          readyData,
+          contentSha256: stage3ContentSha256,
+          canonicalSha256: stage3SourceSha256
+        })) {
+        addLog("Stage 3 file hash does not match the Stage 4 ready signal. Pipeline Aborted.", "err");
+        return;
+      }
+      const stage3Validation = await validateStage3ArtifactForStage4(content);
+      if (!stage3Validation.valid) {
+        addLog(`Triggered Stage 3 source contract invalid: ${stage3Validation.reasons.join(',')}`, "err");
+        return;
+      }
+
+      let tossShadow = validateTossShadowArtifact(null);
+      try {
+        const tossShadowFileId = await findFileId(accessToken, TOSS_SHADOW_FILE, systemMapId);
+        if (tossShadowFileId) {
+          tossShadow = validateTossShadowArtifact(
+            await downloadFile(accessToken, tossShadowFileId),
+            new Date().toISOString(),
+            stage3TriggerFile,
+            stage3SourceSha256
+          );
+          addLog(
+            `Toss shadow ${tossShadow.status === 'PASS' ? 'locked' : 'excluded'}: ${tossShadow.exclusionReason || 'report-only evidence ready'}.`,
+            tossShadow.status === 'PASS' ? 'ok' : 'warn'
+          );
+        } else {
+          addLog('Toss shadow artifact missing. Canonical Stage 4 analysis continues.', 'warn');
+        }
+      } catch {
+        tossShadow = validateTossShadowArtifact({});
+        addLog('Toss shadow artifact invalid. Canonical Stage 4 analysis continues.', 'warn');
+      }
+
+      const buildStage4TossShadow = (
+        item: any,
+        candles: any[],
+        lineage: Record<string, any> | null,
+        dataSource: string
+      ) => {
+        const latest = candles[candles.length - 1];
+        return buildTossShadowEvidence(tossShadow, item?.symbol, {
+          price: latest?.c,
+          source: lineage?.vendor || dataSource,
+          sourceAsOf: Number.isFinite(Number(latest?.t)) ? new Date(latest.t).toISOString() : null,
+          currency: item?.currency || lineage?.currency || null,
+          adjustmentBasisComparable: Boolean(
+            lineage?.adjustmentType
+            && lineage.adjustmentType === tossShadow?.runEvidence?.adjustedPriceSemantics
+          )
+        });
+      };
 
       const stage3UniverseRaw = Array.isArray(content?.fundamental_universe) ? content.fundamental_universe : [];
       const stage3InputCount = Number(content?.manifest?.inputCount || stage3UniverseRaw.length);
-      const stage3EligibleUniverse = stage3UniverseRaw.filter(isAnalysisEligibleTicker);
-      const excludedByInstrumentType = Math.max(0, stage3UniverseRaw.length - stage3EligibleUniverse.length);
+      const stage3InstrumentEligibleUniverse = stage3UniverseRaw.filter(isAnalysisEligibleTicker);
+      const stage3EligibleUniverse = stage3InstrumentEligibleUniverse.filter((row: any) => row?.stage3AnalysisEligible === true);
+      const stage3EvidenceBlockedRows = stage3UniverseRaw.filter((row: any) => row?.stage3AnalysisEligible !== true).length;
+      const excludedByInstrumentType = Math.max(0, stage3UniverseRaw.length - stage3InstrumentEligibleUniverse.length);
       if (excludedByInstrumentType > 0) {
           addLog(
               `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols before Stage 4 analysis.`,
@@ -2469,7 +2475,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   };
 
                   const eventRiskOverlay = calculateEventRiskOverlay(
-                      earningsEventMap,
+                      earningsEventContext,
                       item.symbol,
                       macroOverlay.marketRegime
                   );
@@ -2630,18 +2636,31 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   if (stage4RequireDriveForBreakout && isNonDriveSource) {
                       isTechnicalBreakout = false;
                   }
+                  const tossShadowEvidence = buildStage4TossShadow(
+                      item,
+                      candles,
+                      corporateActionLineage,
+                      techData.dataSource
+                  );
 
                   results.push({
                       ...item,
                       ...techData,
                       corporateActionLineage,
                       marketRegimeLineage,
+                      ...(tossShadowEvidence ? {
+                          shadow: {
+                              ...(item?.shadow && typeof item.shadow === 'object' ? item.shadow : {}),
+                              toss: tossShadowEvidence
+                          }
+                      } : {}),
                       isTechnicalBreakout,
                       lastUpdate: new Date().toISOString()
                   });
 
               } catch (e) {
                   console.error(`Tech Analysis Error for ${item.symbol}`, e);
+                  const tossShadowEvidence = buildStage4TossShadow(item, [], null, 'FAILURE');
                   results.push({
                       ...item,
                       technicalScore: 0,
@@ -2669,6 +2688,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       recentSwingLow: 0,
                       corporateActionLineage: null,
                       marketRegimeLineage,
+                      ...(tossShadowEvidence ? {
+                          shadow: {
+                              ...(item?.shadow && typeof item.shadow === 'object' ? item.shadow : {}),
+                              toss: tossShadowEvidence
+                          }
+                      } : {}),
                       lastUpdate: new Date().toISOString(),
                       dataSource: 'FAILURE'
                   });
@@ -2839,7 +2864,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       const payload = {
           manifest: {
-              version: "7.5.1",
+              version: "7.5.2",
+              generatedAt: new Date().toISOString(),
               count: auditReadyResults.length,
               inputCount: stage3InputCount,
               eligibleCount: stage3EligibleUniverse.length,
@@ -2847,6 +2873,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               strategy: "Hybrid_Heuristic_Fusion_ADX_LogRVOL_RS",
               survivalRate,
               sourceStage3File: stage3TriggerFile,
+              sourceStage3ContentSha256: stage3ContentSha256,
+              sourceStage3Sha256: stage3SourceSha256,
+              sourceStage3HashBasis: 'CANONICAL_JSON',
+              sourceStage3RunId: content?.manifest?.runId || null,
+              sourceStage3InputHash: content?.manifest?.inputHash || null,
+              sourceStage3OutputHash: content?.manifest?.outputHash || null,
+              stage3EvidenceBlockedRows,
               readyTimestamp: readyData?.timestamp || null,
               dataSource: GOOGLE_DRIVE_TARGET.financialOhlcvFolder,
               marketRegimeState: marketRegimeSnapshot?.regime?.state || null,
@@ -2867,8 +2900,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   squeezeOnRate: ttmSqueezeOnRate,
                   adaptiveStateAfterRun: ttmAdaptiveStateAfterRun
               },
-              earningsEventSource: earningsEventMap?.source || null,
+              earningsEventSource: [...new Set(auditReadyResults
+                  .map(row => row.techMetrics?.earningsSource).filter(Boolean))].sort().join('+') || null,
               earningsEventCount: Object.keys(earningsEventMap?.events || {}).length,
+              earningsEventLineage: earningsEventContext.lineage,
+              earningsEventConsumerCounts: auditReadyResults.reduce((counts, row) => {
+                  const status = row.techMetrics?.earningsEvidenceStatus || 'EARNINGS_OVERLAY_NOT_EVALUATED';
+                  counts[status] = (counts[status] || 0) + 1;
+                  return counts;
+              }, {} as Record<string, number>),
               factorOverlayStats: {
                   avgTotalAdjustment: Number((factorOverlayTotal / Math.max(results.length, 1)).toFixed(2)),
                   avgSeasonalityAdjustment: Number((factorSeasonalityTotal / Math.max(results.length, 1)).toFixed(2)),
@@ -2916,16 +2956,26 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       (row) => row.corporateActionLineage?.prospectiveSurveillance?.schemaVersion === 'prospective-corporate-action-surveillance-v1'
                   ).length
               },
+              tossShadowEvidence: {
+                  schemaVersion: 'toss-market-data-shadow-v1',
+                  artifactStatus: tossShadow.status,
+                  exclusionReason: tossShadow.exclusionReason,
+                  ...summarizeTossShadowEvidence(auditReadyResults),
+                  canonicalSourceChanged: false,
+                  policyImpact: 'NONE_REPORT_ONLY'
+              },
               scoreBreakdownSchema: "v1.1",
               scoreBreakdownCoverage: `${auditReadyResults.filter((x) => !!x.scoreBreakdown).length}/${auditReadyResults.length}`
           },
           technical_universe: auditReadyResults
       };
 
+      const payloadText = JSON.stringify(payload, null, 2);
+      const contentSha256 = await hashTextSha256(payloadText);
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+      form.append('file', new Blob([payloadText], { type: 'application/json' }));
 
       const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
           method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
@@ -2935,6 +2985,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           throw new Error(`Drive upload failed (${fileName}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
       }
 
+      window.sessionStorage.setItem(STAGE4_RECENT_HINT_KEY, JSON.stringify({
+          fileName, contentSha256, sourceStage3File: stage3TriggerFile
+      }));
       addLog(`Vault Saved: ${fileName}`, "ok");
       addLog(`Tech Analysis Complete. ${auditReadyResults.length} OHLCV-backed assets preserved.`, "ok");
       if (onComplete) onComplete();

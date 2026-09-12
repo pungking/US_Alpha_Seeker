@@ -27,8 +27,22 @@ jobs:
         run: npm run ops:safety:telegram-routing
       - name: Telegram delivery evidence contract
         run: npm run ops:test:telegram-delivery-contract
+      - name: Perplexity paid-call budget contract (mock network only)
+        run: npm run ops:test:perplexity-call-budget
+      - name: Notion analysis-only surface contract
+        run: npm run ops:test:notion-analysis-surface
       - name: Client secret exposure audit
         run: npm run ops:safety:client-secret-exposure
+      - name: Stage0 source evidence contract fixture
+        run: npm run ops:test:stage0-source-contract
+      - name: Stage1 point-in-time filter contract fixture
+        run: npm run ops:test:stage1-point-in-time-contract
+      - name: Stage3 fundamental truth contract fixture
+        run: npm run ops:test:stage3-fundamental-truth-contract
+      - name: Stage4 earnings consumer and risk-window contract fixture
+        run: npm run ops:test:stage4-earnings-event-contract
+      - name: Stage5 evidence, numerical and Stage6 ingestion contract fixtures
+        run: npm run ops:test:stage5-stage6-ingest-contract
       - name: Stage6 fillability contract fixture
         run: npm run ops:stage6:fillability-contract:validate
       - name: Stage6 fresh-focus formula coverage fixture

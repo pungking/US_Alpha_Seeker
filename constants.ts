@@ -33,6 +33,8 @@ const getEnvVar = (key: string): string => {
         API_KEY: process.env.API_KEY,
         PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
         PERPLEXITY_MODEL_CHAIN: process.env.PERPLEXITY_MODEL_CHAIN,
+        PERPLEXITY_RUN_MAX_COST_USD: process.env.PERPLEXITY_RUN_MAX_COST_USD,
+        PERPLEXITY_RUN_MAX_REQUESTS: process.env.PERPLEXITY_RUN_MAX_REQUESTS,
         PERPLEXITY_STAGE2_SHARD_SIZE: process.env.PERPLEXITY_STAGE2_SHARD_SIZE,
         PERPLEXITY_STAGE2_REPAIR_CHUNK_SIZE: process.env.PERPLEXITY_STAGE2_REPAIR_CHUNK_SIZE,
         PERPLEXITY_STAGE2_FULL_FALLBACK_ENABLED: process.env.PERPLEXITY_STAGE2_FULL_FALLBACK_ENABLED,
@@ -252,6 +254,9 @@ export const API_CONFIGS: ApiConfig[] = [
 ];
 
 export const PERPLEXITY_CONFIG = {
+  // Explicit operator budget; zero disables paid requests, not stage policy.
+  RUN_MAX_COST_USD: getEnvVar('PERPLEXITY_RUN_MAX_COST_USD') || '0',
+  RUN_MAX_REQUESTS: getEnvVar('PERPLEXITY_RUN_MAX_REQUESTS') || '0',
   // Default to `sonar` first; `sonar-pro` remains a fallback for coverage, not the default burn path.
   MODEL_CHAIN: parseStringListEnv(['PERPLEXITY_MODEL_CHAIN', 'VITE_PERPLEXITY_MODEL_CHAIN'], ['sonar', 'sonar-pro']),
   STAGE2_SHARD_SIZE: Math.max(1, Math.floor(parseNumberEnv(['PERPLEXITY_STAGE2_SHARD_SIZE', 'VITE_PERPLEXITY_STAGE2_SHARD_SIZE'], 4))),

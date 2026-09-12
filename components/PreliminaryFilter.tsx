@@ -1,3 +1,4 @@
+import { requestPerplexity } from '../services/perplexityRequest.mjs';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
@@ -9,6 +10,8 @@ import { trackUsage, removeCitations } from '../services/intelligenceService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { validateStage0ArtifactForStage1 } from '../services/stage0SourceEvidenceContract.mjs';
+import { buildStage1Artifact, evaluateStage1Universe } from '../services/stage1PointInTimeFilterContract.mjs';
 
 // [STAGE 0 -> 1 DATA STRUCTURE]
 interface MasterTicker {
@@ -26,26 +29,6 @@ interface MasterTicker {
   [key: string]: any;
 }
 
-const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'common') return 'common';
-  if (normalized === 'warrant') return 'warrant';
-  if (normalized === 'unit') return 'unit';
-  if (normalized === 'right') return 'right';
-  if (normalized === 'hybrid') return 'hybrid';
-  return 'unknown';
-};
-
-const isAnalysisEligibleTicker = (item: any): boolean => {
-  const instrumentType = normalizeInstrumentType(item?.instrumentType);
-  const lifecycleState = String(item?.symbolLifecycleState || '').trim().toUpperCase();
-  if (lifecycleState === 'RETIRED' || lifecycleState === 'EXCLUDED') return false;
-  if (typeof item?.analysisEligible === 'boolean') {
-    return item.analysisEligible && instrumentType === 'common';
-  }
-  return instrumentType === 'common';
-};
-
 interface MarketContext {
     vix: number;
     spxChange: number;
@@ -58,6 +41,9 @@ interface AiProposal {
   suggestedVolume: number;
   regime: string;
   reasoning: string;
+  thresholdSource: 'AI_PROPOSAL_CAPTURED' | 'FALLBACK_DEFAULT';
+  thresholdProvider: string | null;
+  thresholdModel: string | null;
 }
 
 interface Props {
@@ -95,7 +81,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [stage0EligibleCount, setStage0EligibleCount] = useState(0);
   const [stage0ExcludedCount, setStage0ExcludedCount] = useState(0);
   const [stage0SourceFile, setStage0SourceFile] = useState<string | null>(null);
-  const [stage0SourceFileId, setStage0SourceFileId] = useState<string | null>(null);
+  const [stage0SourceContract, setStage0SourceContract] = useState<any>(null);
 
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -116,20 +102,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Update filtered count when thresholds change
   useEffect(() => {
     if (rawUniverse.length > 0) {
-      // 4-A: Keep UI count contract aligned with actual commit gate.
       const sliderOnlyCount = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume).length;
-      const commitReadyCount = rawUniverse.filter((s) => {
-        if (!isAnalysisEligibleTicker(s)) return false;
-        const marketCap = s.marketCap || 0;
-        const effectiveMinVolume = (marketCap > 0 && marketCap <= 300000000) ? (minVolume * 0.6) : minVolume;
-        return (
-          s.price >= minPrice &&
-          s.volume >= effectiveMinVolume &&
-          ((s.pe > 0) || (s.per > 0)) &&
-          (s.roe > 0) &&
-          (s.targetMeanPrice > 0)
-        );
-      }).length;
+      const commitReadyCount = evaluateStage1Universe(rawUniverse, {
+        decisionAt: new Date().toISOString(),
+        minPrice,
+        minVolume
+      }).acceptedRows.length;
       setSliderPassCount(sliderOnlyCount);
       setFilteredCount(commitReadyCount);
     } else {
@@ -270,20 +248,21 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           const contentFetch = await fetch(`https://www.googleapis.com/drive/v3/files/${stage0Source.id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });
-          await assertDriveOk(contentFetch, `loadStage0.content(${stage0Source.id})`);
+          await assertDriveOk(contentFetch, 'loadStage0.content');
           const contentText = await contentFetch.text();
           const content = parseDriveJsonText(contentText);
+          const stage0Validation = await validateStage0ArtifactForStage1(content);
+          if (!stage0Validation.valid) {
+              throw new Error(`Stage 0 source contract invalid: ${stage0Validation.reasons.join(',')}`);
+          }
           const stage0FileName = String(stage0Source?.name || '');
-          const stage0FileId = String(stage0Source?.id || '');
           setStage0SourceFile(stage0FileName || null);
-          setStage0SourceFileId(stage0FileId || null);
+          setStage0SourceContract(stage0Validation.manifest);
 
           // CRITICAL: Capture data in local scope to avoid State Race Conditions
-          const stage0Universe: MasterTicker[] = Array.isArray(content?.universe) ? content.universe : [];
-          const stage0EligibleUniverse: MasterTicker[] = Array.isArray(content?.eligible_universe)
-            ? content.eligible_universe
-            : stage0Universe.filter(isAnalysisEligibleTicker);
-          const stage0Manifest = content?.manifest || {};
+          const stage0Universe: MasterTicker[] = stage0Validation.universe;
+          const stage0EligibleUniverse: MasterTicker[] = stage0Validation.eligibleUniverse;
+          const stage0Manifest = stage0Validation.manifest;
           const stage0Counts: Stage0CountContract = {
             inputCount: toNonNegativeInt(stage0Universe.length, stage0Manifest?.inputCount),
             eligibleCount: toNonNegativeInt(stage0EligibleUniverse.length, stage0Manifest?.eligibleCount),
@@ -324,7 +303,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 proposal,
                 stage0Counts,
                 stage0FileName || null,
-                stage0FileId || null
+                stage0Validation.manifest
               );
           } else {
               setLoading(false);
@@ -463,27 +442,25 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               }
               
               if (perplexityKey) {
-                  const perplexityRequest = fetch('https://api.perplexity.ai/chat/completions', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-                      body: JSON.stringify({
-                          model: PERPLEXITY_CONFIG.MODEL_CHAIN[0] || 'sonar',
-                          messages: [{ role: "user", content: prompt + " Return JSON only." }],
-                          max_tokens: PERPLEXITY_CONFIG.AUDIT_MAX_TOKENS
-                      })
-                  });
-
-                  const res: any = await Promise.race([perplexityRequest, timeoutPromise(15000, "Perplexity Timeout")]);
-                  if (!res.ok) {
-                      const errText = await res.text().catch(() => '');
-                      throw new Error(`Perplexity API Error: ${res.status} ${errText.slice(0, 120)}`);
-                  }
+                  const res = await requestPerplexity({
+                      model: PERPLEXITY_CONFIG.MODEL_CHAIN[0] || 'sonar',
+                      messages: [{ role: "user", content: prompt + " Return JSON only." }],
+                      max_tokens: PERPLEXITY_CONFIG.AUDIT_MAX_TOKENS
+                  }, perplexityKey, PERPLEXITY_CONFIG, { timeoutMs: 15000 });
                   const json = await res.json();
                   
                   if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
 
                   if (json.choices && json.choices[0]) {
-                      return sanitizeJson(json.choices[0].message.content);
+                      const parsed = sanitizeJson(json.choices[0].message.content);
+                      if (parsed) {
+                          return {
+                              ...parsed,
+                              thresholdSource: 'AI_PROPOSAL_CAPTURED',
+                              thresholdProvider: 'PERPLEXITY',
+                              thresholdModel: PERPLEXITY_CONFIG.MODEL_CHAIN[0] || 'sonar'
+                          };
+                      }
                   }
               }
           } catch (e: any) {
@@ -516,7 +493,13 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       });
                       const response: any = await Promise.race([request, timeoutPromise(timeoutMs, `${nodeName} Timeout`)]);
                       trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-                      aiResult = sanitizeJson(response.text);
+                      const parsed = sanitizeJson(response.text);
+                      aiResult = parsed ? {
+                          ...parsed,
+                          thresholdSource: 'AI_PROPOSAL_CAPTURED',
+                          thresholdProvider: 'GEMINI',
+                          thresholdModel: model
+                      } : null;
                       if (aiResult) break;
                       throw new Error(`${model} returned empty payload`);
                   } catch (geminiError: any) {
@@ -560,7 +543,15 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           setAiError("AI Offline. Applying Default Safety Filters.");
           addLog("All AI Nodes Unresponsive. Using Default Safety Protocols.", "err");
           // Default Fallback
-          const defaultProposal = { suggestedPrice: 2.0, suggestedVolume: 500000, regime: "Default_Safe_Mode", reasoning: "AI Failure Fallback: Standard Swing Settings Applied." };
+          const defaultProposal: AiProposal = {
+              suggestedPrice: 2.0,
+              suggestedVolume: 500000,
+              regime: "Default_Safe_Mode",
+              reasoning: "AI Failure Fallback: Standard Swing Settings Applied.",
+              thresholdSource: 'FALLBACK_DEFAULT',
+              thresholdProvider: null,
+              thresholdModel: null
+          };
           setMinPrice(2.0);
           setMinVolume(500000);
           setAiProposal(defaultProposal);
@@ -576,7 +567,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       explicitProposal?: AiProposal,
       explicitStage0Counts?: Stage0CountContract,
       explicitStage0File?: string | null,
-      explicitStage0FileId?: string | null
+      explicitStage0Contract?: any
   ) => {
     if (!accessToken) return;
     
@@ -591,7 +582,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       excludedByInstrumentType: stage0ExcludedCount
     };
     const sourceStage0File = explicitStage0File ?? stage0SourceFile;
-    const sourceStage0FileId = explicitStage0FileId ?? stage0SourceFileId;
+    const sourceContract = explicitStage0Contract ?? stage0SourceContract;
     const manifestInputCount = toNonNegativeInt(stage0Counts.inputCount, dataToFilter.length);
     const manifestEligibleCount = toNonNegativeInt(stage0Counts.eligibleCount, dataToFilter.length);
     const manifestExcludedByInstrumentType = Math.max(
@@ -610,79 +601,39 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     setLoading(true);
 
-    // [V11.3 UPDATE] Enhanced Hard Quality Gates
-    // Added PE > 0, ROE > 0 AND Target Price > 0 to prevent data poisoning downstream
-    const filteredList = dataToFilter.reduce<MasterTicker[]>((acc, s) => {
-        if (!isAnalysisEligibleTicker(s)) return acc;
-
-        // [DYNAMIC SCALING] Small Cap Protection Logic
-        // If Market Cap <= 300M, lower volume threshold by 40% (0.6 multiplier) to catch "Hidden Gems"
-        let effectiveMinVolume = targetVolume;
-        const marketCap = s.marketCap || 0;
-        
-        if (marketCap > 0 && marketCap <= 300000000) {
-             effectiveMinVolume = targetVolume * 0.6;
-        }
-
-        const passesFilters = 
-            s.price >= targetPrice && 
-            s.volume >= effectiveMinVolume &&
-            (s.pe > 0 || s.per > 0) && // Must have positive earnings
-            (s.roe > 0) &&             // Must be profitable
-            (s.targetMeanPrice > 0);   // Must have Analyst Target Price
-
-        if (passesFilters) {
-            const newItem = { ...s };
-            
-            // [LINEAGE TAGGING] Traceability for downstream analysis
-            newItem.origin = activeProposal ? "AI_FILTER" : "FALLBACK_RECOVERY";
-            
-            // Determine Discovery Tag based on characteristics
-            if (marketCap > 0 && marketCap <= 300000000 && s.volume < targetVolume) {
-                newItem.discoveryTag = "SmallCap_Gem";
-            } else if (s.price < 5 && s.volume > targetVolume * 2) {
-                newItem.discoveryTag = "High_RVOL_Penny";
-            } else if (s.price < s.targetMeanPrice * 0.6) {
-                newItem.discoveryTag = "Deep_Value_Discount";
-            } else {
-                newItem.discoveryTag = "Standard_Growth";
-            }
-            
-            acc.push(newItem);
-        }
-        return acc;
-    }, []);
-    
-    addLog(`Phase 4: Committing ${filteredList.length} assets to Stage 1 Vault...`, "info");
-    addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume} (Scaled for SmallCaps), PE>0, ROE>0`, "info");
-    if (manifestExcludedByInstrumentType > 0) {
-        addLog(`Eligibility Contract: excluded non-common ${manifestExcludedByInstrumentType} symbols before Stage 1 commit.`, "warn");
-    }
-
     try {
+      const proposalMatchesThresholds = Boolean(activeProposal)
+        && Number(activeProposal?.suggestedPrice) === Number(targetPrice)
+        && Number(activeProposal?.suggestedVolume) === Number(targetVolume);
+      const thresholdSource = proposalMatchesThresholds
+        ? activeProposal?.thresholdSource || 'AI_PROPOSAL_CAPTURED'
+        : 'MANUAL_CAPTURED';
+      const payload = await buildStage1Artifact({
+        decisionAt: new Date().toISOString(),
+        sourceStage0File,
+        sourceStage0Manifest: sourceContract,
+        rows: dataToFilter,
+        thresholds: {
+          minPrice: targetPrice,
+          minVolume: targetVolume,
+          thresholdSource,
+          thresholdProvider: thresholdSource === 'AI_PROPOSAL_CAPTURED' ? activeProposal?.thresholdProvider : null,
+          thresholdModel: thresholdSource === 'AI_PROPOSAL_CAPTURED' ? activeProposal?.thresholdModel : null,
+          regime: activeProposal?.regime || 'Manual'
+        }
+      });
+      const filteredList = payload.investable_universe;
+      addLog(`Phase 4: Committing ${filteredList.length} assets to Stage 1 Vault...`, "info");
+      addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume} (Scaled for SmallCaps), PE>0, ROE>0`, "info");
+      addLog(`Point-in-Time Evidence Blocked: ${payload.manifest.evidenceBlockedRows}; analyst target hard gate disabled.`, "warn");
+      if (manifestExcludedByInstrumentType > 0) {
+          addLog(`Eligibility Contract: excluded non-common ${manifestExcludedByInstrumentType} symbols before Stage 1 commit.`, "warn");
+      }
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
       const timestamp = formatKstFilenameTimestamp();
         
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
-    const payload = {
-        manifest: { 
-            version: "11.3.0", 
-            count: filteredList.length,
-            sourceCount: dataToFilter.length,
-            inputCount: manifestInputCount,
-            eligibleCount: manifestEligibleCount,
-            excludedByInstrumentType: manifestExcludedByInstrumentType,
-            sourceStage0File,
-            sourceStage0FileId,
-            regime: activeProposal?.regime || "Manual", 
-            filters: { minPrice: targetPrice, minVolume: targetVolume, hardGate: "PE>0 && ROE>0 && Target>0" }, 
-            timestamp: new Date().toISOString(), 
-            note: "Enhanced Quality Gate applied" 
-        },
-        investable_universe: filteredList
-      };
-
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));

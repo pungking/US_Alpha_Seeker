@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: auto-scheduler-deadline-guard-${{ github.ref }}
+  group: auto-scheduler-recovery-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -37,6 +37,7 @@ jobs:
       TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
       TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID || vars.TELEGRAM_ALERT_CHAT_ID }}
       DUPLICATE_FRESHNESS_MIN: ${{ vars.AUTO_SCHEDULER_DUPLICATE_FRESHNESS_MIN || '180' }}
+      AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES: ${{ vars.AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES || '2' }}
     steps:
       - name: Check market-date Auto-Scheduler coverage
         id: guard
@@ -70,13 +71,30 @@ jobs:
             --created ">=$since_iso" \
             --limit 50 \
             --json databaseId,status,conclusion,event,createdAt,headSha,url)"
-          active_or_success="$(jq \
+          active="$(jq '[.[] | select(.status == "queued" or .status == "in_progress")] | length' <<< "$runs")"
+          completed_success_ids="$(jq -r \
             --arg fresh_since "$fresh_since_iso" \
-            '[.[] | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since))] | length' <<< "$runs")"
+            '.[] | select(.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since) | .databaseId' <<< "$runs")"
+          pipeline_success=0
+          if [ -n "$completed_success_ids" ]; then
+            while IFS= read -r run_id; do
+              [ -z "$run_id" ] && continue
+              jobs_json="$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json jobs 2>/dev/null || true)"
+              [ -n "$jobs_json" ] || jobs_json='{"jobs":[]}'
+              job_conclusion="$(jq -r '.jobs[]? | select(.name == "Alpha Seeking Pipeline") | .conclusion // empty' <<< "$jobs_json" | head -n 1 || true)"
+              if [ "$job_conclusion" = "success" ]; then
+                pipeline_success=$((pipeline_success + 1))
+              fi
+            done <<< "$completed_success_ids"
+          fi
+          active_or_success=$((active + pipeline_success))
           stale_success="$(jq \
             --arg fresh_since "$fresh_since_iso" \
             '[.[] | select(.status == "completed" and .conclusion == "success" and .createdAt < $fresh_since)] | length' <<< "$runs")"
           failed="$(jq '[.[] | select(.status == "completed" and .conclusion != "success")] | length' <<< "$runs")"
+          same_sha_failures="$(jq \
+            --arg head_sha "$GITHUB_SHA" \
+            '[.[] | select(.status == "completed" and .conclusion != "success" and .headSha == $head_sha)] | length' <<< "$runs")"
           mkdir -p state
           jq -n \
             --arg generatedAt "$(date -u +%FT%TZ)" \
@@ -87,6 +105,8 @@ jobs:
             --argjson activeOrSuccess "$active_or_success" \
             --argjson staleSuccess "$stale_success" \
             --argjson failed "$failed" \
+            --argjson sameShaFailures "$same_sha_failures" \
+            --argjson maxSameShaFailures "${AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES:-2}" \
             --argjson runs "$runs" \
             '{
               generatedAt: $generatedAt,
@@ -97,7 +117,9 @@ jobs:
               activeOrSuccess: $activeOrSuccess,
               staleSuccess: $staleSuccess,
               failed: $failed,
-              shouldDispatch: ($activeOrSuccess == 0),
+              sameShaFailures: $sameShaFailures,
+              maxSameShaFailures: $maxSameShaFailures,
+              shouldDispatch: ($activeOrSuccess == 0 and $sameShaFailures < $maxSameShaFailures),
               runs: $runs,
               safety: {
                 brokerMutation: false,
@@ -112,12 +134,16 @@ jobs:
           echo "active_or_success=$active_or_success" >> "$GITHUB_OUTPUT"
           echo "stale_success=$stale_success" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          if [ "$active_or_success" -eq 0 ]; then
-            echo "should_dispatch=true" >> "$GITHUB_OUTPUT"
-            status="missing_or_stale_dispatch_recovery"
-          else
+          echo "same_sha_failures=$same_sha_failures" >> "$GITHUB_OUTPUT"
+          if [ "$active_or_success" -gt 0 ]; then
             echo "should_dispatch=false" >> "$GITHUB_OUTPUT"
             status="fresh_covered"
+          elif [ "$same_sha_failures" -ge "${AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES:-2}" ]; then
+            echo "should_dispatch=false" >> "$GITHUB_OUTPUT"
+            status="same_sha_failure_circuit_open"
+          else
+            echo "should_dispatch=true" >> "$GITHUB_OUTPUT"
+            status="missing_or_stale_dispatch_recovery"
           fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
@@ -130,6 +156,7 @@ jobs:
             echo "- active_or_success: \`$active_or_success\`"
             echo "- stale_success: \`$stale_success\`"
             echo "- failed: \`$failed\`"
+            echo "- same_sha_failures: \`$same_sha_failures/${AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES:-2}\`"
             echo "- status: \`$status\`"
             echo "- safety: \`dispatch only; no broker/state mutation\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -154,8 +181,14 @@ jobs:
             const token = String(process.env.TELEGRAM_TOKEN || "").trim();
             const status = String(process.env.GUARD_STATUS || "unknown");
             const failed = Number(process.env.FAILED_RUNS || 0);
+            const sameShaFailures = Number(process.env.SAME_SHA_FAILURES || 0);
+            const shouldDispatch = String(process.env.SHOULD_DISPATCH || "false") === "true";
             const jobStatus = String(process.env.JOB_STATUS || "unknown");
-            const isError = failed > 0 || jobStatus === "failure" || jobStatus === "cancelled";
+            const isError = (shouldDispatch && sameShaFailures > 0) || jobStatus === "failure" || jobStatus === "cancelled";
+            if (!shouldDispatch && !isError) {
+              console.log(`[TELEGRAM_SKIP] no_new_recovery_action status=${status} failed=${failed}`);
+              return;
+            }
             const chatId = String(
               isError
                 ? (process.env.TELEGRAM_ALERT_CHAT_ID || process.env.TELEGRAM_SIMULATION_CHAT_ID || "")
@@ -191,6 +224,8 @@ jobs:
           MARKET_DATE: ${{ steps.guard.outputs.market_date }}
           ACTIVE_OR_SUCCESS: ${{ steps.guard.outputs.active_or_success }}
           FAILED_RUNS: ${{ steps.guard.outputs.failed }}
+          SAME_SHA_FAILURES: ${{ steps.guard.outputs.same_sha_failures }}
+          SHOULD_DISPATCH: ${{ steps.guard.outputs.should_dispatch }}
           JOB_STATUS: ${{ job.status }}
 
       - name: Upload deadline guard artifact

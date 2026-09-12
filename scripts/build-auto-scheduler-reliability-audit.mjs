@@ -13,6 +13,13 @@ for (const file of files) {
     status:/DUPLICATE_FRESHNESS_MIN/.test(text)&&/fresh_since_iso|freshSince/.test(text)&&/fresh_same_market_day_run_exists|missing_or_stale_dispatch_recovery|skip_fresh_existing_run/.test(text)?'PASS':'FAIL',
     detail:'duplicate suppression must use freshness window, not only same-market-day success'
   });
+  if (exists) checks.push({
+    id:`${file}:same_sha_failure_circuit`,
+    status:/AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES/.test(text)
+      && /same_sha_failures/.test(text)
+      && /same_sha_failure_circuit_open/.test(text)?'PASS':'FAIL',
+    detail:'same-market-day deterministic failures must stop automatic retries for the same commit'
+  });
   if (file.endsWith('schedule.yml') && exists) checks.push({id:'schedule:cron',status:/cron:/.test(text)?'PASS':'FAIL',detail:'cron trigger exists'});
   if (file.endsWith('schedule.yml') && exists) checks.push({
     id:'schedule:rth_catchup_slots',
@@ -33,10 +40,31 @@ for (const file of files) {
     status:/35 13 \* \* 1-5/.test(text)&&/45 13 \* \* 1-5/.test(text)&&/55 13 \* \* 1-5/.test(text)&&/20 14 \* \* 1-5/.test(text)?'PASS':'FAIL',
     detail:'deadline guard has redundant RTH dispatch checks when canonical run is missing or stale'
   });
+  if (file.endsWith('auto-scheduler-deadline-guard.yml') && exists) checks.push({
+    id:'deadline_guard:pipeline_success_gate',
+    status:/Alpha Seeking Pipeline/.test(text)&&/pipeline_success/.test(text)&&/gh run view/.test(text)?'PASS':'FAIL',
+    detail:'workflow-level no-op success must not count as completed analysis coverage'
+  });
+  if (file.endsWith('auto-scheduler-deadline-guard.yml') && exists) checks.push({
+    id:'deadline_guard:circuit_alert_suppression',
+    status:/SHOULD_DISPATCH/.test(text)&&/SAME_SHA_FAILURES/.test(text)
+      && /shouldDispatch\s*&&\s*sameShaFailures\s*>\s*0/.test(text)?'PASS':'FAIL',
+    detail:'an open same-SHA circuit must not resend the same Telegram alert'
+  });
   if (file.endsWith('auto-scheduler-watchdog.yml') && exists) checks.push({
     id:'watchdog:rth_catchup_slots',
     status:/37 13 \* \* 1-5/.test(text)&&/57 13 \* \* 1-5/.test(text)&&/17 14 \* \* 1-5/.test(text)?'PASS':'FAIL',
     detail:'watchdog has RTH recovery slots; target workflow gate prevents duplicate analysis'
+  });
+  if (/auto-scheduler-(?:watchdog|deadline-guard)\.yml$/.test(file) && exists) checks.push({
+    id:`${file}:shared_recovery_concurrency`,
+    status:/group:\s*auto-scheduler-recovery-/.test(text)?'PASS':'FAIL',
+    detail:'watchdog and deadline guard must serialize recovery decisions through one repository-wide group'
+  });
+  if (file.endsWith('auto-scheduler-watchdog.yml') && exists) checks.push({
+    id:'watchdog:pipeline_success_gate',
+    status:/Alpha Seeking Pipeline/.test(text)&&/pipeline_success/.test(text)&&/gh run view/.test(text)?'PASS':'FAIL',
+    detail:'workflow-level no-op success must not count as completed analysis coverage'
   });
   if (exists) checks.push({id:`${file}:artifact_or_summary`,status:/upload-artifact|GITHUB_STEP_SUMMARY|artifact/i.test(text)?'PASS':'WARN',detail:'failure evidence path'});
 }
@@ -72,6 +100,11 @@ checks.push({
   id:'auto:telegram_false_success_log_removed',
   status:!/Alpha Report Generated & Telegram Triggered/.test(automateText)&&/Telegram Delivered/.test(automateText)?'PASS':'FAIL',
   detail:'delivery success is logged only from captured delivery evidence'
+});
+checks.push({
+  id:'auto:shared_failure_markers_reach_terminal_wait',
+  status:/page\.waitForFunction\(\s*\(failureMarkers\)\s*=>[\s\S]{0,1200}?failureMarkers\.some[\s\S]{0,300}?\},\s*\{\s*timeout:[\s\S]{0,100}?\},\s*FAILURE_MARKERS\s*\)/.test(automateText)?'PASS':'FAIL',
+  detail:'Stage0 and other fatal UI markers must terminate the Puppeteer wait immediately'
 });
 checks.push({
   id:'auto:telegram_delivery_status_persisted',

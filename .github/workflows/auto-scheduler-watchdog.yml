@@ -20,6 +20,10 @@ permissions:
   actions: write
   contents: read
 
+concurrency:
+  group: auto-scheduler-recovery-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   recover-missed-auto-scheduler:
     name: Recover Missed Auto-Scheduler
@@ -31,6 +35,7 @@ jobs:
       TARGET_REF: main
       GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       DUPLICATE_FRESHNESS_MIN: ${{ vars.AUTO_SCHEDULER_DUPLICATE_FRESHNESS_MIN || '180' }}
+      AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES: ${{ vars.AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES || '2' }}
     steps:
       - name: Check today's Auto-Scheduler status
         id: check
@@ -67,15 +72,33 @@ jobs:
             --workflow "$TARGET_WORKFLOW_NAME" \
             --created ">=$since_iso" \
             --limit 30 \
-            --json databaseId,status,conclusion,event,createdAt,url)"
-          blocking="$(jq \
+            --json databaseId,status,conclusion,event,createdAt,headSha,url)"
+          active="$(jq '[.[] | select(.status == "queued" or .status == "in_progress")] | length' <<< "$runs")"
+          completed_success_ids="$(jq -r \
             --arg fresh_since "$fresh_since_iso" \
-            '[.[] | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since))] | length' <<< "$runs")"
+            '.[] | select(.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since) | .databaseId' <<< "$runs")"
+          pipeline_success=0
+          if [ -n "$completed_success_ids" ]; then
+            while IFS= read -r run_id; do
+              [ -z "$run_id" ] && continue
+              jobs_json="$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json jobs 2>/dev/null || true)"
+              [ -n "$jobs_json" ] || jobs_json='{"jobs":[]}'
+              job_conclusion="$(jq -r '.jobs[]? | select(.name == "Alpha Seeking Pipeline") | .conclusion // empty' <<< "$jobs_json" | head -n 1 || true)"
+              if [ "$job_conclusion" = "success" ]; then
+                pipeline_success=$((pipeline_success + 1))
+              fi
+            done <<< "$completed_success_ids"
+          fi
+          blocking=$((active + pipeline_success))
+          same_sha_failures="$(jq \
+            --arg head_sha "$GITHUB_SHA" \
+            '[.[] | select(.status == "completed" and .conclusion != "success" and .headSha == $head_sha)] | length' <<< "$runs")"
           stale_success="$(jq \
             --arg fresh_since "$fresh_since_iso" \
             '[.[] | select(.status == "completed" and .conclusion == "success" and .createdAt < $fresh_since)] | length' <<< "$runs")"
           echo "blocking_runs=$blocking" >> "$GITHUB_OUTPUT"
           echo "stale_success=$stale_success" >> "$GITHUB_OUTPUT"
+          echo "same_sha_failures=$same_sha_failures" >> "$GITHUB_OUTPUT"
           echo "## Auto-Scheduler Watchdog" >> "$GITHUB_STEP_SUMMARY"
           echo "- market_date: \`$market_date\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- since: \`$since_iso\`" >> "$GITHUB_STEP_SUMMARY"
@@ -87,6 +110,12 @@ jobs:
             echo "should_dispatch=false" >> "$GITHUB_OUTPUT"
             echo "- action: \`skip_fresh_existing_run\`" >> "$GITHUB_STEP_SUMMARY"
             echo "$runs" | jq -c --arg fresh_since "$fresh_since_iso" '.[] | {databaseId,status,conclusion,event,createdAt,freshBlocking:(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since)),url}'
+            exit 0
+          fi
+          if [ "$same_sha_failures" -ge "${AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES:-2}" ]; then
+            echo "should_dispatch=false" >> "$GITHUB_OUTPUT"
+            echo "reason=same_sha_failure_circuit_open" >> "$GITHUB_OUTPUT"
+            echo "- action: \`same_sha_failure_circuit_open\`" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           echo "should_dispatch=true" >> "$GITHUB_OUTPUT"

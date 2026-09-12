@@ -2,6 +2,22 @@
   "schemaVersion": "telegram-decision-reason-contract-v1",
   "cases": [
     {
+      "id": "current_recalculated_stop",
+      "finalDecision": "EXECUTABLE_NOW",
+      "decisionReason": "executable_current_recalculated_stop",
+      "executionReason": "VALID_EXEC",
+      "expectedReason": "executable_current_recalculated_stop",
+      "expectedLabelKo": "현재가 진입/손절 재계산 조건 충족"
+    },
+    {
+      "id": "target_near_current",
+      "finalDecision": "WAIT_PRICE",
+      "decisionReason": "wait_target_near_current",
+      "executionReason": "WAIT_PULLBACK_TOO_DEEP",
+      "expectedReason": "wait_target_near_current",
+      "expectedLabelKo": "현재가 대비 목표 여유 부족"
+    },
+    {
       "id": "earnings_quality_floor",
       "finalDecision": "WAIT_PRICE",
       "decisionReason": "wait_earnings_data_missing_quality_floor",
@@ -31,7 +47,7 @@
       "decisionReason": null,
       "executionReason": "WAIT_PULLBACK_TOO_DEEP",
       "expectedReason": "n/a",
-      "expectedLabelKo": "사유 없음"
+      "expectedLabelKo": "최종 판정 사유 미확인"
     },
     {
       "id": "unmapped_final_reason",

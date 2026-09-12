@@ -9,6 +9,7 @@ export const TELEGRAM_DELIVERY_STATUS = Object.freeze({
 
 const TELEGRAM_DECISION_REASON_LABELS_KO = Object.freeze({
   executable_pullback: '눌림목 조건 충족',
+  executable_current_recalculated_stop: '현재가 진입/손절 재계산 조건 충족',
   valid_exec: '실행 조건 충족',
   wait_pullback_not_reached: '진입 가격 미도달',
   wait_pullback_too_deep: '진입 가격 미도달',
@@ -16,6 +17,7 @@ const TELEGRAM_DECISION_REASON_LABELS_KO = Object.freeze({
   wait_earnings_data_missing: '실적 일정 데이터 누락(대기)',
   wait_earnings_data_missing_quality_floor: '실적 일정 데이터 누락(품질 기준 미달)',
   wait_structure_confirmation_required: '진입 구조 확인 필요',
+  wait_target_near_current: '현재가 대비 목표 여유 부족',
   wait_state_verdict_conflict: '시장구조-판정 충돌(대기)',
   invalid_geometry: '가격 구조 오류',
   invalid_data: '가격 데이터 부족',
@@ -54,7 +56,7 @@ export function resolveTelegramDecisionReason(item, decision, executionReason) {
 
 export function toTelegramDecisionReasonLabelKo(reason) {
   const key = normalizeDecisionReason(reason);
-  if (!key || ['n/a', 'na', 'none', 'null', 'undefined'].includes(key)) return '사유 없음';
+  if (!key || ['n/a', 'na', 'none', 'null', 'undefined'].includes(key)) return '최종 판정 사유 미확인';
   return TELEGRAM_DECISION_REASON_LABELS_KO[key] || '최종 게이트 사유 확인 필요';
 }
 

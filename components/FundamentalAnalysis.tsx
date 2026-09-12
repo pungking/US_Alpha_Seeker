@@ -5,6 +5,9 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GITHUB_DISPATCH_CONFIG } from '../con
 import { ApiProvider } from '../types';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { hashCanonicalJsonSha256, hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
+import { validateStage2ArtifactForStage3 } from '../services/stage2QualityTruthContract.mjs';
+import { buildStage3Artifact } from '../services/stage3FundamentalTruthContract.mjs';
 
 interface Props {
   autoStart?: boolean;
@@ -120,50 +123,6 @@ const sanitizeData = (item: any) => {
     if (operatingMargins > 100) operatingMargins = operatingMargins / 100;
     if (!Number.isFinite(Number(pbr)) || Number(pbr) <= 0 || Number(pbr) > 500) pbr = null;
     return { ...item, dividendYield, roe, operatingMargins, pbr, debtToEquity };
-};
-
-const computeUniverseBaselines = (universe: any[]) => {
-    const sectorMap: Record<string, { roe: number[], pe: number[], debt: number[], pbr: number[], growth: number[] }> = {};
-    
-    universe.forEach(u => {
-        const s = u.sector || 'Unknown';
-        if (!sectorMap[s]) sectorMap[s] = { roe: [], pe: [], debt: [], pbr: [], growth: [] };
-        
-        const pushValid = (arr: number[], val: any) => {
-            const v = Number(val);
-            if (!isNaN(v) && v !== 0) arr.push(v);
-        };
-
-        pushValid(sectorMap[s].roe, u.roe);
-        pushValid(sectorMap[s].pe, u.pe || u.per);
-        pushValid(sectorMap[s].debt, u.debtToEquity);
-        pushValid(sectorMap[s].pbr, u.pbr);
-        pushValid(sectorMap[s].growth, u.revenueGrowth);
-    });
-
-    const baselines: Record<string, any> = {};
-    const median = (arr: number[]) => {
-        if (!arr.length) return 0;
-        const sorted = [...arr].sort((a,b) => a-b);
-        const mid = Math.floor(sorted.length / 2);
-        if (sorted.length % 2 === 0 && mid > 0) {
-            return (sorted[mid - 1] + sorted[mid]) / 2;
-        }
-        return sorted[mid];
-    };
-
-    Object.keys(sectorMap).forEach(s => {
-        baselines[s] = {
-            roe: median(sectorMap[s].roe) || 10,
-            pe: median(sectorMap[s].pe) || 20,
-            debtToEquity: median(sectorMap[s].debt) || 1.0,
-            pbr: median(sectorMap[s].pbr) || 3.0,
-            revenueGrowth: median(sectorMap[s].growth) || 5
-        };
-    });
-
-    baselines['GLOBAL'] = { roe: 12, pe: 20, debtToEquity: 1.0, pbr: 2.5, revenueGrowth: 8 };
-    return baselines;
 };
 
 const HISTORY_REVENUE_KEYS = ['Total Revenue', 'Revenue', 'Operating Revenue', 'Net Sales', 'Sales'];
@@ -453,8 +412,10 @@ const performFinancialEngineering = (
     const validPbr = Number.isFinite(pbr) && pbr > 0 && pbr <= 500 ? pbr : 0;
     
     let sales = safeNum(data.revenue || data.totalRevenue);
+    let salesProxyUsed = false;
     if (sales === 0 && marketCap > 0 && safeNum(data.psr) > 0) {
-        sales = marketCap / safeNum(data.psr); 
+        sales = marketCap / safeNum(data.psr);
+        salesProxyUsed = true;
     }
     
     const isFinancial = (data.sector || '').toLowerCase().includes('financial') || (data.industry || '').toLowerCase().includes('bank');
@@ -478,6 +439,7 @@ const performFinancialEngineering = (
 
     const rawRevenueGrowth = firstPresent(data.revenueGrowth);
     const revenueGrowth = hasValue(rawRevenueGrowth) ? safeNum(rawRevenueGrowth) : 0;
+    const profitMarginDefaultUsed = sales <= 0;
     const profitMargin = sales > 0 ? (netIncome / sales) * 100 : 5;
     const rawGrossMargin = safeNum(data.grossMargin || data.grossProfitMargin || (sales > 0 ? (data.grossProfit / sales) : 0));
     const grossMargin = rawGrossMargin > 1 ? rawGrossMargin : rawGrossMargin * 100;
@@ -491,24 +453,28 @@ const performFinancialEngineering = (
     let intrinsicValue = 0;
     const g = Math.min(revenueGrowth, 15); 
     
+    let bookValueProxyUsed = false;
     if (eps > 0) {
         const multiplier = isFinancial ? 1.0 : 1.5; 
         intrinsicValue = eps * (8.5 + multiplier * g); 
     } else {
         const reportedBookValue = safeNum(data.bookValuePerShare);
         const proxyBookValue = validPbr > 0 ? (price / validPbr) : 0;
+        bookValueProxyUsed = reportedBookValue <= 0 && proxyBookValue > 0;
         const bookValue = reportedBookValue > 0 ? reportedBookValue : proxyBookValue;
         const roeFactor = Math.max(0.5, Math.min(3.0, roe / 8));
         intrinsicValue = bookValue * roeFactor;
     }
 
     if (intrinsicValue > price * 3) intrinsicValue = price * 3;
-    if (intrinsicValue <= 0) intrinsicValue = price * 0.8; 
+    const intrinsicValueFallbackUsed = intrinsicValue <= 0;
+    if (intrinsicValueFallbackUsed) intrinsicValue = price * 0.8;
 
     const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
     
     const investedCapital = Math.max(1, totalEquity + totalDebtAbsolute);
     let roic = 0;
+    const roicProxyUsed = totalEquity <= 0;
     if (totalEquity > 0) {
         roic = (netIncome / investedCapital) * 100;
     } else {
@@ -642,12 +608,25 @@ const performFinancialEngineering = (
         qualityFactorScore: Number((qualityFactorScore || 0).toFixed(2)),
         qualityFactorAdjustment: Number((qualityFactorAdjustment || 0).toFixed(2)),
         factorAdjustmentTotal: Number((totalFactorAdjustment || 0).toFixed(2)),
+        fundamentalBaseScore: safeNum(baseFundamentalScore),
+        valueComponentScore: safeNum(valScore),
+        safetyComponentScore: safeNum(safetyScore),
+        profitabilityComponentScore: safeNum(qualScore),
+        growthComponentScore: safeNum(growthScore),
         cashflowProxyUsed: isCashflowProxy,
+        salesProxyUsed,
+        profitMarginDefaultUsed,
+        bookValueProxyUsed,
+        intrinsicValueFallbackUsed,
+        roicProxyUsed,
+        roicDebtRatioProxyUsed: roicDebtSource === 'RATIO_PROXY',
         roicDebtFallbackEnabled: allowRatioDebtFallback,
         roicDebtSource,
         hasReportedCashflow,
         hasNonPositiveReportedCashflow,
         zScoreIsProxy: !hasZScoreProxy,
+        zScoreFallbackUsed: !hasZScoreProxy,
+        stage3FundamentalModel: isFinancial ? 'FINANCIAL' : 'NON_FINANCIAL',
         radarData: [
             { subject: 'Valuation', A: Number(Math.max(5, safeNum(valScore) || 50).toFixed(2)), fullMark: 100 },
             { subject: 'Moat', A: Number(Math.max(5, safeNum(qualScore) || 50).toFixed(2)), fullMark: 100 },
@@ -669,6 +648,7 @@ const triggerGitHubHarvester = async (meta?: {
   stockCount?: number;
   timestamp?: string;
   triggerFile?: string;
+  triggerFileSha256?: string;
 }): Promise<{ ok: boolean; status: number; detail: string }> => {
   if (!GITHUB_DISPATCH_CONFIG.TOKEN) {
     const detail =
@@ -693,6 +673,8 @@ const triggerGitHubHarvester = async (meta?: {
           stockCount: meta?.stockCount ?? 0,
           timestamp: meta?.timestamp ?? new Date().toISOString(),
           trigger_file: meta?.triggerFile ?? '',
+          artifact_hash: meta?.triggerFileSha256 ?? '',
+          artifact_hash_basis: 'UTF8_JSON_BYTES',
           triggeredBy: 'FundamentalAnalysis-v5',
         },
       }),
@@ -971,7 +953,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 ? `name contains 'STAGE2_ELITE_UNIVERSE' and '${stage2FolderId}' in parents and trashed = false`
                 : `name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`;
             const q = encodeURIComponent(stage2Query);
-            const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=5`, {
+            const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1&fields=files(id%2Cname%2CcreatedTime%2CmodifiedTime%2Csize)`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
             await assertDriveOk(listRes, "loadStage2.list");
@@ -979,37 +961,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             if (!listData.files?.length) throw new Error("Stage 2 Data Missing. Please run Stage 2.");
 
-            let stage2Content: any = null;
-            let selectedStage2FileName = '';
-
-            for (const file of listData.files) {
-                const candidateRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
-                await assertDriveOk(candidateRes, `loadStage2.content(${file.id})`);
-                const candidateText = await candidateRes.text();
-                const candidateContent = parseDriveJsonText(candidateText);
-
-                const candidateUniverse = Array.isArray(candidateContent?.elite_universe) ? candidateContent.elite_universe : [];
-                if (candidateUniverse.length > 0) {
-                    stage2Content = candidateContent;
-                    selectedStage2FileName = file.name;
-                    break;
-                }
+            const stage2File = listData.files[0];
+            const candidateRes = await fetch(`https://www.googleapis.com/drive/v3/files/${stage2File.id}?alt=media`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            await assertDriveOk(candidateRes, 'loadStage2.latest');
+            const candidateText = await candidateRes.text();
+            const stage2Content = parseDriveJsonText(candidateText);
+            const stage2Validation = await validateStage2ArtifactForStage3(stage2Content);
+            if (!stage2Validation.valid) {
+                throw new Error(`Latest Stage 2 source contract invalid: ${stage2Validation.reasons.join(',')}`);
+            }
+            if (stage2Validation.eliteUniverse.length === 0) {
+                throw new Error("Latest Stage 2 universe is empty. Re-run Stage 2 to completion.");
             }
 
-            if (!stage2Content) {
-                throw new Error("Latest Stage 2 files are empty. Re-run Stage 2 to completion.");
-            }
-
-            if (selectedStage2FileName !== listData.files[0]?.name) {
-                addLog(`[WARN] Latest Stage 2 file was empty. Fallback engaged: ${selectedStage2FileName}`, "warn");
-            }
-
-            const stage2RawCandidates = Array.isArray(stage2Content?.elite_universe)
-                ? stage2Content.elite_universe
-                : [];
-            const stage2InputCount = Number(stage2Content?.manifest?.inputCount || stage2RawCandidates.length);
+            const selectedStage2FileName = stage2File.name;
+            const sourceStage2ContentSha256 = await hashTextSha256(candidateText);
+            const stage2RawCandidates = stage2Validation.eliteUniverse;
             const candidates = stage2RawCandidates.filter(isAnalysisEligibleTicker);
             const excludedByInstrumentType = Math.max(0, stage2RawCandidates.length - candidates.length);
             addLog(`[OK] Stage 2 Source Locked: ${selectedStage2FileName}`, "ok");
@@ -1025,33 +994,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             }
             setProgress({ current: 0, total: candidates.length, msg: 'Initializing History Vault...' });
 
-            const universeBaselines = computeUniverseBaselines(candidates);
-
             const systemMapId = await resolveSystemMapFolderId(accessToken);
             const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
-            const dailyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapId) : null;
-            const marketRegimeFileId = systemMapId ? await findFileId(accessToken, 'MARKET_REGIME_SNAPSHOT.json', systemMapId) : null;
-            let marketRegimeState = 'UNKNOWN';
-            let marketRegimeScore: number | null = null;
-            let marketRegimeVixRef: number | null = null;
-            if (marketRegimeFileId) {
-                try {
-                    const regimeData = await downloadFile(accessToken, marketRegimeFileId);
-                    marketRegimeState = String(regimeData?.regime?.state || 'UNKNOWN').toUpperCase();
-                    const scoreCandidate = Number(regimeData?.regime?.score);
-                    marketRegimeScore = Number.isFinite(scoreCandidate) ? scoreCandidate : null;
-                    const vixCandidate = Number(regimeData?.benchmarks?.vix?.close);
-                    marketRegimeVixRef = Number.isFinite(vixCandidate) ? vixCandidate : null;
-                    addLog(`Market Regime Locked: ${marketRegimeState} (${marketRegimeScore ?? 'N/A'})`, "ok");
-                } catch (e: any) {
-                    addLog(`[WARN] Market regime parse failed: ${e?.message || 'unknown'}`, "warn");
-                }
-            } else {
-                addLog("Market Regime snapshot missing. Regime factor will use neutral mode.", "warn");
-            }
-            
             if (!historyFolderId) addLog("History folder not found. Proceeding with Snapshot data only.", "warn");
-            if (!dailyFolderId) addLog("Daily folder not found. Proceeding with limited data.", "warn");
 
             const groupedByLetter: Record<string, any[]> = {};
             candidates.forEach((c: any) => {
@@ -1065,35 +1010,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const roicDebtModeRequested = parseRoicDebtMode((import.meta as any).env?.VITE_FUND_ROIC_DEBT_MODE);
             const roicDebtStrictCoverageMin = parseRoicCoverageThreshold((import.meta as any).env?.VITE_FUND_ROIC_STRICT_COVERAGE_MIN);
 
-            const dailyDataByLetter: Record<string, Map<string, any>> = {};
-            for (const letter of sortedLetters) {
-                const dailyDataMap = new Map<string, any>();
-                if (dailyFolderId) {
-                    const dailyFileName = `${letter}_stocks_daily.json`;
-                    const dailyFileId = await findFileId(accessToken, dailyFileName, dailyFolderId);
-                    if (dailyFileId) {
-                        try {
-                            const content = await downloadFile(accessToken, dailyFileId);
-                            Object.keys(content).forEach(sym => dailyDataMap.set(sym, content[sym]));
-                        } catch (e) {
-                            console.warn(`Failed to parse ${dailyFileName}`, e);
-                        }
-                    }
-                }
-                dailyDataByLetter[letter] = dailyDataMap;
-            }
-
-            let absoluteDebtCoverageCount = 0;
-            for (const letter of sortedLetters) {
-                const batch = groupedByLetter[letter];
-                const dailyDataMap = dailyDataByLetter[letter] || new Map<string, any>();
-                for (const rawItem of batch) {
-                    const dData = dailyDataMap.get(rawItem.symbol);
-                    if (hasAbsoluteDebtData({ ...rawItem, ...(dData || {}) })) {
-                        absoluteDebtCoverageCount += 1;
-                    }
-                }
-            }
+            const absoluteDebtCoverageCount = candidates.filter(hasAbsoluteDebtData).length;
 
             const roicDebtCoveragePct = candidates.length > 0
                 ? (absoluteDebtCoverageCount / candidates.length) * 100
@@ -1115,6 +1032,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 RATIO_PROXY: 0,
                 MISSING_ABS_DEBT: 0
             };
+            const stage3DecisionAt = new Date().toISOString();
             
             for (const letter of sortedLetters) {
                 setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
@@ -1136,83 +1054,35 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         }
                     }
                 }
-
-                const dailyDataMap: Map<string, any> = dailyDataByLetter[letter] || new Map<string, any>();
-
                 const batch = groupedByLetter[letter];
                 for (const rawItem of batch) {
+                    const sourceStage2RowSha256 = await hashCanonicalJsonSha256(rawItem);
                     const rawHistory = historyDataMap.get(rawItem.symbol);
-                    let fullHistory: any[] = [];
-                    let latestHistory: any = null;
+                    const currentHistory = normalizeHistoryRows(rawHistory);
+                    const currentHistoryRecordSha256 = currentHistory.length
+                        ? await hashCanonicalJsonSha256(rawHistory)
+                        : null;
+                    const exactHistory = currentHistoryRecordSha256 === rawItem.historySourceRecordSha256
+                        && rawItem.historyEvidenceStatus === 'HISTORY_EVIDENCE_VERIFIED';
+                    const fullHistory = exactHistory
+                        ? currentHistory
+                        : normalizeHistoryRows(rawItem.fullHistory);
+                    const stage3HistoryRecordSha256 = fullHistory.length
+                        ? await hashCanonicalJsonSha256(fullHistory)
+                        : null;
 
-                    if (Array.isArray(rawHistory)) {
-                        fullHistory = rawHistory;
-                        if (fullHistory.length > 0) latestHistory = fullHistory[0];
-                    } else if (rawHistory && typeof rawHistory === 'object') {
-                        const dates = Object.keys(rawHistory).sort().reverse();
-                        fullHistory = dates.map(d => ({ date: d, ...rawHistory[d] }));
-                        if (dates.length > 0) latestHistory = rawHistory[dates[0]];
-                    }
-
-                    let itemToAnalyze = { ...rawItem };
-                    
-                    // [NEW] Enrichment from Drive Data (Daily & History)
-                    const dData = dailyDataMap.get(rawItem.symbol);
-                    const toPct = (val: any) => (hasValue(val) && Math.abs(Number(val)) < 10) ? Number(val) * 100 : val;
-
-                    if (dData) {
-                        if (!hasValue(itemToAnalyze.roe)) itemToAnalyze.roe = toPct(dData.roe);
-                        if (!hasValue(itemToAnalyze.operatingMargins)) itemToAnalyze.operatingMargins = toPct(dData.operatingMargins);
-                        if (!hasValue(itemToAnalyze.revenueGrowth)) itemToAnalyze.revenueGrowth = toPct(dData.revenueGrowth);
-                        if (itemToAnalyze.debtToEquity === undefined) itemToAnalyze.debtToEquity = dData.debtToEquity;
-                        if (!hasValue(itemToAnalyze.operatingCashflow)) itemToAnalyze.operatingCashflow = dData.operatingCashflow;
-                        if (!hasValue(itemToAnalyze.pe)) itemToAnalyze.pe = dData.per;
-                        if (!hasValue(itemToAnalyze.pbr)) itemToAnalyze.pbr = dData.pbr;
-                    }
-
-                    if (latestHistory) {
-                         if (!hasValue(itemToAnalyze.grossMargin) && latestHistory['Gross Profit'] && latestHistory['Total Revenue']) {
-                              itemToAnalyze.grossMargin = (latestHistory['Gross Profit'] / latestHistory['Total Revenue']) * 100;
-                         }
-                    }
-                    if (fullHistory.length > 0) {
-                        // 5Y trend scoring uses normalized financial history inside performFinancialEngineering.
-                        itemToAnalyze.financialHistory = fullHistory;
-                        itemToAnalyze.fullHistory = fullHistory;
-                    }
-                    itemToAnalyze.marketRegimeState = marketRegimeState;
-                    itemToAnalyze.marketRegimeScore = marketRegimeScore;
-                    itemToAnalyze.marketRegimeVixRef = marketRegimeVixRef;
-
-                    let isImputed = false;
-                    
+                    const itemToAnalyze = {
+                        ...rawItem,
+                        financialHistory: fullHistory,
+                        fullHistory,
+                        marketRegimeState: rawItem.regimeState,
+                        marketRegimeVixRef: rawItem.regimeVixRef
+                    };
                     const sector = itemToAnalyze.sector || 'Unknown';
-                    const baseline = universeBaselines[sector] || universeBaselines['GLOBAL'];
-
-                    // Smart Imputation for missing values
-                    if (!itemToAnalyze.roe && itemToAnalyze.roe !== 0) { 
-                        itemToAnalyze.roe = baseline.roe; 
-                        isImputed = true; 
-                    }
-                    if (itemToAnalyze.debtToEquity === undefined || itemToAnalyze.debtToEquity === null) {
-                         itemToAnalyze.debtToEquity = baseline.debtToEquity;
-                         isImputed = true;
-                    }
-                    if (!hasValue(itemToAnalyze.pe) && !hasValue(itemToAnalyze.per)) {
-                         itemToAnalyze.pe = baseline.pe;
-                         isImputed = true;
-                    }
-                    if (!hasValue(itemToAnalyze.pbr)) {
-                         itemToAnalyze.pbr = baseline.pbr;
-                         isImputed = true;
-                    }
-                    if (!hasValue(itemToAnalyze.revenueGrowth)) {
-                         itemToAnalyze.revenueGrowth = baseline.revenueGrowth;
-                         isImputed = true;
-                    }
 
                     const item = sanitizeData(itemToAnalyze);
                     const analysis = performFinancialEngineering(item, { allowRatioDebtFallback });
+                    const preIntegrityFundamentalScore = clampScore(analysis.fundamentalScore);
                     const debtSource = analysis.roicDebtSource || 'UNKNOWN';
                     roicDebtSourceCounts[debtSource] = (roicDebtSourceCounts[debtSource] || 0) + 1;
 
@@ -1247,10 +1117,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     
                     const qualityScore = clampScore(analysis.qualityScore);
                     
-                    if (isImputed) {
-                        analysis.dataConfidence = Math.min(analysis.dataConfidence, 60);
-                    }
-
                     const compositeAlpha = clampScore((qualityScore * 0.3) + (analysis.fundamentalScore * 0.7));
 
                     results.push({
@@ -1262,11 +1128,52 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         isHighGrowthQuality,
                         isCashFlowWarning,
                         fullHistory: fullHistory.slice(0, 4),
-                        lastUpdate: new Date().toISOString(),
+                        lastUpdate: stage3DecisionAt,
                         isDerived: true,
-                        isImputed: isImputed,
+                        isImputed: false,
                         integrityReasons,
-                        auditSource: 'ALGO'
+                        auditSource: 'ALGO',
+                        sourceStage2RowSha256,
+                        stage3FundamentalModel: analysis.stage3FundamentalModel,
+                        stage3HistoryLineageStatus: exactHistory
+                            ? 'STAGE3_HISTORY_EXACT_STAGE2_RECORD'
+                            : 'STAGE3_HISTORY_STAGE2_SNAPSHOT_ONLY',
+                        stage3HistoryRecordSha256,
+                        stage3Computation: {
+                            fundamentalBaseScore: analysis.fundamentalBaseScore,
+                            factorAdjustmentTotal: analysis.factorAdjustmentTotal,
+                            preIntegrityFundamentalScore,
+                            integrityPenalty,
+                            preSectorFundamentalScore: clampScore(analysis.fundamentalScore),
+                            sectorScore: 0,
+                            sectorRankBonus: 0,
+                            finalFundamentalScore: clampScore(analysis.fundamentalScore),
+                            qualityScore,
+                            compositeAlpha,
+                            componentScores: {
+                                valuation: analysis.valueComponentScore,
+                                safety: analysis.safetyComponentScore,
+                                profitability: analysis.profitabilityComponentScore,
+                                growth: analysis.growthComponentScore
+                            },
+                            factorAdjustments: {
+                                trend: analysis.trendAdjustment,
+                                seasonality: analysis.seasonalityAdjustment,
+                                regime: analysis.regimeAdjustment,
+                                quality: analysis.qualityFactorAdjustment
+                            },
+                            syntheticInputFlags: {
+                                cashflowProxyUsed: analysis.cashflowProxyUsed,
+                                salesProxyUsed: analysis.salesProxyUsed,
+                                profitMarginDefaultUsed: analysis.profitMarginDefaultUsed,
+                                bookValueProxyUsed: analysis.bookValueProxyUsed,
+                                intrinsicValueFallbackUsed: analysis.intrinsicValueFallbackUsed,
+                                roicProxyUsed: analysis.roicProxyUsed,
+                                roicDebtRatioProxyUsed: analysis.roicDebtRatioProxyUsed,
+                                zScoreFallbackUsed: analysis.zScoreFallbackUsed,
+                                sectorBaselineImputationUsed: false
+                            }
+                        }
                     });
                 }
                 setProgress(prev => ({ ...prev, current: results.length }));
@@ -1320,7 +1227,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             });
             
             // Top 30% Sectors get Momentum Bonus
-            sectorStats.sort((a, b) => b.avgScore - a.avgScore);
+            sectorStats.sort((a, b) => b.avgScore - a.avgScore || a.sector.localeCompare(b.sector));
             const topSectorCount = Math.max(1, Math.ceil(sectorStats.length * 0.3));
             const topSectors = sectorStats.slice(0, topSectorCount).map(s => s.sector);
 
@@ -1331,8 +1238,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             // 3. Apply Bonuses & Update Scores
             Object.values(sectorGroups).forEach(group => {
                 // Sort by fundamentalScore to find top 20%
-                group.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
-                const top20Index = Math.floor(group.length * 0.2);
+                group.sort((a, b) => b.fundamentalScore - a.fundamentalScore || String(a.symbol).localeCompare(String(b.symbol)));
+                const top20Count = Math.max(1, Math.ceil(group.length * 0.2));
 
                 group.forEach((r, idx) => {
                     let sectorScore = 0;
@@ -1340,7 +1247,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     const hasCashflowRisk = Boolean(r.isCashFlowWarning || r.hasNonPositiveReportedCashflow || r.cashflowProxyUsed);
 
                     if (topSectors.includes(r.sector)) sectorScore = hasCashflowRisk ? 1 : 2;
-                    if (idx <= top20Index) sectorRankBonus = hasCashflowRisk ? 0 : 4;
+                    if (idx < top20Count) sectorRankBonus = hasCashflowRisk ? 0 : 4;
 
                     const fundamentalScoreBeforeSectorBonus = clampScore(r.fundamentalScore);
                     const fundamentalScoreRawAfterSectorBonus = fundamentalScoreBeforeSectorBonus + sectorScore + sectorRankBonus;
@@ -1354,40 +1261,45 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     
                     // Recalculate Composite Alpha
                     r.compositeAlpha = clampScore((clampScore(r.qualityScore) * 0.3) + (r.fundamentalScore * 0.7));
+                    r.stage3Computation = {
+                        ...r.stage3Computation,
+                        preSectorFundamentalScore: fundamentalScoreBeforeSectorBonus,
+                        sectorScore,
+                        sectorRankBonus,
+                        finalFundamentalScore: r.fundamentalScore,
+                        qualityScore: clampScore(r.qualityScore),
+                        compositeAlpha: r.compositeAlpha
+                    };
                 });
             });
 
             addLog(`[DATA-SYNC] Final Bridge Ready for Technical & ICT Stages`, "ok");
 
-            results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-            const eliteCandidates = results; 
-
-            if (eliteCandidates.length === 0) {
+            results.sort((a, b) => b.compositeAlpha - a.compositeAlpha || String(a.symbol).localeCompare(String(b.symbol)));
+            if (results.length === 0) {
                 addLog("[ERR] Stage 3 produced 0 candidates. Vault save and harvester dispatch aborted.", "err");
                 return;
             }
-            
-            setProcessedData(eliteCandidates);
-            if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
-            
-            addLog(`Deep Scan Complete. ${eliteCandidates.length} Assets Preserved.`, "ok");
-            
+
             const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
             const timestamp = formatKstFilenameTimestamp();
             const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
+            const payload = await buildStage3Artifact({
+                generatedAt: stage3DecisionAt,
+                sourceStage2File: selectedStage2FileName,
+                sourceStage2ContentSha256,
+                sourceStage2Artifact: stage2Content,
+                rows: results
+            });
+            const eliteCandidates = payload.fundamental_universe;
+            const triggerFileSha256 = await hashTextSha256(JSON.stringify(payload, null, 2));
 
-            const payload = {
-                manifest: {
-                    version: "5.8.0",
-                    count: eliteCandidates.length,
-                    inputCount: stage2InputCount,
-                    eligibleCount: candidates.length,
-                    excludedByInstrumentType,
-                    timestamp: new Date().toISOString(),
-                    engine: "Pure_Quant_Algorithm"
-                },
-                fundamental_universe: eliteCandidates
-            };
+            setProcessedData(eliteCandidates);
+            if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
+            addLog(
+                `Deep Scan Complete. ${payload.manifest.eligibleCount}/${eliteCandidates.length} assets evidence-eligible.`,
+                payload.manifest.blockedCount > 0 ? "warn" : "ok"
+            );
 
             await uploadFile(accessToken, saveFolderId, fileName, payload);
             addLog(`Vault Saved: ${fileName}`, "ok");
@@ -1399,8 +1311,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             addLog(`GitHub Harvester Trigger 전송 중...`, 'info');
             const dispatchResult = await triggerGitHubHarvester({
               stockCount: eliteCandidates.length,
-              timestamp: new Date().toISOString(),
+              timestamp: stage3DecisionAt,
               triggerFile: fileName,
+              triggerFileSha256,
             });
             if (dispatchResult.ok) {
               addLog(`GitHub Dispatch OK → event: "${GITHUB_DISPATCH_CONFIG.EVENT_TYPE}"`, 'ok');

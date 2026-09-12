@@ -49,6 +49,8 @@ const RUNTIME_ENV_KEYS = [
     'HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS',
     'HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR',
     'PERPLEXITY_MODEL_CHAIN',
+    'PERPLEXITY_RUN_MAX_COST_USD',
+    'PERPLEXITY_RUN_MAX_REQUESTS',
     'PERPLEXITY_STAGE2_SHARD_SIZE',
     'PERPLEXITY_STAGE2_REPAIR_CHUNK_SIZE',
     'PERPLEXITY_STAGE2_FULL_FALLBACK_ENABLED',
@@ -220,7 +222,7 @@ async function getAccessTokenBundle() {
   let authRefreshInterval = null;
   
   const browser = await puppeteer.launch({
-    headless: "new",
+    headless: true,
     args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox',
@@ -382,16 +384,16 @@ async function getAccessTokenBundle() {
     
     try {
         await page.waitForFunction(
-            () => {
+            (failureMarkers) => {
                 const bodyText = document.body.innerText;
                 const successStatus = "ALL PIPELINES EXECUTED.";
-                const failureMarkers = ["TELEGRAM SEND FAILED.", "AUTO ABORTED:"];
                 // Prefer explicit completion flag; fallback to legacy text matching.
                 if (typeof window.__AUTO_DONE === 'string' && window.__AUTO_DONE.length > 0) return true;
                 return bodyText.includes(successStatus) ||
                        failureMarkers.some((marker) => bodyText.includes(marker));
             },
-            { timeout: TIMEOUT_MS, polling: 5000 }
+            { timeout: TIMEOUT_MS, polling: 5000 },
+            FAILURE_MARKERS
         );
     } catch (waitError) {
         console.error("❌ Timeout reached! Dumping current page state for debugging...");

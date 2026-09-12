@@ -17,6 +17,21 @@ on:
     - cron: '17 14 * * 1-5'
   workflow_dispatch: # 수동 실행 버튼 (테스트용)
     inputs:
+      delivery_proof_only:
+        description: "Manual report delivery proof: skip this workflow's sidecar dispatch and fallback"
+        required: false
+        default: false
+        type: boolean
+      perplexity_max_cost_usd:
+        description: "Approved Perplexity session reservation cap in USD (0 blocks paid calls; excludes other providers)"
+        required: false
+        default: "0"
+        type: string
+      perplexity_max_requests:
+        description: "Approved Perplexity outbound-attempt cap for this browser session (0 blocks)"
+        required: false
+        default: "0"
+        type: string
       force:
         description: "Bypass the same-market-day duplicate guard"
         required: false
@@ -49,6 +64,7 @@ jobs:
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
           TARGET_WORKFLOW: US Alpha Seeker Auto-Scheduler
           DUPLICATE_FRESHNESS_MIN: ${{ vars.AUTO_SCHEDULER_DUPLICATE_FRESHNESS_MIN || '180' }}
+          AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES: ${{ vars.AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES || '2' }}
         run: |
           set -euo pipefail
           market_date="$(TZ=America/New_York date +%F)"
@@ -88,7 +104,7 @@ jobs:
             --workflow "$TARGET_WORKFLOW" \
             --created ">=$since_iso" \
             --limit 30 \
-            --json databaseId,status,conclusion,event,createdAt,url)"
+            --json databaseId,status,conclusion,event,createdAt,headSha,url)"
           active_blocking="$(jq \
             --arg current "$GITHUB_RUN_ID" \
             '[.[] | select((.databaseId | tostring) != $current) | select(.status == "queued" or .status == "in_progress")] | length' <<< "$runs")"
@@ -112,11 +128,23 @@ jobs:
             done <<< "$completed_success_ids"
           fi
           blocking=$((active_blocking + pipeline_success_blocking))
+          same_sha_failures="$(jq \
+            --arg current "$GITHUB_RUN_ID" \
+            --arg head_sha "$GITHUB_SHA" \
+            '[.[] | select((.databaseId | tostring) != $current) | select(.status == "completed" and .conclusion != "success" and .headSha == $head_sha)] | length' <<< "$runs")"
           echo "[DAILY_GATE] freshness_blocking_runs=$blocking active_blocking=$active_blocking pipeline_success_blocking=$pipeline_success_blocking"
+          echo "[DAILY_GATE] same_sha_failures=$same_sha_failures max=${AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES:-2} headSha=$GITHUB_SHA"
           if [ "$blocking" -gt 0 ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             echo "reason=fresh_same_market_day_run_exists" >> "$GITHUB_OUTPUT"
             echo "$runs" | jq -c --arg fresh_since "$fresh_since_iso" '.[] | {databaseId,status,conclusion,event,createdAt,activeBlocking:(.status == "queued" or .status == "in_progress"),recentSuccessCandidate:(.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since),url}'
+            exit 0
+          fi
+
+          if [ "$same_sha_failures" -ge "${AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES:-2}" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=same_sha_failure_circuit_open" >> "$GITHUB_OUTPUT"
+            echo "[DAILY_GATE] same_sha_failure_circuit_open; automatic retry suppressed"
             exit 0
           fi
 
@@ -138,6 +166,8 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       API_KEY: ${{ secrets.API_KEY || secrets.GEMINI_API_KEY }}
       PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      PERPLEXITY_RUN_MAX_COST_USD: ${{ github.event_name == 'workflow_dispatch' && (inputs.perplexity_max_cost_usd || '0') || vars.PERPLEXITY_RUN_MAX_COST_USD || '0' }}
+      PERPLEXITY_RUN_MAX_REQUESTS: ${{ github.event_name == 'workflow_dispatch' && (inputs.perplexity_max_requests || '0') || vars.PERPLEXITY_RUN_MAX_REQUESTS || '0' }}
       HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
       HUGGINGFACE_API_BASE_URL: ${{ vars.HUGGINGFACE_API_BASE_URL || 'https://router.huggingface.co/hf-inference/models' }}
       VITE_HUGGINGFACE_API_BASE_URL: ${{ vars.HUGGINGFACE_API_BASE_URL || 'https://router.huggingface.co/hf-inference/models' }}
@@ -252,6 +282,17 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Validate approved Perplexity budget before analysis
+        run: |
+          node --input-type=module - <<'NODE'
+          import { validatePerplexityBudget } from './services/perplexityRequest.mjs';
+          validatePerplexityBudget({
+            RUN_MAX_COST_USD: process.env.PERPLEXITY_RUN_MAX_COST_USD,
+            RUN_MAX_REQUESTS: process.env.PERPLEXITY_RUN_MAX_REQUESTS
+          });
+          console.log('PERPLEXITY_BUDGET_CONFIGURED; provider requests=0');
+          NODE
+
       - name: 2.1 한글 캡처 폰트 설치
         run: |
           sudo apt-get update
@@ -328,7 +369,8 @@ jobs:
         if: success()
         env:
           STAGE_ARTIFACT_EXPORT_STAGE4_LIMIT: "5"
-          STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT: "30"
+          # Keeps 20-session seeds long enough to resolve and accumulate both 30-row OOS cohorts.
+          STAGE_ARTIFACT_EXPORT_STAGE6_LIMIT: "120"
         run: npm run ops:stage-artifacts:export
 
       - name: Audit Stage3-5 | Methodology
@@ -456,7 +498,7 @@ jobs:
           NODE
 
       - name: 7F.2 Dispatch | Sidecar dry-run repository_dispatch
-        if: success() && steps.stage6_dispatch_meta.outputs.sidecar_dispatch_allowed == 'true'
+        if: success() && steps.stage6_dispatch_meta.outputs.sidecar_dispatch_allowed == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.delivery_proof_only)
         env:
           SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
           STAGE6_FILE: ${{ steps.stage6_dispatch_meta.outputs.stage6_file }}

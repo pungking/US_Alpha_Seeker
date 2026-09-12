@@ -3,6 +3,13 @@ import { ApiProvider, ApiStatus } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import {
+  applyStage0FinancialPublicationLineage,
+  buildStage0Artifact,
+  buildStage0SourceFileEvidence,
+  classifyStage0RowEvidence,
+  validateStage0ArtifactForStage1
+} from '../services/stage0SourceEvidenceContract.mjs';
 
 declare global {
   interface Window {
@@ -91,6 +98,8 @@ interface MasterTicker {
   changeSource?: 'QUOTE' | 'MISSING';
   changeStatus?: 'RECEIVED' | 'MISSING';
   dataQuality: 'HIGH' | 'MEDIUM' | 'LOW';
+  evidenceQualityStatus?: 'EVIDENCE_COMPLETE' | 'EVIDENCE_PARTIAL' | 'EVIDENCE_STALE' | 'EVIDENCE_INVALID';
+  evidenceQualityReasons?: string[];
   
   // Index Signature for dynamic expansion
   [key: string]: any;
@@ -787,7 +796,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       
       try {
           // STRICTLY USE DRIVE ONLY
-          const assets = await mountFinancialEngine(token);
+          const { assets, sourceFiles, financialLineageContract, generatedAt } = await mountFinancialEngine(token);
           
           if (assets.length === 0) throw new Error("Engine Stall: Zero assets loaded from Drive.");
 
@@ -813,22 +822,29 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           const timestamp = formatKstFilenameTimestamp();
           const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
           
-          const payload = {
-              manifest: { 
+          const payload = await buildStage0Artifact({
+              generatedAt,
+              sourceFiles,
+              universe: assets,
+              eligibleUniverse,
+              monitoringUniverse,
+              financialLineageContract,
+              manifestBase: {
                   version: "13.5.1", 
                   provider: "Drive_V13_Original_Files", 
-                  date: new Date().toISOString(), 
+                  date: generatedAt,
                   count: assets.length,
                   inputCount: assets.length,
                   eligibleCount: eligibleUniverse.length,
                   excludedByInstrumentType: monitoringUniverse.length,
                   integrity: integrityScore,
                   note: "Smart Scaler Active: Revenue/ROE/Margins normalized to %. Loaded from Financial_Data_Daily."
-              },
-              universe: assets,
-              eligible_universe: eligibleUniverse,
-              monitoring_universe: monitoringUniverse
-          };
+              }
+          });
+          const sourceContract = await validateStage0ArtifactForStage1(payload);
+          if (!sourceContract.valid) {
+              throw new Error(`Stage0 source contract invalid: ${sourceContract.reasons.join(',')}`);
+          }
 
           const uploadedStage0 = await uploadFile(token, folderId, fileName, payload);
           try {
@@ -881,6 +897,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const financialDailyFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapFolderId);
       if (!financialDailyFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDailyFolder}' not found inside Maps.`);
 
+      const identityMapMeta = await findSourceFile(token, 'Ticker_ID_Mapping_Final.json', systemMapFolderId);
+      const financialLineageMeta = await findSourceFile(token, 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json', systemMapFolderId);
+      if (!identityMapMeta || !financialLineageMeta) {
+          throw new Error('Stage0 SEC financial lineage contract missing from System_Identity_Maps.');
+      }
+      const identityMapDownload = await downloadSourceFile(token, identityMapMeta.id);
+      const financialLineageDownload = await downloadSourceFile(token, financialLineageMeta.id);
+      const identityMap = parseDriveJsonText(identityMapDownload.rawText);
+      const financialLineageArtifact = parseDriveJsonText(financialLineageDownload.rawText);
+      if (!identityMap || typeof identityMap !== 'object' || Array.isArray(identityMap)) {
+          throw new Error('Stage0 identity map contract invalid.');
+      }
+
       addLog("Core Map Located. Firing Cylinders (A-Z)...", "ok");
 
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -889,6 +918,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const registrySyncBatchSize = 5;
 
       const masterUniverse: any[] = [];
+      const sourceFiles: any[] = [];
       const tempRegistry = new Map<string, any>();
 
       for (let i = 0; i < cylinders.length; i++) {
@@ -896,13 +926,54 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           const fileName = `${char}_stocks_daily.json`;
           
           try {
-              const fileId = await findFileId(token, fileName, financialDailyFolderId);
+              const fileMeta = await findSourceFile(token, fileName, financialDailyFolderId);
               
-              if (fileId) {
-                  const content = await downloadFile(token, fileId);
+              if (fileMeta) {
+                  const { rawBytes, rawText, retrievedAt } = await downloadSourceFile(token, fileMeta.id);
+                  let content: any;
+                  try {
+                      content = parseDriveJsonText(rawText);
+                  } catch {
+                      sourceFiles.push(await buildStage0SourceFileEvidence({
+                          ordinal: i + 1,
+                          fileName,
+                          sourceKind: 'FINANCIAL_DATA_DAILY_CYLINDER',
+                          rawBytes,
+                          retrievedAt,
+                          sourceRows: [],
+                          parsedRows: 0,
+                          rejectedRows: 0,
+                          parseStatus: 'PARSE_FAILED'
+                      }));
+                      addLog(`Cylinder ${char} Failure: source JSON parse failed.`, "err");
+                      continue;
+                  }
+                  const sourceRows = Array.isArray(content)
+                      ? content
+                      : content && typeof content === 'object'
+                          ? Object.values(content)
+                          : [];
                   // [CORE] Process Data with Robust Key Mapping & Scaling
-                  const stocks = processCylinderData(content);
+                  const stocks = processCylinderData(content, retrievedAt, fileName);
                   const count = stocks.length;
+                  const rejectedRows = Math.max(0, sourceRows.length - count);
+                  const parseStatus = sourceRows.length === 0 && (!content || typeof content !== 'object')
+                      ? 'PARSE_FAILED'
+                      : rejectedRows > 0
+                          ? 'PARSED_WITH_REJECTIONS'
+                          : 'PARSED';
+                  sourceFiles.push(await buildStage0SourceFileEvidence({
+                      ordinal: i + 1,
+                      fileName,
+                      sourceKind: 'FINANCIAL_DATA_DAILY_CYLINDER',
+                      rawBytes,
+                      canonicalPayload: content,
+                      retrievedAt,
+                      sourceRows,
+                      parsedRows: count,
+                      rejectedRows,
+                      parseStatus
+                  }));
                   
                   masterUniverse.push(...stocks);
                   stocks.forEach(s => tempRegistry.set(s.symbol, s));
@@ -925,20 +996,40 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       // Final sync ensures registry completeness even when last cylinders are missing.
       setGatheredRegistry(new Map(tempRegistry));
-      
-      return masterUniverse;
+      if (sourceFiles.length !== cylinders.length || sourceFiles.some((file) => file.parseStatus === 'PARSE_FAILED')) {
+          throw new Error(`Stage0 source contract incomplete: verified=${sourceFiles.length}/${cylinders.length}`);
+      }
+
+      const generatedAt = new Date().toISOString();
+      const financialLineage = await applyStage0FinancialPublicationLineage({
+          rows: masterUniverse,
+          sourceFiles,
+          lineageArtifact: financialLineageArtifact,
+          lineageArtifactFileName: 'STAGE0_SEC_FINANCIAL_PUBLICATION_LINEAGE.json',
+          lineageArtifactRawBytes: financialLineageDownload.rawBytes,
+          identityMap,
+          identityMapRawBytes: identityMapDownload.rawBytes,
+          referenceTime: generatedAt
+      });
+      const financialLineageRows = financialLineage.rows as unknown as MasterTicker[];
+      const finalRegistry = new Map(financialLineageRows.map((row) => [row.symbol, row]));
+      setGatheredRegistry(finalRegistry);
+      addLog(
+          `SEC publication lineage: verified=${financialLineage.contract.verifiedRows} blocked=${financialLineage.contract.unresolvedRows + financialLineage.contract.notApplicableRows}`,
+          financialLineage.contract.verifiedRows > 0 ? 'ok' : 'warn'
+      );
+
+      return { assets: financialLineageRows, sourceFiles, financialLineageContract: financialLineage.contract, generatedAt };
   };
 
   // [V13] Enhanced Data Processor for 28 Metrics
   // [FIX] Smart Scaling for Ratios
-  const processCylinderData = (jsonContent: any): MasterTicker[] => {
-      const results: MasterTicker[] = [];
-      try {
-          const items = Array.isArray(jsonContent) ? jsonContent : Object.values(jsonContent);
+  const processCylinderData = (jsonContent: any, quoteRetrievedAt: string, sourceDailyFile: string): MasterTicker[] => {
+      const items = Array.isArray(jsonContent) ? jsonContent : Object.values(jsonContent);
           
-          return items.map((item: any) => {
-              const root = item.basic || item;
-              if (!root.symbol) return null;
+      return items.map((item: any) => {
+              const root = item?.basic || item;
+              if (!root?.symbol) return null;
 
               const price = Number(root.price) || 0;
               const instrumentType = classifyInstrumentType(root.symbol, root.name || root.companyName, root.instrumentType);
@@ -1005,14 +1096,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   pegRatio = per / growthPctForPeg;
               }
 
-              return {
+              const hasExplicitNetIncomeEvidence =
+                  Object.prototype.hasOwnProperty.call(root, 'netIncomeEvidenceValue')
+                  || Object.prototype.hasOwnProperty.call(root, 'netIncomeEvidenceAsOf')
+                  || Object.prototype.hasOwnProperty.call(root, 'netIncomeEvidenceSource');
+              const legacyDataQuality = (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW';
+              return classifyStage0RowEvidence({
                   // 1. Basic Info & Price
                   symbol: root.symbol,
                   name: root.name || root.companyName || "Unknown",
                   price: price,
                   currency: root.currency || "USD",
                   marketCap: Number(root.marketCap) || 0,
-                  updated: new Date().toISOString(),
+                  updated: quoteRetrievedAt,
                   source: 'V13_Cylinder',
 
                   // 2. Valuation (Value) - Keep as Multiples (x)
@@ -1025,6 +1121,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   targetMeanPriceRetrievedAt: root.targetMeanPriceRetrievedAt || null,
                   targetMeanPriceAsOf: root.targetMeanPriceAsOf || null,
                   targetMeanPriceAsOfStatus: root.targetMeanPriceAsOfStatus || null,
+                  targetSource: root.targetMeanPriceSource || null,
+                  targetAsOf: root.targetMeanPriceAsOf || null,
+                  targetRetrievedAt: root.targetMeanPriceRetrievedAt || null,
+                  targetAsOfStatus: root.targetMeanPriceAsOfStatus || null,
 
                   // 3. Profitability & Efficiency (Quality) - FIXED MAPPING
                   roe: toPercent(root.roe || root.returnOnEquity),
@@ -1052,6 +1152,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   revenueGrowth: toPercent(root.revenueGrowth),
                   operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
                   netIncome: Number(root.netIncome || 0),
+                  netIncomeEvidenceValue: hasExplicitNetIncomeEvidence
+                      ? root.netIncomeEvidenceValue ?? null
+                      : root.netIncome ?? null,
+                  netIncomeEvidenceAsOf: hasExplicitNetIncomeEvidence
+                      ? root.netIncomeEvidenceAsOf ?? null
+                      : root.netIncomeAsOf ?? null,
+                  netIncomeEvidenceSource: hasExplicitNetIncomeEvidence
+                      ? root.netIncomeEvidenceSource ?? null
+                      : root.netIncomeSource ?? null,
                   netIncomeCommonStockholders: Number(root.netIncomeCommonStockholders || root.netIncome || 0),
 
                   // 5. Dividend
@@ -1082,15 +1191,20 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   changeStatus: normalizedDelta.changeStatus,
                   quoteTimestamp: Number(root.quoteTimestamp || 0),
                   quoteSource: root.quoteSource || null,
+                  quoteRetrievedAt,
+                  sourceDailyFile,
                   netIncomeSource: root.netIncomeSource || null,
                   netIncomeAsOf: root.netIncomeAsOf || null,
-                  dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
-              };
+                  financialSource: root.financialSource || root.netIncomeSource || null,
+                  fiscalPeriod: root.fiscalPeriod || root.netIncomeFiscalPeriod || null,
+                  financialPublishedAt: root.financialPublishedAt || root.filingPublishedAt || null,
+                  financialRetrievedAt: root.financialRetrievedAt || root.netIncomeRetrievedAt || null,
+                  identifierLineageStatus: root.identifierLineageStatus || root.identifierEvidenceStatus || null,
+                  dataQuality: legacyDataQuality,
+                  legacyDataQuality,
+                  dataQualityLegacyBasis: 'PRICE_PRESENT_ONLY'
+              }, { referenceTime: quoteRetrievedAt }) as unknown as MasterTicker;
           }).filter(item => item !== null) as MasterTicker[];
-      } catch (e) {
-          console.error("Error processing cylinder data chunk", e);
-      }
-      return results;
   };
 
   // --- DRIVE UTILS ---
@@ -1104,24 +1218,28 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
 
-  const findFileId = async (token: string, name: string, parentId: string) => {
+  const findSourceFile = async (token: string, name: string, parentId: string): Promise<{ id: string } | null> => {
       const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=2&fields=files(id%2Cname)`, {
           headers: { 'Authorization': `Bearer ${token}` }
       });
-      await assertDriveOk(res, `findFileId(${name})`);
+      await assertDriveOk(res, `findSourceFile(${name})`);
       const data = await res.json();
-      return data.files && data.files.length > 0 ? data.files[0].id : null;
+      if ((data.files || []).length > 1) throw new Error(`Duplicate Stage0 source identity: ${name}`);
+      return data.files && data.files.length > 0 ? { id: data.files[0].id } : null;
   };
 
-  const downloadFile = async (token: string, fileId: string) => {
+  const downloadSourceFile = async (token: string, fileId: string) => {
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { 'Authorization': `Bearer ${token}` }
       });
-      await assertDriveOk(res, `downloadFile(${fileId})`);
-      
-      const text = await res.text();
-      return parseDriveJsonText(text);
+      await assertDriveOk(res, 'downloadSourceFile');
+      const rawBytes = new Uint8Array(await res.arrayBuffer());
+      return {
+          rawBytes,
+          rawText: new TextDecoder().decode(rawBytes),
+          retrievedAt: new Date().toISOString()
+      };
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -1169,7 +1287,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           addLog(`[WARN] Drive upload 응답에 fileId 누락 (${name})`, "warn");
           return null;
       }
-      addLog(`[OK] Drive upload verified: ${name} (${uploaded.id})`, "ok");
+      addLog(`[OK] Drive upload verified: ${name}`, "ok");
       return { id: uploaded.id, name };
   };
 
