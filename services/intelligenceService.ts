@@ -4,6 +4,10 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
 import { fetchPortalIndices } from "./portalIndicesService";
+import {
+  resolveTelegramDecisionReason,
+  toTelegramDecisionReasonLabelKo
+} from "./telegramDeliveryContract.mjs";
 import { simulateFixedTradeBox } from "./deterministicBacktest.mjs";
 import {
   classifyMarketPulseIntegrity,
@@ -2212,12 +2216,6 @@ export async function generateTelegramBrief(
               .toUpperCase()
               .replace(/\s+/g, '_')
               .replace(/-/g, '_');
-      const toReasonKey = (value: any) =>
-          String(value || '')
-              .trim()
-              .toLowerCase()
-              .replace(/\s+/g, '_')
-              .replace(/-/g, '_');
       const toDecisionLabelKo = (decision: any): string => {
           const key = String(decision || '').trim().toUpperCase();
           if (key === 'EXECUTABLE_NOW') return '지금 진입 가능';
@@ -2238,30 +2236,6 @@ export async function generateTelegramBrief(
           if (key === 'WAIT_PULLBACK_TOO_DEEP') return '진입 가격 미도달';
           if (key === 'INVALID_GEOMETRY') return '가격 구조 오류';
           if (key === 'INVALID_DATA') return '가격 데이터 부족';
-          return '사유 없음';
-      };
-      const toDecisionReasonLabelKo = (reason: any): string => {
-          const key = toReasonKey(reason);
-          if (key === 'executable_pullback') return '눌림목 조건 충족';
-          if (key === 'wait_pullback_not_reached') return '진입 가격 미도달';
-          if (key === 'wait_current_distance_above_adaptive') return '현재가-진입가 괴리 과대';
-          if (key === 'wait_earnings_data_missing') return '실적 일정 데이터 누락(대기)';
-          if (key === 'wait_state_verdict_conflict') return '시장구조-판정 충돌(대기)';
-          if (key === 'blocked_invalid_geometry') return '가격 구조 오류';
-          if (key === 'blocked_missing_trade_box') return '진입/목표/손절 데이터 누락';
-          if (key === 'blocked_quality_missing_expected_return') return '기대수익 계산 불가';
-          if (key === 'blocked_quality_conviction_floor') return '신뢰도 점수 미달';
-          if (key === 'blocked_quality_verdict_unusable') return 'AI 판정 신뢰 불가';
-          if (key === 'blocked_stop_too_tight') return '손절폭 과소';
-          if (key === 'blocked_stop_too_wide') return '손절폭 과다';
-          if (key === 'blocked_target_too_close') return '목표폭 과소';
-          if (key === 'blocked_anchor_exec_gap') return '앵커/실행 괴리 과다';
-          if (key === 'blocked_rr_below_min') return '손익비 기준 미달';
-          if (key === 'blocked_ev_non_positive') return '기대수익 기준 미달';
-          if (key === 'blocked_earnings_data_missing') return '실적 일정 데이터 누락(차단)';
-          if (key === 'blocked_earnings_window') return '실적 임박 구간';
-          if (key === 'blocked_state_verdict_conflict') return '시장구조-판정 충돌(차단)';
-          if (key === 'blocked_verdict_risk_off') return '리스크오프 판정';
           return '사유 없음';
       };
       const toTradePlanStatusLabelKo = (status: any): string => {
@@ -2317,10 +2291,6 @@ export async function generateTelegramBrief(
               return raw;
           }
           return null;
-      };
-      const readDecisionReason = (item: any): string | null => {
-          const raw = String(item?.decisionReason || '').trim().toLowerCase();
-          return raw || null;
       };
       const readCanonicalEarningsDaysToEvent = (item: any): number | null => {
           const candidates = [
@@ -2541,8 +2511,7 @@ export async function generateTelegramBrief(
           const entryDistancePct = Number.isFinite(derivedDistance) ? Number(derivedDistance.toFixed(2)) : null;
           const tradePlanStatus = String(c?.tradePlanStatus || c?.tradePlanStatusShadow || 'N/A');
           const decision = readDecision(c) || (isExecutableCandidate(c) ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
-          const decisionReason =
-              readDecisionReason(c) || (decision === 'EXECUTABLE_NOW' ? readExecutionReason(c) || 'n/a' : 'n/a');
+          const decisionReason = resolveTelegramDecisionReason(c, decision, readExecutionReason(c));
           const rrValueRaw = Number(c?.riskRewardRatioValue);
           const rrValue = Number.isFinite(rrValueRaw) ? rrValueRaw : null;
           const expectedReturnPctRaw = Number(c?.expectedReturnPct);
@@ -2574,7 +2543,7 @@ export async function generateTelegramBrief(
           const entryFeasibleLabel = toFeasibleLabelKo(entryFeasible);
           const distanceLabel = entryDistancePct == null ? 'N/A' : `${entryDistancePct.toFixed(2)}%`;
           const decisionLabelKo = toDecisionLabelKo(decision);
-          const decisionReasonLabelKo = toDecisionReasonLabelKo(decisionReason);
+          const decisionReasonLabelKo = toTelegramDecisionReasonLabelKo(decisionReason);
           const planStatusLabelKo = toTradePlanStatusLabelKo(tradePlanStatus);
           const planEntryLabel = isAnchorExecEquivalent(entryExecPrice, entryAnchorPrice)
               ? `진입 ${fmtPrice(entryExecPrice)} (앵커=실행)`
@@ -2605,14 +2574,14 @@ export async function generateTelegramBrief(
                   const bucket = readExecutionBucket(c) || (isExecutableCandidate(c) ? 'EXECUTABLE' : 'WATCHLIST');
                   const reason = readExecutionReason(c) || (bucket === 'EXECUTABLE' ? 'VALID_EXEC' : 'N/A');
                   const decision = readDecision(c) || (bucket === 'EXECUTABLE' ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
-                  const decisionReason = readDecisionReason(c) || (decision === 'EXECUTABLE_NOW' ? reason : 'n/a');
+                  const decisionReason = resolveTelegramDecisionReason(c, decision, reason);
                   const bucketKo = toExecutionBucketLabelKo(bucket);
                   const reasonKo =
                       reason === 'VALID_EXEC' && decision !== 'EXECUTABLE_NOW'
                           ? '모델상 실행 조건 충족(최종 게이트 차단)'
                           : toExecutionReasonLabelKo(reason);
                   const decisionKo = toDecisionLabelKo(decision);
-                  const decisionReasonKo = toDecisionReasonLabelKo(decisionReason);
+                  const decisionReasonKo = toTelegramDecisionReasonLabelKo(decisionReason);
                   const conv = toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha) ?? 0;
                   const executionScore = readExecutionScore(c);
                   const qualityScore = toNum(c?.qualityScore) ?? conv;
@@ -2637,16 +2606,16 @@ export async function generateTelegramBrief(
                   const execRank = toPositiveRank(c?.executionRank);
                   const decision = readDecision(c) || 'N/A';
                   const reason = readExecutionReason(c) || 'N/A';
-                  const decisionReason = readDecisionReason(c) || (decision === 'EXECUTABLE_NOW' ? reason : 'n/a');
+                  const decisionReason = resolveTelegramDecisionReason(c, decision, reason);
                   const distance = formatPct(c?.entryDistancePct ?? c?.entryDistancePctShadow);
                   const verdict = toVerdictLabelKo(c?.verdictFinal || c?.finalVerdict || c?.aiVerdict || c?.verdict || '');
                   const decisionKo = toDecisionLabelKo(decision);
-                  const decisionReasonKo = toDecisionReasonLabelKo(decisionReason);
+                  const decisionReasonKo = toTelegramDecisionReasonLabelKo(decisionReason);
                   const reasonKo =
                       reason === 'VALID_EXEC' && decision !== 'EXECUTABLE_NOW'
                           ? '모델상 실행 조건 충족(최종 게이트 차단)'
                           : toExecutionReasonLabelKo(reason);
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | R#${rankRaw ?? 'N/A'} | F#${rankFinal ?? 'N/A'} | M#${modelRank ?? 'N/A'} | Exec#${execRank ?? 'N/A'} | 판정=${verdict || 'N/A'} | 상태=${decisionKo}/${decisionReasonKo} | 실행사유=${reasonKo} | 거리=${distance} | 실적=${formatEarningsEvidence(c)}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | R#${rankRaw ?? 'N/A'} | F#${rankFinal ?? 'N/A'} | M#${modelRank ?? 'N/A'} | Exec#${execRank ?? 'N/A'} | 모델평결=${verdict || 'N/A'} | 판정=${decisionKo}/${decisionReasonKo} | 실행사유=${reasonKo} | 거리=${distance} | 실적=${formatEarningsEvidence(c)}`;
               })
               .join('\n')
           : '• 없음';

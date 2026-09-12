@@ -100,6 +100,7 @@ console.log('PASS Perplexity output caps, full-context cost reservation, session
 // Execute the actual consumers with injected mocks, never production credentials/network.
 const guard = await import('../services/perplexityRequest.mjs');
 const surface = await import('../services/stage6ExecutionSurfaceContract.mjs');
+const telegramContract = await import('../services/telegramDeliveryContract.mjs');
 const provider = { GEMINI: 'GEMINI', PERPLEXITY: 'PERPLEXITY' };
 const config = { ...limits, MODEL_CHAIN: ['sonar', 'sonar-pro'], STAGE2_MAX_TOKENS: 32, TOP6_MAX_TOKENS: 32,
   AUDIT_MAX_TOKENS: 32, MACRO_MAX_TOKENS: 32, STAGE2_SHARD_SIZE: 4, STAGE2_REPAIR_CHUNK_SIZE: 2 };
@@ -121,6 +122,7 @@ const runtime = vm.createContext({ exports: {}, sessionStorage: fixtureStorage, 
     if (id === '../types') return { ApiProvider: provider };
     if (id === '@google/genai') return { Type: new Proxy({}, { get: (_t, p) => p }), GoogleGenAI: class { constructor() { assert.fail('other provider'); } } };
     if (id.includes('stage6ExecutionSurface')) return surface;
+    if (id.includes('telegramDeliveryContract')) return telegramContract;
     if (id.includes('portalIndices')) return { fetchPortalIndices: () => assert.fail('market source request') };
     if (id.includes('deterministicBacktest')) return {};
     assert.fail(`unmocked import ${id}`);
@@ -247,4 +249,33 @@ console.log('PASS hostile response redaction, outer abort/late completion, manua
   assert.equal((alpha.match(/telegramContext, briefAbort.signal/g) || []).length, 2);
   assert.equal((alpha.match(/briefAbort.abort\(\)/g) || []).length, 2);
   assert.equal((alpha.match(/clearTimeout\(briefTimer\)/g) || []).length, 2);
+}
+
+// The real formatter must preserve finalized reasons on every surface; all I/O is mocked.
+{
+  fixtureStorage = memory();
+  runtime.sessionStorage = fixtureStorage;
+  consumerFetch = async () => good();
+  const rows = JSON.parse(read('docs/fixtures/telegram_decision_reason_contract.fixture.json')).cases
+    .slice(0, 4).map((row, index) => ({ ...row, symbol: `REASONFIXTURE${index}`,
+      price: 100, entryExecPrice: 100, targetPrice: 120, stopLoss: 90,
+      executionBucket: row.finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST' }));
+  const contractContext = { modelTop6: rows,
+    executablePicks: rows.filter(row => row.finalDecision === 'EXECUTABLE_NOW'),
+    watchlistTop: rows.filter(row => row.finalDecision !== 'EXECUTABLE_NOW') };
+  const before = JSON.stringify(contractContext);
+  const output = await runtime.exports.generateTelegramBrief(rows, provider.PERPLEXITY, pulse, contractContext);
+  const modelText = output.split('Top6 (Model Rank)')[1]?.split('✅ Executable Picks')[0] || '';
+  const executableText = output.split('✅ Executable Picks')[1]?.split('⏳ Watchlist')[0] || '';
+  const watchText = output.split('⏳ Watchlist')[1] || '';
+  for (const row of rows) {
+    assert.ok(modelText.includes(row.expectedLabelKo), 'Top6 lost final reason');
+    assert.ok((row.finalDecision === 'EXECUTABLE_NOW' ? executableText : watchText)
+      .includes(row.expectedLabelKo), 'destination surface lost final reason');
+  }
+  assert.ok(watchText.includes('모델평결='));
+  assert.ok(watchText.includes('판정=가격 대기/'));
+  assert.equal(JSON.stringify(contractContext), before, 'display changes must not change canonical decisions');
+  assert.doesNotMatch(output, /사유 없음/);
+  console.log('PASS mocked real formatter: final reasons, surface semantics, canonical invariance; provider requests=0');
 }

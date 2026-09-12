@@ -26,8 +26,10 @@ try {
 const {
   classifyTelegramNotification,
   evaluateTelegramApiReceipt,
+  resolveTelegramDecisionReason,
   resolveDeliveryAttempts,
-  summarizeChunkDeliveries
+  summarizeChunkDeliveries,
+  toTelegramDecisionReasonLabelKo
 } = contract;
 const {
   classifyMarketPulseIntegrity,
@@ -155,6 +157,18 @@ assert.deepEqual(concentrationA, concentrationB, 'ticker rename must not change 
 assert.equal(concentrationA.policyImpact, 'NONE_REPORT_ONLY');
 assert.equal(JSON.stringify(concentrationA).includes('AAA'), false, 'aggregate concentration must redact symbols');
 
+const reasonFixture = JSON.parse(read('docs/fixtures/telegram_decision_reason_contract.fixture.json'));
+assert.equal(reasonFixture.schemaVersion, 'telegram-decision-reason-contract-v1');
+for (const row of reasonFixture.cases) {
+  const resolved = resolveTelegramDecisionReason(row, row.finalDecision, row.executionReason);
+  assert.equal(resolved, row.expectedReason, `${row.id}: final decisionReason precedence mismatch`);
+  assert.equal(
+    toTelegramDecisionReasonLabelKo(resolved),
+    row.expectedLabelKo,
+    `${row.id}: Korean reason label mismatch`
+  );
+}
+
 assert.deepEqual(
   classifyTelegramNotification({
     reportGenerated: true,
@@ -267,6 +281,11 @@ assert.match(intelligence, /const hasExecutableContract = Array\.isArray\(contra
 assert.match(
   intelligence,
   /const executablePicks = hasExecutableContract\s*\? contextExecutablePicks\.slice\(0, 6\)/
+);
+assert.equal(
+  (intelligence.match(/resolveTelegramDecisionReason\(c,/g) || []).length,
+  3,
+  'Candidate detail, Top6, and Watchlist must share the final decision reason resolver.'
 );
 assert.match(
   executionSurfaces,
