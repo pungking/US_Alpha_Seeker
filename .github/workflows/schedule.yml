@@ -11,7 +11,7 @@ on:
     - cron: '17 11 * * 1-5'
     - cron: '17 12 * * 1-5'
     - cron: '17 13 * * 1-5'
-    # RTH catch-up slots; freshness-aware gate prevents duplicate analysis.
+    # RTH catch-up slots; one successful RTH pipeline covers the whole market date.
     - cron: '37 13 * * 1-5'
     - cron: '57 13 * * 1-5'
     - cron: '17 14 * * 1-5'
@@ -57,6 +57,12 @@ jobs:
       reason: ${{ steps.guard.outputs.reason }}
       market_date: ${{ steps.guard.outputs.market_date }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Check same-market-day Auto-Scheduler runs
         id: guard
         env:
@@ -111,7 +117,7 @@ jobs:
           completed_success_ids="$(jq -r \
             --arg current "$GITHUB_RUN_ID" \
             --arg fresh_since "$fresh_since_iso" \
-            '.[] | select((.databaseId | tostring) != $current) | select(.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since) | .databaseId' <<< "$runs")"
+            '.[] | select((.databaseId | tostring) != $current) | select(.status == "completed" and .conclusion == "success") | .databaseId' <<< "$runs")"
           pipeline_success_blocking=0
           if [ -n "$completed_success_ids" ]; then
             while IFS= read -r run_id; do
@@ -120,9 +126,8 @@ jobs:
               if [ -z "$jobs_json" ]; then
                 jobs_json='{"jobs":[]}'
               fi
-              job_conclusion="$(jq -r '.jobs[]? | select(.name == "Alpha Seeking Pipeline") | .conclusion // empty' <<< "$jobs_json" | head -n 1 || true)"
-              echo "[DAILY_GATE] candidate_run=$run_id alphaPipelineConclusion=${job_conclusion:-missing}"
-              if [ "$job_conclusion" = "success" ]; then
+              covered="$(node scripts/auto-scheduler-coverage.mjs "$market_date" "$fresh_since_iso" <<< "$jobs_json")"
+              if [ "$covered" = "1" ]; then
                 pipeline_success_blocking=$((pipeline_success_blocking + 1))
               fi
             done <<< "$completed_success_ids"

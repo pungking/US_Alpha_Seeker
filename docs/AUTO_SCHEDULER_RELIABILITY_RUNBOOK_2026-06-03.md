@@ -85,3 +85,20 @@ After fresh Stage6 exists:
 - This runbook does not change Stage0-6 ranking policy.
 - This runbook does not guarantee GitHub Actions will never drop a scheduled
   event. It reduces single-point schedule failure and adds recovery paths.
+
+## 2026-09-20 recovery and same-day coverage correction
+
+- Scheduler, watchdog and deadline guard share `scripts/auto-scheduler-coverage.mjs`.
+- A successful Alpha Seeking Pipeline started during 09:30-16:00 America/New_York
+  covers that market date even after the 180-minute freshness window. Skipped,
+  failed, cancelled, incomplete and future-dated jobs do not establish coverage.
+- Premarket analysis retains freshness suppression; an old premarket success
+  does not prevent the RTH analysis. This is scheduling deduplication, not a
+  broker market-session/holiday eligibility check. Explicit manual force is unchanged.
+- Recovery dispatch forwards the existing repository-approved Perplexity cost
+  and request caps. Missing caps remain zero; direct manual dispatch does not
+  inherit these caps. Sonar/sonar-pro allowlisting and Agent API rejection remain.
+- UTC cron slots are unchanged. GitHub may start them late; workflow success
+  alone is not proof that analysis ran. Inspect Alpha Seeking Pipeline jobs.
+- Offline checks: `npm run ops:test:auto-scheduler-coverage` and
+  `npm run ops:test:perplexity-call-budget`. No paid analysis is run by these tests.

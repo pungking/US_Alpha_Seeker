@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { execFileSync } from 'node:child_process';
 import ts from 'typescript';
 import { AI_USAGE_KEY, validatePerplexityPayload, perplexityReservationMicroUsd, requestPerplexity, assertPerplexityBudgetHealthy } from '../services/perplexityRequest.mjs';
 
@@ -211,6 +212,26 @@ for (const [name, input] of [['PERPLEXITY_RUN_MAX_COST_USD', 'perplexity_max_cos
   assert.equal(vm.runInNewContext(expression, { github: { event_name: 'schedule' }, inputs: {}, vars: { [name]: '3' } }), '3');
 }
 console.log('PASS hostile response redaction, outer abort/late completion, manual-vs-recurring budget isolation');
+
+// Execute each real recovery command with a shell-only gh stub: no dispatch/network.
+for (const file of ['auto-scheduler-watchdog.yml', 'auto-scheduler-deadline-guard.yml']) {
+  const workflow = read(`.github/workflows/${file}`);
+  const command = workflow.match(/gh workflow run(?:[^\n]*\\\n)*[^\n]*/)?.[0];
+  assert.ok(command, `${file}: canonical recovery dispatch exists`);
+  for (const [cost, requests] of [['2', '5'], ['0', '0'], ['', '']]) {
+    const args = execFileSync('bash', ['-c', 'gh() { printf "%s\\n" "$@"; };\n' + command], {
+      env: { TARGET_WORKFLOW_FILE: 'schedule.yml', TARGET_REF: 'main', GITHUB_REPOSITORY: 'fixture/repo',
+        PERPLEXITY_RUN_MAX_COST_USD: cost, PERPLEXITY_RUN_MAX_REQUESTS: requests }, encoding: 'utf8'
+    }).trim().split('\n');
+    assert.ok(args.includes(`perplexity_max_cost_usd=${cost || '0'}`), `${file}: recovery must forward approved recurring cost cap`);
+    assert.ok(args.includes(`perplexity_max_requests=${requests || '0'}`), `${file}: recovery must forward approved recurring attempt cap`);
+    assert.ok(!args.includes('force=true'), 'recovery must retain duplicate gate');
+  }
+  for (const name of ['PERPLEXITY_RUN_MAX_COST_USD', 'PERPLEXITY_RUN_MAX_REQUESTS']) {
+    assert.ok(workflow.includes(`${name}: \u0024{{ vars.${name} || '0' }}`), 'only existing recurring approval may fund automatic recovery');
+  }
+}
+console.log('PASS watchdog/deadline recovery cap propagation; manual zero defaults and Agent API ban unchanged');
 
 {
   const workflow = read('.github/workflows/schedule.yml');
