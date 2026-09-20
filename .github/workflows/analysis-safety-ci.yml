@@ -27,6 +27,8 @@ jobs:
         run: npm run ops:safety:telegram-routing
       - name: Telegram delivery evidence contract
         run: npm run ops:test:telegram-delivery-contract
+      - name: Auto-Scheduler coverage contract (offline)
+        run: npm run ops:test:auto-scheduler-coverage
       - name: Perplexity paid-call budget contract (mock network only)
         run: npm run ops:test:perplexity-call-budget
       - name: Notion analysis-only surface contract

@@ -34,9 +34,18 @@ jobs:
       TARGET_WORKFLOW_FILE: schedule.yml
       TARGET_REF: main
       GH_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      # Forward only the already approved recurring caps; manual defaults stay zero.
+      PERPLEXITY_RUN_MAX_COST_USD: ${{ vars.PERPLEXITY_RUN_MAX_COST_USD || '0' }}
+      PERPLEXITY_RUN_MAX_REQUESTS: ${{ vars.PERPLEXITY_RUN_MAX_REQUESTS || '0' }}
       DUPLICATE_FRESHNESS_MIN: ${{ vars.AUTO_SCHEDULER_DUPLICATE_FRESHNESS_MIN || '180' }}
       AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES: ${{ vars.AUTO_SCHEDULER_MAX_SAME_SHA_FAILURES || '2' }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Check today's Auto-Scheduler status
         id: check
         run: |
@@ -76,15 +85,15 @@ jobs:
           active="$(jq '[.[] | select(.status == "queued" or .status == "in_progress")] | length' <<< "$runs")"
           completed_success_ids="$(jq -r \
             --arg fresh_since "$fresh_since_iso" \
-            '.[] | select(.status == "completed" and .conclusion == "success" and .createdAt >= $fresh_since) | .databaseId' <<< "$runs")"
+            '.[] | select(.status == "completed" and .conclusion == "success") | .databaseId' <<< "$runs")"
           pipeline_success=0
           if [ -n "$completed_success_ids" ]; then
             while IFS= read -r run_id; do
               [ -z "$run_id" ] && continue
               jobs_json="$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json jobs 2>/dev/null || true)"
               [ -n "$jobs_json" ] || jobs_json='{"jobs":[]}'
-              job_conclusion="$(jq -r '.jobs[]? | select(.name == "Alpha Seeking Pipeline") | .conclusion // empty' <<< "$jobs_json" | head -n 1 || true)"
-              if [ "$job_conclusion" = "success" ]; then
+              covered="$(node scripts/auto-scheduler-coverage.mjs "$market_date" "$fresh_since_iso" <<< "$jobs_json")"
+              if [ "$covered" = "1" ]; then
                 pipeline_success=$((pipeline_success + 1))
               fi
             done <<< "$completed_success_ids"
@@ -125,6 +134,9 @@ jobs:
         if: steps.check.outputs.should_dispatch == 'true'
         run: |
           set -euo pipefail
-          gh workflow run "$TARGET_WORKFLOW_FILE" --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+          gh workflow run "$TARGET_WORKFLOW_FILE" --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF" \
+            -f force=false \
+            -f perplexity_max_cost_usd="${PERPLEXITY_RUN_MAX_COST_USD:-0}" \
+            -f perplexity_max_requests="${PERPLEXITY_RUN_MAX_REQUESTS:-0}"
           echo "[WATCHDOG_DISPATCH_OK] workflow=$TARGET_WORKFLOW_FILE ref=$TARGET_REF marketDate=${{ steps.check.outputs.market_date }}"
           echo "- dispatched: \`$TARGET_WORKFLOW_FILE@$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"

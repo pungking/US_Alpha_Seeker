@@ -11,7 +11,7 @@ for (const file of files) {
   if (exists) checks.push({
     id:`${file}:freshness_aware_duplicate_gate`,
     status:/DUPLICATE_FRESHNESS_MIN/.test(text)&&/fresh_since_iso|freshSince/.test(text)&&/fresh_same_market_day_run_exists|missing_or_stale_dispatch_recovery|skip_fresh_existing_run/.test(text)?'PASS':'FAIL',
-    detail:'duplicate suppression must use freshness window, not only same-market-day success'
+    detail:'premarket freshness and same-market-day RTH success suppress duplicate analysis'
   });
   if (exists) checks.push({
     id:`${file}:same_sha_failure_circuit`,
@@ -29,9 +29,9 @@ for (const file of files) {
   if (file.endsWith('schedule.yml') && exists) checks.push({
     id:'schedule:pipeline_success_freshness_gate',
     status:/gh run view "\$run_id"[\s\S]{0,400}--json jobs/.test(text)
-      && /Alpha Seeking Pipeline/.test(text)
+      && /node scripts\/auto-scheduler-coverage\.mjs/.test(text)
       && /pipeline_success_blocking/.test(text)
-      && /alphaPipelineConclusion/.test(text)
+      && /covered/.test(text)
       ? 'PASS' : 'FAIL',
     detail:'completed success runs only suppress duplicates when Alpha Seeking Pipeline itself succeeded'
   });
@@ -42,7 +42,7 @@ for (const file of files) {
   });
   if (file.endsWith('auto-scheduler-deadline-guard.yml') && exists) checks.push({
     id:'deadline_guard:pipeline_success_gate',
-    status:/Alpha Seeking Pipeline/.test(text)&&/pipeline_success/.test(text)&&/gh run view/.test(text)?'PASS':'FAIL',
+    status:/node scripts\/auto-scheduler-coverage\.mjs/.test(text)&&/pipeline_success/.test(text)&&/gh run view/.test(text)?'PASS':'FAIL',
     detail:'workflow-level no-op success must not count as completed analysis coverage'
   });
   if (file.endsWith('auto-scheduler-deadline-guard.yml') && exists) checks.push({
@@ -63,7 +63,7 @@ for (const file of files) {
   });
   if (file.endsWith('auto-scheduler-watchdog.yml') && exists) checks.push({
     id:'watchdog:pipeline_success_gate',
-    status:/Alpha Seeking Pipeline/.test(text)&&/pipeline_success/.test(text)&&/gh run view/.test(text)?'PASS':'FAIL',
+    status:/node scripts\/auto-scheduler-coverage\.mjs/.test(text)&&/pipeline_success/.test(text)&&/gh run view/.test(text)?'PASS':'FAIL',
     detail:'workflow-level no-op success must not count as completed analysis coverage'
   });
   if (exists) checks.push({id:`${file}:artifact_or_summary`,status:/upload-artifact|GITHUB_STEP_SUMMARY|artifact/i.test(text)?'PASS':'WARN',detail:'failure evidence path'});
