@@ -356,6 +356,8 @@ const outJson = path.join(tempDir, 'status.json');
 const outMd = path.join(tempDir, 'status.md');
 const safeEvidence = {
   schemaVersion: 'auto_scheduler_run_status.v1',
+  runId: 'fixture-run',
+  runAttempt: '1',
   telegram: classifyTelegramNotification({
     reportGenerated: true,
     contractIntegrityStatus: 'MISMATCH',
@@ -369,6 +371,8 @@ const writer = spawnSync(process.execPath, ['scripts/write-auto-scheduler-run-st
   encoding: 'utf8',
   env: {
     ...process.env,
+    GITHUB_RUN_ID: 'fixture-run',
+    GITHUB_RUN_ATTEMPT: '1',
     AUTO_SCHEDULER_RUN_STATUS_JSON: outJson,
     AUTO_SCHEDULER_RUN_STATUS_MD: outMd,
     AUTOMATION_PHASE: 'completed',
