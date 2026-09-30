@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { recordAutoTiming } from '../services/autoSchedulerTiming.mjs';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GITHUB_DISPATCH_CONFIG } from '../constants';
 import { ApiProvider } from '../types';
@@ -780,6 +781,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             const readyData = await downloadFile(token, readyFileId);
             if (readyData?.status === "COMPLETED" && readyData?.trigger_file === expectedTriggerFile) {
+                recordAutoTiming('STAGE4_READY_OBSERVED');
                 readySignalHandledRef.current = true;
                 pendingStage4TriggerRef.current = null;
                 setIsSyncActive(false);
@@ -1302,6 +1304,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             );
 
             await uploadFile(accessToken, saveFolderId, fileName, payload);
+            recordAutoTiming('STAGE3_PERSISTED');
             addLog(`Vault Saved: ${fileName}`, "ok");
             
             // ── [GITHUB DISPATCH] Stage 3 완료 → Harvester 트리거 ──
@@ -1316,6 +1319,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               triggerFileSha256,
             });
             if (dispatchResult.ok) {
+              recordAutoTiming('HARVESTER_DISPATCHED');
               addLog(`GitHub Dispatch OK → event: "${GITHUB_DISPATCH_CONFIG.EVENT_TYPE}"`, 'ok');
 
               setIsSyncActive(true);

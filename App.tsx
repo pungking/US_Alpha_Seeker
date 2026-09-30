@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { recordAutoTiming } from './services/autoSchedulerTiming.mjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ApiProvider, ApiStatus } from './types';
@@ -114,6 +115,7 @@ const App: React.FC = () => {
   // Headless automation sync flag
   useEffect(() => {
       const win = window as any;
+      if (viewMode === 'AUTO' && isAutoPilotRunning) recordAutoTiming(`STAGE_${currentStage}_ENTERED`);
       win.__AUTO_STATUS = autoStatusMessage;
       const stageMeta = STAGES_FLOW.find((s) => s.id === currentStage);
       win.__AUTO_PROGRESS = {
@@ -132,6 +134,7 @@ const App: React.FC = () => {
   // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = async (stageId: number, reportPayload?: string) => {
       if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
+      recordAutoTiming(`STAGE_${stageId}_CALLBACK`);
 
       const nextStage = stageId + 1;
       
@@ -169,7 +172,9 @@ const App: React.FC = () => {
                   }
               } else if (reportPayload) {
                   setAutoStatusMessage("TRANSMITTING TO TELEGRAM...");
+                  recordAutoTiming('TELEGRAM_STARTED');
                   const delivery = await sendTelegramReportWithReceipt(reportPayload);
+                  if (delivery.deliverySucceeded) recordAutoTiming('TELEGRAM_DELIVERED');
                   (window as any).__AUTO_TELEGRAM_STATUS = delivery;
                   setAutoStatusMessage("ALL PIPELINES EXECUTED.");
               } else {
@@ -207,6 +212,7 @@ const App: React.FC = () => {
           (window as any).__STAGE6_DISPATCH_INFO = null;
           (window as any).__AUTO_TELEGRAM_STATUS = null;
           (window as any).__AUTO_WARNINGS = [];
+          (window as any).__AUTO_TIMING = {};
           
       } else {
           setViewMode('MANUAL');

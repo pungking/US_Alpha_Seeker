@@ -1,6 +1,7 @@
 import { assertPerplexityBudgetHealthy, isPerplexityStopError, PERPLEXITY_PRICE_BASIS } from '../services/perplexityRequest.mjs';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { recordAutoTiming } from '../services/autoSchedulerTiming.mjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
@@ -4736,7 +4737,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         const archivedBrief = buildTelegramMessage(brief);
                         // [FIXED] Fire-and-Forget Archive to prevent timeout
                         archiveReport(token, fileName, archivedBrief)
-                            .then(() => addLog("Telegram Brief Archived to Drive.", "ok"))
+                            .then(saved => {
+                                if (saved) {
+                                    recordAutoTiming('REPORT_PERSISTED');
+                                    addLog("Telegram Brief Archived to Drive.", "ok");
+                                } else addLog("Telegram Brief archive not confirmed.", "warn");
+                            })
                             .catch(e => addLog(`Archive Failed: ${e.message}`, "warn"));
                       }
                   }
@@ -10906,6 +10912,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const stage6HashAlgo = (globalThis as any)?.crypto?.subtle ? 'sha256' : 'fnv1a32_fallback';
           const stage6FinalHash = await sha256Hex(finalPayloadJson);
           await uploadFile(accessToken, stage6FolderId, stage6FinalFileName, finalPayload, finalPayloadJson);
+          recordAutoTiming('STAGE6_PERSISTED');
           stage6FinalFileNameForSync = stage6FinalFileName;
           stage6FinalHashForSync = stage6FinalHash;
           (window as any).__STAGE6_DISPATCH_INFO = {

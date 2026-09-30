@@ -1,7 +1,9 @@
 
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import puppeteer from 'puppeteer';
 import { classifyTelegramNotification } from './services/telegramDeliveryContract.mjs';
+import { sanitizeTimingEvents, summarizeAutoTiming } from './services/autoSchedulerTiming.mjs';
 
 /**
  * US_Alpha_Seeker Headless Automation Protocol v2.6 (Debug Mode)
@@ -98,7 +100,9 @@ const RUNTIME_ENV_KEYS = [
     'VITE_BUILD_SOURCE_EVENT_NAME'
 ];
 
-const mergeAutoSchedulerEvidence = (telegram, stage6) => {
+const automationRunId = process.env.GITHUB_RUN_ID || `local-${randomUUID()}`;
+const automationRunAttempt = process.env.GITHUB_RUN_ATTEMPT || '1';
+const mergeAutoSchedulerEvidence = (telegram, stage6, timingEvents) => {
     const file = 'state/auto-scheduler-run-status.json';
     let previous = {};
     try {
@@ -106,9 +110,17 @@ const mergeAutoSchedulerEvidence = (telegram, stage6) => {
     } catch {
         // The workflow normally creates this file before automation.
     }
+    if (previous.runId !== automationRunId || previous.runAttempt !== automationRunAttempt) previous = {};
     fs.mkdirSync('state', { recursive: true });
     const temp = `${file}.tmp`;
-    fs.writeFileSync(temp, `${JSON.stringify({ ...previous, telegram, stage6 }, null, 2)}\n`, 'utf8');
+    const timing = { ...previous.timing, ...summarizeAutoTiming({
+        ...previous.timing,
+        events: { ...sanitizeTimingEvents(timingEvents), ...sanitizeTimingEvents(previous.timing?.events) }
+    }) };
+    fs.writeFileSync(temp, `${JSON.stringify({ ...previous,
+        runId: automationRunId, runAttempt: automationRunAttempt,
+        telegram: telegram ?? previous.telegram ?? null, stage6: stage6 ?? previous.stage6 ?? null, timing
+    }, null, 2)}\n`, 'utf8');
     fs.renameSync(temp, file);
 };
 
@@ -232,8 +244,12 @@ async function getAccessTokenBundle() {
     protocolTimeout: 7200000 // 2 hours
   });
   
+  let page;
+  const persistTiming = async () => {
+    if (page) mergeAutoSchedulerEvidence(undefined, undefined, await page.evaluate(() => window.__AUTO_TIMING || {}));
+  };
   try {
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1.5 });
     
     await page.setBypassCSP(true);
@@ -403,6 +419,7 @@ async function getAccessTokenBundle() {
         console.log("--- [CURRENT PAGE TEXT END] ---");
         throw waitError;
     } finally {
+        try { await persistTiming(); } catch { console.warn('[AUTO_TIMING] browser_evidence_unavailable'); }
         if (progressTicker) {
             clearInterval(progressTicker);
             progressTicker = null;
@@ -593,9 +610,11 @@ async function getAccessTokenBundle() {
     }
 
   } catch (error) {
+    try { await persistTiming(); } catch { console.warn('[AUTO_TIMING] browser_evidence_unavailable'); }
     console.error("❌ Automation Failed:", error);
     process.exit(1);
   } finally {
+    try { await persistTiming(); } catch { console.warn('[AUTO_TIMING] browser_evidence_unavailable'); }
     await browser.close();
     console.log("👋 Session Terminated.");
   }
