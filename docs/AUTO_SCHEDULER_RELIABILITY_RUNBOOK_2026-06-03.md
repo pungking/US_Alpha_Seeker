@@ -102,3 +102,36 @@ After fresh Stage6 exists:
   alone is not proof that analysis ran. Inspect Alpha Seeking Pipeline jobs.
 - Offline checks: `npm run ops:test:auto-scheduler-coverage` and
   `npm run ops:test:perplexity-call-budget`. No paid analysis is run by these tests.
+
+## Timing evidence (additive, report-only)
+
+`state/auto-scheduler-run-status.json` now includes `timing` with schema
+`auto-scheduler-timing.v1`; existing consumers and Stage artifacts are unchanged.
+No new scheduler, ledger, dependency, execution flag or paid request is added.
+
+- One read-only GitHub run-metadata lookup records workflow creation/start times.
+  Failure leaves these fields unavailable and does not block analysis.
+- `github.event.schedule` identifies the cron expression, not the date of the
+  originating slot. Do not infer a scheduled timestamp from the nearest slot.
+- An external caller may supply UTC `client_payload.scheduledFor` and
+  `client_payload.completionDeadline`. These are caller assertions, not verified
+  exchange-session evidence. Missing/invalid timestamps do not become a pass.
+- Stage entry-to-callback intervals include IO and UI transition overhead. Stage3
+  includes the Harvester wait; `STAGE3_PERSISTED`, `HARVESTER_DISPATCHED` and
+  `STAGE4_READY_OBSERVED` separate that wait. Callback arrival is not stage success.
+- Ready observation is recorded only for the matching handshake. The legacy
+  Harvester `timestamp` must not be treated as ready-publication time.
+- Stage6/report persistence is recorded after successful Drive writes. Telegram
+  delivery is recorded only with a successful receipt. Sidecar dispatch acceptance
+  is not sidecar job start or an order; fallback acceptance is labeled separately.
+- Only allowlisted event names and UTC timestamps are captured. First observations
+  survive final/post-step status writes; another run/attempt cannot inherit them.
+  Browser failure captures available markers; a killed/unreachable browser may
+  leave missing markers, which must not be synthesized.
+
+Run `npm run ops:test:auto-scheduler-timing` offline. This instruments the latency
+contract; it does not repair GitHub event-creation delays or activate an external
+scheduler. Watchdog/deadline cron share that same scheduling dependency. External
+activation requires a separately confirmed host/service, credential boundary and
+session-aware schedule. Existing paid caps, Agent API prohibition and duplicate
+guards remain enforced. Do not dispatch analysis just to test timestamps.

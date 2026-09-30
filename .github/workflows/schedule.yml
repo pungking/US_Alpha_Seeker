@@ -287,6 +287,20 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Capture workflow timing metadata (read-only, once)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          metadata=$(timeout 15s gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '[.created_at, .run_started_at] | @tsv' 2>/dev/null) || metadata=''
+          read -r created started <<< "$metadata"
+          for name in CREATED STARTED; do
+            value="$created"
+            if [ "$name" = STARTED ]; then value="$started"; fi
+            if [[ "$value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+              echo "AUTO_WORKFLOW_${name}_AT=$value" >> "$GITHUB_ENV"
+            fi
+          done
+
       - name: Validate approved Perplexity budget before analysis
         run: |
           node --input-type=module - <<'NODE'
@@ -587,15 +601,23 @@ jobs:
               console.log(`[DISPATCH_FALLBACK_OK] repo=${repo} workflow=${workflowFile} ref=${ref}`);
             };
 
+            let timingEvent;
             try {
               await dispatchEventWithRetry();
+              timingEvent = 'SIDECAR_DISPATCH_ACCEPTED';
               console.log(
                 `[DISPATCH_OK] repo=${repo} event=stage6_result_created file=${body.client_payload.stage6File || "N/A"} hash=${String(body.client_payload.stage6Hash || "N/A").slice(0, 12)} sourceRun=${body.client_payload.sourceRunId || "N/A"}`
               );
             } catch (error) {
               console.warn(`[DISPATCH_WARN] repository_dispatch failed, fallback to workflow_dispatch: ${error?.message || error}`);
               await fallbackWorkflowDispatch();
+              timingEvent = 'SIDECAR_FALLBACK_ACCEPTED';
             }
+            // Timing persistence must never retry or re-dispatch an accepted event.
+            const recorded = require('node:child_process').spawnSync(process.execPath, ['scripts/write-auto-scheduler-run-status.mjs'], {
+              env: { ...process.env, AUTO_TIMING_EVENT: timingEvent }, stdio: 'inherit'
+            });
+            if (recorded.status !== 0) console.warn('[AUTO_TIMING] dispatch_receipt_not_persisted');
           })().catch((error) => {
             console.error(`[DISPATCH_ERR] ${error?.message || error}`);
             process.exit(1);
