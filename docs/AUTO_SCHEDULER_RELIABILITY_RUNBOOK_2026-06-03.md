@@ -29,25 +29,9 @@ External services should call GitHub `repository_dispatch` with:
 - client payload: `{"source":"external_scheduler"}`
 - external dispatch cannot bypass the same-market-day duplicate gate
 
-Example request with placeholders only:
-
-```bash
-curl -fsS \
-  -X POST "https://api.github.com/repos/pungking/US_Alpha_Seeker/dispatches" \
-  -H "Accept: application/vnd.github+json" \
-  -H "Authorization: Bearer ${GITHUB_DISPATCH_TOKEN}" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event_type": "auto_scheduler_external_trigger",
-    "client_payload": {
-      "source": "external_scheduler"
-    }
-  }'
-```
-
-The token must have permission to create repository dispatch events. Do not put
-tokens in repository files or public logs.
+Use the bounded client below instead of ad-hoc curl. The token must have
+permission to create repository dispatch events for this repository only.
+Do not put tokens in repository files, command arguments, or public logs.
 
 ## Duplicate Protection
 
@@ -135,3 +119,50 @@ scheduler. Watchdog/deadline cron share that same scheduling dependency. Externa
 activation requires a separately confirmed host/service, credential boundary and
 session-aware schedule. Existing paid caps, Agent API prohibition and duplicate
 guards remain enforced. Do not dispatch analysis just to test timestamps.
+
+## Portable trigger readiness (not activated)
+
+`scripts/dispatch-auto-scheduler.mjs` is a Node 22+ command for Mac/Linux, not a
+daemon. It defaults to validation only: no network, credential requirement, or
+receipt write. No launchd/cron/systemd timer is installed or enabled by this PR.
+
+```bash
+node scripts/dispatch-auto-scheduler.mjs \
+  --scheduled-for "$SCHEDULED_FOR_UTC" \
+  --dispatch-before "$DISPATCH_BEFORE_UTC" \
+  --completion-deadline "$COMPLETION_DEADLINE_UTC"
+```
+
+- All three timestamps must be explicit UTC instants (`YYYY-MM-DDTHH:mm:ssZ`,
+  optional milliseconds). Require `scheduledFor <= now < dispatchBefore <
+  completionDeadline`. A late laptop wake-up expires the slot; no catch-up retry.
+  The approved operator schedule supplies the dispatch window; no universal TTL,
+  NY holiday calendar, or market-open inference is introduced.
+- Actual dispatch requires **separate activation approval**, then `--send`, an
+  absolute `--receipt-dir` outside the checkout, and `GITHUB_DISPATCH_TOKEN` in
+  the process environment. Use one designated caller and one stable, owner-only
+  receipt directory (0700); token permission must be limited to this repository.
+- An exclusive 0600 attempt marker is flushed before the sole POST. Its key is
+  the fixed repository/event plus normalized scheduled instant, not the deadline.
+  Existing, partial, failed, and uncertain attempts all prevent another attempt
+  with that key. Markers are immutable local dispatch receipts, not broker ledgers
+  or proof of workflow success. Never delete them to retry or change directories
+  to bypass suppression. Keep them through reboot and any future host migration.
+- One request, 15-second transport timeout, no redirect, no retries or pagination;
+  raw response/error bodies and tokens are never printed/stored. A 204 only means
+  `DISPATCH_ACCEPTED_NOT_ANALYSIS_PROOF`. A timeout/disconnect may already have
+  reached GitHub: stop, preserve the marker, and review metadata before any new
+  authorization. Do not turn a nonzero exit code into a service-manager retry.
+- The existing receiver, concurrency, RTH-success dedup, premarket freshness,
+  same-SHA failure circuit, and approved Perplexity caps are unchanged. No force,
+  cap override, model choice or execution flag is supplied. Agent API stays banned.
+  Delayed GitHub execution is still possible: `dispatchBefore` bounds submission,
+  NOT runner start or Stage6 completion; deadline misses remain report-only.
+- Readiness does not prove clock synchronization, exchange eligibility, paid
+  analysis success, broker orders, or pre-open delivery. Activation must specify
+  verified host clock, timezone/DST/holiday schedule, timing buffer, paid budget,
+  stop/rollback (disable external caller, retain GitHub cron), and one bounded proof.
+  Do not configure a second active caller on Agent_Javis; that migration is deferred.
+
+Offline check: `npm run ops:test:auto-scheduler-trigger`. Network functions are
+injected mocks; CI never uses a dispatch token or sends an analysis event.

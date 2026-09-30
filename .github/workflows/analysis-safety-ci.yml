@@ -31,6 +31,8 @@ jobs:
         run: npm run ops:test:auto-scheduler-coverage
       - name: Auto-Scheduler timing contract (offline)
         run: npm run ops:test:auto-scheduler-timing
+      - name: Portable Auto-Scheduler trigger contract (offline mocks only)
+        run: npm run ops:test:auto-scheduler-trigger
       - name: Perplexity paid-call budget contract (mock network only)
         run: npm run ops:test:perplexity-call-budget
       - name: Notion analysis-only surface contract
