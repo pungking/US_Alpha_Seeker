@@ -141,14 +141,16 @@ node scripts/dispatch-auto-scheduler.mjs \
 - Actual dispatch requires **separate activation approval**, then `--send`, an
   absolute `--receipt-dir` outside the checkout, and `GITHUB_DISPATCH_TOKEN` in
   the process environment. Use one designated caller and one stable, owner-only
-  receipt directory (0700); token permission must be limited to this repository.
+  persistent receipt directory (0700), provisioned before activation; the client
+  will not create a missing directory. Token permission must be limited to this repository.
 - An exclusive 0600 attempt marker is flushed before the sole POST. Its key is
   the fixed repository/event plus normalized scheduled instant, not the deadline.
   Existing, partial, failed, and uncertain attempts all prevent another attempt
   with that key. Markers are immutable local dispatch receipts, not broker ledgers
   or proof of workflow success. Never delete them to retry or change directories
   to bypass suppression. Keep them through reboot and any future host migration.
-- One request, 15-second transport timeout, no redirect, no retries or pagination;
+- One request, transport timeout capped at the lesser of 15 seconds and remaining
+  dispatch-window time, no redirect, no retries or pagination;
   raw response/error bodies and tokens are never printed/stored. A 204 only means
   `DISPATCH_ACCEPTED_NOT_ANALYSIS_PROOF`. A timeout/disconnect may already have
   reached GitHub: stop, preserve the marker, and review metadata before any new

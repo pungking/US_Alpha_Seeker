@@ -20,7 +20,6 @@ function windowStatus(scheduledFor, dispatchBefore, now) {
 function reserveAttempt(directory, slotHash, record) {
   if (typeof directory !== 'string' || !path.isAbsolute(directory)) return 'RECEIPT_DIRECTORY_INVALID';
   try {
-    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     const stat = fs.lstatSync(directory);
     if (!stat.isDirectory() || (stat.mode & 0o077) !== 0
       || (process.getuid && stat.uid !== process.getuid())) return 'RECEIPT_DIRECTORY_INVALID';
@@ -61,11 +60,13 @@ export async function dispatchAutomaticAnalysis(options, {
     scheduledFor, dispatchBefore, completionDeadline, slotSha256, requestSha256: sha256(body)
   });
   if (reservation) return result(reservation);
-  const expired = windowStatus(scheduledFor, dispatchBefore, now);
+  const dispatchNow = utcTimestamp(now());
+  const expired = windowStatus(scheduledFor, dispatchBefore, () => dispatchNow);
   if (expired) return result(expired);
+  const timeoutMs = Math.min(15000, Date.parse(dispatchBefore) - Date.parse(dispatchNow));
   try {
     const response = await fetchImpl(endpoint, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
       headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`,
         'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' }, body
     });

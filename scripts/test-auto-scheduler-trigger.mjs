@@ -12,7 +12,11 @@ const now = () => '2026-10-01T11:00:01Z';
 const token = 'synthetic-test-token';
 let calls = 0;
 let receipts = 0;
-const fresh = () => ({ ...slot, send: true, receiptDir: path.join(root, String(++receipts)) });
+const fresh = () => {
+  const receiptDir = path.join(root, String(++receipts));
+  fs.mkdirSync(receiptDir, { mode: 0o700 });
+  return { ...slot, send: true, receiptDir };
+};
 const mock = async (url, request) => {
   calls++;
   assert.equal(url, 'https://api.github.com/repos/pungking/US_Alpha_Seeker/dispatches');
@@ -40,7 +44,7 @@ const blocked = async (options, status, overrides) => {
 try {
   const dry = fresh();
   await blocked({ ...dry, send: false }, 'DRY_RUN_VALIDATED', { token: '' });
-  assert.equal(fs.existsSync(dry.receiptDir), false);
+  assert.deepEqual(fs.readdirSync(dry.receiptDir), []);
   await blocked(fresh(), 'CREDENTIAL_MISSING', { token: '' });
   for (const invalid of [null, '', 'invalid', '2026-02-30T11:00:00Z', '2026-10-01T11:00:00+00:00']) {
     await blocked({ ...fresh(), scheduledFor: invalid }, 'WINDOW_INVALID');
@@ -52,9 +56,11 @@ try {
   await blocked(fresh(), 'CLOCK_INVALID', { now: () => 'invalid' });
   await blocked({ ...fresh(), receiptDir: 'relative' }, 'RECEIPT_DIRECTORY_INVALID');
   const insecure = fresh();
-  fs.mkdirSync(insecure.receiptDir, { mode: 0o755 });
   fs.chmodSync(insecure.receiptDir, 0o755); // Fixture must remain insecure under umask 077.
   await blocked(insecure, 'RECEIPT_DIRECTORY_INVALID');
+  const missing = { ...fresh(), receiptDir: path.join(root, 'not-provisioned') };
+  await blocked(missing, 'RECEIPT_DIRECTORY_INVALID');
+  assert.equal(fs.existsSync(missing.receiptDir), false);
 
   const send = fresh();
   const result = await run(send);
@@ -83,17 +89,39 @@ try {
     await blocked(options, 'ATTEMPT_ALREADY_RECORDED');
   }
   const uncertain = fresh();
+  let prePostReceiptCount;
+  let prePostFlushCount;
+  let flushCount = 0;
+  const fsync = fs.fsyncSync;
+  fs.fsyncSync = (...args) => { flushCount++; return fsync(...args); };
   const failed = await run(uncertain, { fetchImpl: async () => {
     calls++;
-    assert.equal(fs.readdirSync(uncertain.receiptDir).length, 1);
+    prePostReceiptCount = fs.readdirSync(uncertain.receiptDir).length;
+    prePostFlushCount = flushCount;
     throw new Error(`timeout or disconnect: ${token}`);
   } });
+  fs.fsyncSync = fsync;
+  assert.equal(prePostReceiptCount, 1);
+  assert.equal(prePostFlushCount, 2); // File and directory flushed before POST.
   assert.equal(failed.status, 'DISPATCH_OUTCOME_UNKNOWN_DO_NOT_RETRY');
   assert.equal(failed.requestCount, 1);
   assert.ok(!JSON.stringify(failed).includes(token));
   await blocked(uncertain, 'ATTEMPT_ALREADY_RECORDED');
   let clockReads = 0;
   await blocked(fresh(), 'WINDOW_EXPIRED', { now: () => ++clockReads === 1 ? now() : slot.dispatchBefore });
+  let abortedWithinWindow = false;
+  const stalled = await run(fresh(), { now: () => '2026-10-01T11:04:59.999Z',
+    fetchImpl: async (_url, { signal }) => new Promise((resolve, reject) => {
+      calls++;
+      const guard = setTimeout(() => resolve({ status: 504 }), 250);
+      signal.addEventListener('abort', () => {
+        clearTimeout(guard);
+        abortedWithinWindow = true;
+        reject(new Error('synthetic transport timeout'));
+      }, { once: true });
+    }) });
+  assert.equal(abortedWithinWindow, true);
+  assert.equal(stalled.status, 'DISPATCH_OUTCOME_UNKNOWN_DO_NOT_RETRY');
 
   const cli = spawnSync(process.execPath, ['scripts/dispatch-auto-scheduler.mjs', '--unexpected', token],
     { encoding: 'utf8', env: { PATH: process.env.PATH } });
