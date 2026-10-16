@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
 import { hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
 import { persistStage2Artifact as upload } from '../services/stage2DrivePersistence.mjs';
 
@@ -68,6 +70,22 @@ for (const failedRead of ['generateIds', '?fields=', 'alt=media']) {
 const realTimer = globalThis.setTimeout;
 try {
   globalThis.setTimeout = callback => realTimer(callback, 5);
+  for (const stall of ['headers', 'body']) {
+    const f = fixture({ post: 200 }), originalFetch = f.fetchImpl;
+    f.fetchImpl = async (url, init) => {
+      if (init.method !== 'POST') return originalFetch(url, init);
+      f.calls.push({ url, method: 'POST', init });
+      if (stall === 'headers') return new Promise((_, reject) => {
+        init.signal.addEventListener('abort', () => reject(new DOMException('fixture', 'AbortError')), { once: true });
+      });
+      return new Response(new ReadableStream({ start(controller) {
+        init.signal.addEventListener('abort', () => controller.error(new DOMException('fixture', 'AbortError')), { once: true });
+      } }));
+    };
+    assert.equal((await upload(options, f)).status, 'STAGE2_PERSISTED_HASH_VERIFIED');
+    assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+    assert.equal(f.calls.length, 4);
+  }
   const f = fixture({ post: 200 }), originalFetch = f.fetchImpl;
   f.fetchImpl = async (url, init) => {
     if (!url.includes('alt=media')) return originalFetch(url, init);
@@ -79,5 +97,30 @@ try {
   assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
 } finally { globalThis.setTimeout = realTimer; }
 assert.ok(component.includes('await persistStage2Artifact'), 'component must use the tested helper');
-assert.ok(component.indexOf('await uploadFile(accessToken') < component.indexOf('if (onComplete) onComplete()'));
+function completionTail(source) {
+  const uploadIndex = source.indexOf('await uploadFile(accessToken'), callbackIndex = source.indexOf('if (onComplete) onComplete()');
+  assert.ok(uploadIndex >= 0 && callbackIndex > uploadIndex, 'persist must be awaited before completion');
+  const start = source.indexOf('const saveFolderId = await ensureFolder'), end = source.indexOf('\n  return (', start);
+  assert.ok(start >= 0 && start < uploadIndex && end > callbackIndex);
+  return ts.transpileModule(`globalThis.run = async () => { try { ${source.slice(start, end)}`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+}
+assert.throws(() => completionTail(component.replace('await uploadFile(accessToken', 'uploadFile(accessToken')));
+for (const outcome of ['resolve', 'reject']) {
+  let settle, completed = 0, uploads = 0;
+  const pending = new Promise((resolve, reject) => { settle = outcome === 'resolve' ? resolve : reject; });
+  const window = {};
+  const context = vm.createContext({ window, autoStart: true, accessToken: 'fixture-token', payload: content,
+    GOOGLE_DRIVE_TARGET: { stage2SubFolder: 'fixture-folder' }, ensureFolder: async () => 'fixture-folder',
+    formatKstFilenameTimestamp: () => 'fixture-time', uploadFile: async () => { uploads++; await pending; },
+    onComplete: () => { completed++; }, addLog: () => {}, setLoading: () => {}, setProgress: () => {} });
+  vm.runInContext(completionTail(component), context);
+  const running = context.run();
+  await new Promise(resolve => realTimer(resolve, 0));
+  assert.equal(uploads, 1); assert.equal(completed, 0, 'pending persistence cannot advance Stage3');
+  settle(outcome === 'reject' ? Error('fixture-storage-unconfirmed') : undefined);
+  await running;
+  assert.equal(completed, outcome === 'resolve' ? 1 : 0);
+  assert.equal(typeof window.__AUTO_DONE, outcome === 'reject' ? 'string' : 'undefined');
+}
 console.log('PASS Stage2 timeout reconciliation, exact id/metadata/bytes, no repeated POST, fail-closed; Drive requests=0');
