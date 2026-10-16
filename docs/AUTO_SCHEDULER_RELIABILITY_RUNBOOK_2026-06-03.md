@@ -168,3 +168,44 @@ node scripts/dispatch-auto-scheduler.mjs \
 
 Offline check: `npm run ops:test:auto-scheduler-trigger`. Network functions are
 injected mocks; CI never uses a dispatch token or sends an analysis event.
+
+## Smoke and Stage2 persistence failure closure (2026-10-16)
+
+The 2026-10-15 first scheduled attempt stopped in Gemini smoke after two
+non-exact-text responses and one model 404. Watchdog's recovery passed smoke but
+stopped on a Stage2 upload timeout. Later green workflows skipped the analysis
+job because two same-SHA failures opened the existing circuit. A green gate-only
+workflow is not a successful analysis, Stage6 result or Telegram delivery.
+
+Gemini smoke now checks a nonempty completed text response (one candidate,
+`finishReason=STOP`, no prompt block), not exact prose `OK`. This proves only
+generation capability; it does not certify reasoning accuracy. Credential errors,
+empty/malformed/blocked responses still fail; the existing transient/strict rule
+and model configuration are unchanged. No generated text is saved in its report.
+
+Stage2 reserves one Drive-generated file ID before its single multipart create.
+Whether the create returns normally or its result is uncertain, the same ID's
+name, parent, MIME type, non-trashed status and downloaded content SHA-256 must
+match before the Stage2 completion callback runs. No list/latest lookup or second
+create is used. Hard create rejection stops immediately; timeout/transport/5xx
+or conflict may be reconciled, never promoted without the exact stored bytes.
+The stage payload, file naming, score/filter policy and downstream schema do not
+change. A successful response without an ID no longer silently advances Stage3.
+
+Bounds per persistence attempt: generate-ID GET <=1, create POST <=1,
+metadata GET <=1, media GET <=1; no retries or redirects. Each request including
+body consumption has a 30-second deadline. Multipart JSON is bounded to 5 MiB;
+larger inputs fail closed rather than introducing a resumable transfer here.
+Only the new Stage2 file is written; no existing file or latest pointer is changed.
+IDs, tokens, payloads and remote error bodies are not returned/logged by this path.
+
+An unavailable or still-in-flight Drive write can remain unconfirmed: preserve
+that failure and stop. This fix cannot guarantee third-party availability or
+GitHub cron delivery time. Do not reset the daily circuit or force another paid
+analysis to validate this change. Existing successful-RTH dedup and approved
+Perplexity Sonar-only limits remain unchanged. Runtime closure needs a separate
+approved/natural run; offline fixtures are not runtime proof.
+
+Offline check: `npm run ops:test:scheduler-persistence` (mock transport only).
+Provider semantics: [Drive pre-generated upload IDs](https://developers.google.com/workspace/drive/api/guides/manage-uploads#use_a_pre-generated_id_to_upload_files)
+and [Gemini completed responses](https://ai.google.dev/api/generate-content).

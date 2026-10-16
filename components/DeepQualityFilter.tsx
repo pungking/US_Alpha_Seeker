@@ -7,6 +7,7 @@ import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 import { validateStage1ArtifactForStage2 } from '../services/stage1PointInTimeFilterContract.mjs';
 import { hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
 import { buildStage2Artifact } from '../services/stage2QualityTruthContract.mjs';
+import { persistStage2Artifact } from '../services/stage2DrivePersistence.mjs';
 
 interface Props {
   autoStart?: boolean;
@@ -238,25 +239,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
-      const meta = { name, parents: [folderId], mimeType: 'application/json' };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-      const uploadRes = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
-          body: form
-      }, 30000, `uploadFile(${name})`);
-      if (!uploadRes.ok) {
-          const errText = await uploadRes.text().catch(() => '');
-          throw new Error(`Drive upload failed (${name}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
-      }
-      const uploaded = await uploadRes.json().catch(() => null);
-      if (!uploaded?.id) {
-          addLog(`[WARN] Drive upload 응답에 fileId 누락 (${name})`, "warn");
-          return;
-      }
-      addLog(`[OK] Drive upload verified: ${name}`, "ok");
+      const result = await persistStage2Artifact({ token, folderId, name, content });
+      addLog(`[OK] ${result.status} contentSha256=${result.contentSha256}`, "ok");
   };
 
   const executeDeepFilter = async () => {

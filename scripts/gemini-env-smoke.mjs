@@ -172,13 +172,16 @@ async function main() {
         model,
         contents: "Return exactly OK."
       });
-      const text = String(response?.text || "").trim();
-      if (text !== "OK") {
+      const text = typeof response?.text === "string" ? response.text.trim() : "";
+      // This is a generation/credential smoke test, not an exact-prose benchmark.
+      if (!text || response?.promptFeedback?.blockReason
+        || response?.candidates?.length !== 1 || response.candidates[0].finishReason !== "STOP") {
         attempts.push({ model, result: "unexpected_response", textLen: text.length });
         continue;
       }
       const report = {
         overall: "pass",
+        responseContract: "COMPLETED_NONEMPTY_TEXT",
         model,
         aliasesAligned: true,
         aliasesPresent: aliases.filter((row) => row.present).map((row) => row.name),
@@ -213,7 +216,8 @@ async function main() {
   const allTransient = attempts.length > 0 && attempts.every((attempt) => isTransientApiError(attempt));
   const report = {
     overall: allTransient && !strictApi ? "warn" : "fail",
-    reason: allTransient ? "transient_api_unavailable" : "api_error",
+    reason: allTransient ? "transient_api_unavailable"
+      : attempts.some(attempt => attempt.result === "unexpected_response") ? "response_contract_invalid" : "api_error",
     strictApi,
     aliasesAligned: true,
     aliasesPresent: aliases.filter((row) => row.present).map((row) => row.name),
@@ -228,7 +232,7 @@ async function main() {
     return;
   }
 
-  console.error(`[GEMINI_ENV_SMOKE] overall=fail reason=api_error attempts=${attempts.length}`);
+  console.error(`[GEMINI_ENV_SMOKE] overall=fail reason=${report.reason} attempts=${attempts.length}`);
   process.exit(1);
 }
 

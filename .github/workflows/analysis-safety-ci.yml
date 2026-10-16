@@ -29,6 +29,8 @@ jobs:
         run: npm run ops:test:telegram-delivery-contract
       - name: Auto-Scheduler coverage contract (offline)
         run: npm run ops:test:auto-scheduler-coverage
+      - name: Scheduler smoke and Stage2 persistence contract (offline)
+        run: npm run ops:test:scheduler-persistence
       - name: Auto-Scheduler timing contract (offline)
         run: npm run ops:test:auto-scheduler-timing
       - name: Portable Auto-Scheduler trigger contract (offline mocks only)
