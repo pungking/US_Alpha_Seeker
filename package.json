@@ -52,6 +52,7 @@
     "ops:stage6:policy-lane:audit": "node scripts/build-stage6-policy-lane-audit.mjs",
     "ops:ai-provider:cost-audit": "node scripts/build-ai-provider-cost-audit.mjs",
     "ops:gemini:smoke": "node scripts/gemini-env-smoke.mjs",
+    "ops:test:scheduler-persistence": "node scripts/test-gemini-env-smoke.mjs && node scripts/test-stage2-drive-persistence.mjs",
     "ops:safety:symbol-agnostic": "node scripts/check-symbol-agnostic-runtime.mjs",
     "ops:goal:validate": "node scripts/validate-goal-contract.mjs",
     "ops:safety:analysis-boundary": "node scripts/check-analysis-repo-safety-boundary.mjs",
