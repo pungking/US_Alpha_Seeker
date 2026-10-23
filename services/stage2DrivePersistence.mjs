@@ -3,6 +3,18 @@ import { hashBytesSha256 } from './stage0SourceEvidenceContract.mjs';
 const fail = code => { throw new Error(`STAGE2_DRIVE_${code}`); };
 const validId = id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(id);
 const root = 'https://www.googleapis.com/drive/v3/files';
+const uploadRoot = 'https://www.googleapis.com/upload/drive/v3/files';
+
+function validSessionUri(value) {
+  if (typeof value !== 'string' || value.length > 8192) return false;
+  try {
+    const url = new URL(value);
+    return url.origin === 'https://www.googleapis.com' && !url.username && !url.password && !url.hash
+      && url.pathname === '/upload/drive/v3/files'
+      && url.searchParams.getAll('uploadType').length === 1 && url.searchParams.get('uploadType') === 'resumable'
+      && url.searchParams.getAll('upload_id').length === 1 && Boolean(url.searchParams.get('upload_id'));
+  } catch { return false; }
+}
 
 // The deadline covers the response body too, not only receipt of HTTP headers.
 async function request(fetchImpl, url, init, maxBytes) {
@@ -12,7 +24,8 @@ async function request(fetchImpl, url, init, maxBytes) {
     const response = await fetchImpl(url, { ...init, signal: controller.signal, redirect: 'error' });
     if (!response.ok) { await response.body?.cancel(); return { status: response.status }; }
     const reader = response.body?.getReader();
-    if (!reader) fail('RESPONSE_INCOMPLETE');
+    // A resumable session starts with an empty body and a Location header.
+    if (!reader) return { status: response.status, bytes: new Uint8Array(), location: response.headers.get('Location') };
     const chunks = []; let size = 0;
     for (;;) {
       const { done, value } = await reader.read();
@@ -23,7 +36,7 @@ async function request(fetchImpl, url, init, maxBytes) {
     }
     const bytes = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-    return { status: response.status, bytes };
+    return { status: response.status, bytes, location: response.headers.get('Location') };
   } finally { clearTimeout(timer); }
 }
 const json = response => {
@@ -32,27 +45,44 @@ const json = response => {
   catch { fail('RESPONSE_INVALID'); }
 };
 
+async function uploadBytes(fetchImpl, headers, metadata, bytes) {
+  if (bytes.length <= 5 * 1024 * 1024) {
+    const boundary = `stage2-${crypto.randomUUID()}`;
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n`, bytes, `\r\n--${boundary}--`
+    ], { type: `multipart/related; boundary=${boundary}` });
+    try {
+      return await request(fetchImpl, `${uploadRoot}?uploadType=multipart&fields=id`,
+        { method: 'POST', headers: { ...headers, 'Content-Type': body.type }, body }, 8192);
+    } catch { return null; } // Reconcile the reserved ID; never issue a second create.
+  }
+  const session = await request(fetchImpl, `${uploadRoot}?uploadType=resumable&fields=id`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': 'application/json', 'X-Upload-Content-Length': String(bytes.length) },
+    body: JSON.stringify(metadata)
+  }, 8192);
+  if (session.status !== 200) fail('UPLOAD_SESSION_UNCONFIRMED');
+  if (!validSessionUri(session.location)) fail('UPLOAD_SESSION_INVALID');
+  // One content transfer only; an uncertain PUT is checked by exact file/hash below.
+  try {
+    return await request(fetchImpl, session.location,
+      { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: bytes }, 8192);
+  } catch { return null; }
+}
+
 export async function persistStage2Artifact({ token, folderId, name, content }, { fetchImpl = globalThis.fetch } = {}) {
   if (typeof token !== 'string' || !token || !validId(folderId) || typeof name !== 'string' || !name
     || !content || typeof content !== 'object') fail('INPUT_INVALID');
   try {
     const bytes = new TextEncoder().encode(JSON.stringify(content, null, 2));
-    // Drive multipart is for small files; larger payloads require a separate resumable contract.
-    if (bytes.length > 5 * 1024 * 1024) fail('MULTIPART_SIZE_EXCEEDED');
     const contentSha256 = await hashBytesSha256(bytes), headers = { Authorization: `Bearer ${token}` };
     const generated = json(await request(fetchImpl, `${root}/generateIds?count=1&space=drive&type=files`, { headers }, 8192));
     if (!Array.isArray(generated.ids) || generated.ids.length !== 1 || !validId(generated.ids[0])) fail('ID_INVALID');
-    const id = generated.ids[0], boundary = `stage2-${crypto.randomUUID()}`;
+    const id = generated.ids[0];
     const metadata = { id, name, parents: [folderId], mimeType: 'application/json' };
-    const body = new Blob([
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
-      `--${boundary}\r\nContent-Type: application/json\r\n\r\n`, bytes, `\r\n--${boundary}--`
-    ], { type: `multipart/related; boundary=${boundary}` });
-    let uploaded;
-    try {
-      uploaded = await request(fetchImpl, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-        { method: 'POST', headers: { ...headers, 'Content-Type': body.type }, body }, 8192);
-    } catch { /* An uncertain create is reconciled by its reserved ID; never issue another POST. */ }
+    const uploaded = await uploadBytes(fetchImpl, headers, metadata, bytes);
     if (uploaded && (uploaded.status < 200 || uploaded.status >= 300)
       && ![408, 409, 429].includes(uploaded.status) && uploaded.status < 500) fail('UPLOAD_REJECTED');
     const saved = json(await request(fetchImpl, `${root}/${id}?fields=id,name,parents,mimeType,trashed`, { headers }, 65536));
