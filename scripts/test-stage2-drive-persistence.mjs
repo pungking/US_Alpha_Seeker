@@ -53,10 +53,85 @@ for (const optionsOverride of [{ media: 'changed' }, { meta: { name: 'other.json
   assert.ok(f.calls.filter(c => c.method === 'POST').length <= 1);
   if ([400, 401, 403].includes(optionsOverride.post)) assert.equal(f.calls.length, 2);
 }
-for (const change of [{ token: '' }, { folderId: 'unsafe/path' }, { content: { tooLarge: 'x'.repeat(5 * 1024 * 1024) } }]) {
+for (const change of [{ token: '' }, { folderId: 'unsafe/path' }]) {
   const f = fixture();
   await assert.rejects(upload({ ...options, ...change }, f), /^Error: STAGE2_DRIVE_/);
   assert.equal(f.calls.length, 0);
+}
+const largeContent = { ...content, evidence: 'x'.repeat(5 * 1024 * 1024), label: '\u00e9' };
+const largeBytes = JSON.stringify(largeContent, null, 2);
+const largeSha256 = await hashTextSha256(largeBytes);
+const sessionUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=fixture-session';
+function resumableFixture({ location = sessionUrl, sessionStatus = 200, put = 200, ...rest } = {}) {
+  const f = fixture({ media: largeBytes, ...rest }), originalFetch = f.fetchImpl;
+  f.fetchImpl = async (url, init = {}) => {
+    if (init.method === 'POST') {
+      f.calls.push({ url, method: 'POST', init });
+      assert.ok(url.includes('uploadType=resumable'));
+      if (sessionStatus === 'timeout') throw new DOMException('private-token session', 'AbortError');
+      return new Response(null, { status: sessionStatus, headers: location === null ? {} : { Location: location } });
+    }
+    if (init.method === 'PUT') {
+      f.calls.push({ url, method: 'PUT', init });
+      if (put === 'timeout') throw new DOMException('private-token session', 'AbortError');
+      return new Response('untrusted upload response', { status: put });
+    }
+    return originalFetch(url, init);
+  };
+  return f;
+}
+const large = resumableFixture();
+const largeResult = await upload({ ...options, content: largeContent }, large);
+assert.equal(largeResult.status, 'STAGE2_PERSISTED_HASH_VERIFIED');
+assert.equal(largeResult.contentSha256, largeSha256);
+assert.deepEqual(large.calls.map(c => c.method), ['GET', 'POST', 'PUT', 'GET', 'GET']);
+const start = large.calls[1], put = large.calls[2];
+assert.equal(JSON.parse(start.init.body).id, 'generated-fixture-id');
+assert.equal(start.init.headers['X-Upload-Content-Type'], 'application/json');
+assert.equal(start.init.headers['X-Upload-Content-Length'], String(Buffer.byteLength(largeBytes)));
+assert.equal(put.url, sessionUrl);
+assert.equal(new TextDecoder().decode(put.init.body), largeBytes);
+assert.ok(large.calls.every(c => c.init.signal instanceof AbortSignal && c.init.redirect === 'error'));
+assert.ok(!JSON.stringify(largeResult).includes('fixture-session'));
+assert.ok(!JSON.stringify(largeResult).includes('private-token'));
+
+for (const put of [201, 500, 'timeout']) {
+  const f = resumableFixture({ put });
+  assert.equal((await upload({ ...options, content: largeContent }, f)).contentSha256, largeSha256);
+  assert.deepEqual(f.calls.map(c => c.method), ['GET', 'POST', 'PUT', 'GET', 'GET']);
+}
+const boundaryContent = { evidence: 'x'.repeat(5 * 1024 * 1024 - JSON.stringify({ evidence: '' }, null, 2).length) };
+const boundaryBytes = JSON.stringify(boundaryContent, null, 2);
+assert.equal(Buffer.byteLength(boundaryBytes), 5 * 1024 * 1024);
+const boundaryFixture = fixture({ post: 200, media: boundaryBytes });
+await upload({ ...options, content: boundaryContent }, boundaryFixture);
+assert.deepEqual(boundaryFixture.calls.map(c => c.method), ['GET', 'POST', 'GET', 'GET']);
+const unicodeContent = { evidence: `${boundaryContent.evidence.slice(0, -1)}\u00e9` };
+const unicodeBytes = JSON.stringify(unicodeContent, null, 2);
+assert.equal(unicodeBytes.length, boundaryBytes.length);
+assert.equal(Buffer.byteLength(unicodeBytes), Buffer.byteLength(boundaryBytes) + 1);
+const unicodeFixture = resumableFixture({ media: unicodeBytes });
+assert.equal((await upload({ ...options, content: unicodeContent }, unicodeFixture)).contentSha256, await hashTextSha256(unicodeBytes));
+assert.equal(unicodeFixture.calls[1].init.headers['X-Upload-Content-Length'], String(Buffer.byteLength(unicodeBytes)));
+for (const change of [{ media: largeBytes.replace('fixture', 'fixturE') }, { meta: { id: 'wrong-id' } },
+  { meta: { name: 'wrong.json' } }, { meta: { parents: ['wrong-folder'] } },
+  { getStatus: 404 }, { put: 308 }, { put: 401 }, { put: 403 },
+  { sessionStatus: 500 }, { sessionStatus: 'timeout' }, { location: null },
+  { location: 'https://untrusted.invalid/upload?upload_id=fixture' },
+  { location: sessionUrl.replace('https:', 'http:') },
+  { location: sessionUrl.replace('www.googleapis.com', 'www.googleapis.com.untrusted.invalid') },
+  { location: sessionUrl.replace('www.googleapis.com', 'www.googleapis.com:444') },
+  { location: sessionUrl.replace('www.googleapis.com', 'user:password@www.googleapis.com') },
+  { location: sessionUrl.replace('/upload/drive/v3/files', '/other') },
+  { location: sessionUrl.replace('upload_id=fixture-session', 'upload_id=') },
+  { location: `${sessionUrl}&upload_id=other` }, { location: `${sessionUrl}&uploadType=media` },
+  { location: `${sessionUrl}#fragment` }]) {
+  const f = resumableFixture(change);
+  await assert.rejects(upload({ ...options, content: largeContent }, f), e => /^STAGE2_DRIVE_[A-Z0-9_]+$/.test(e.message));
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  assert.ok(f.calls.filter(c => c.method === 'PUT').length <= 1);
+  assert.ok(f.calls.length <= 5);
+  if ('location' in change || 'sessionStatus' in change) assert.equal(f.calls.length, 2);
 }
 for (const failedRead of ['generateIds', '?fields=', 'alt=media']) {
   const f = fixture({ post: 200 }), originalFetch = f.fetchImpl;
@@ -70,6 +145,28 @@ for (const failedRead of ['generateIds', '?fields=', 'alt=media']) {
 const realTimer = globalThis.setTimeout;
 try {
   globalThis.setTimeout = callback => realTimer(callback, 5);
+  for (const method of ['POST', 'PUT']) {
+    for (const stall of ['headers', 'body']) {
+      const f = resumableFixture(), originalFetch = f.fetchImpl;
+      f.fetchImpl = async (url, init) => {
+        if (init.method !== method) return originalFetch(url, init);
+        f.calls.push({ url, method, init });
+        if (stall === 'headers') return new Promise((_, reject) => {
+          init.signal.addEventListener('abort', () => reject(new DOMException('private-token', 'AbortError')), { once: true });
+        });
+        return new Response(new ReadableStream({ start(controller) {
+          init.signal.addEventListener('abort', () => controller.error(new DOMException('private-token', 'AbortError')), { once: true });
+        } }));
+      };
+      if (method === 'POST') {
+        await assert.rejects(upload({ ...options, content: largeContent }, f), /^Error: STAGE2_DRIVE_PERSISTENCE_UNCONFIRMED$/);
+        assert.deepEqual(f.calls.map(c => c.method), ['GET', 'POST']);
+      } else {
+        assert.equal((await upload({ ...options, content: largeContent }, f)).contentSha256, largeSha256);
+        assert.deepEqual(f.calls.map(c => c.method), ['GET', 'POST', 'PUT', 'GET', 'GET']);
+      }
+    }
+  }
   for (const stall of ['headers', 'body']) {
     const f = fixture({ post: 200 }), originalFetch = f.fetchImpl;
     f.fetchImpl = async (url, init) => {
@@ -123,4 +220,4 @@ for (const outcome of ['resolve', 'reject']) {
   assert.equal(completed, outcome === 'resolve' ? 1 : 0);
   assert.equal(typeof window.__AUTO_DONE, outcome === 'reject' ? 'string' : 'undefined');
 }
-console.log('PASS Stage2 timeout reconciliation, exact id/metadata/bytes, no repeated POST, fail-closed; Drive requests=0');
+console.log('PASS Stage2 multipart/resumable size boundary, byte-exact hashing, session URI validation, bounded timeout reconciliation and awaited completion; Drive requests=0');
