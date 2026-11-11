@@ -18,6 +18,7 @@ const browserPath = selected.path;
 
 const offlineDocument = '<!doctype html><html><head><title>OFFLINE_PUPPETEER_CONTRACT</title></head><body><div id="fixture">LOCAL_ONLY</div></body></html>';
 const checks = [];
+let blockedPageHttpRequests = 0;
 
 for (const protocol of ['cdp', 'webDriverBiDi']) {
   let browser;
@@ -41,7 +42,10 @@ for (const protocol of ['cdp', 'webDriverBiDi']) {
     const page = await browser.newPage();
     await page.setRequestInterception(true);
     page.on('request', (request) => {
-      if (/^https?:/i.test(request.url())) request.abort('blockedbyclient');
+      if (/^https?:/i.test(request.url())) {
+        blockedPageHttpRequests++;
+        request.abort('blockedbyclient');
+      }
       else request.continue();
     });
     await page.goto(`data:text/html;charset=utf-8,${encodeURIComponent(offlineDocument)}`, {
@@ -50,7 +54,8 @@ for (const protocol of ['cdp', 'webDriverBiDi']) {
     });
     assert.equal(await page.title(), 'OFFLINE_PUPPETEER_CONTRACT');
     assert.equal(await page.$eval('#fixture', (el) => el.textContent), 'LOCAL_ONLY');
-    checks.push({ protocol, status: 'PASS', externalRequests: 0 });
+    assert.equal(blockedPageHttpRequests, 0, 'fixture must not attempt HTTP(S) page requests');
+    checks.push({ protocol, status: 'PASS', pageHTTPRequests: 0 });
   } finally {
     if (browser) await browser.close();
   }
@@ -61,7 +66,8 @@ console.log(JSON.stringify({
   browserSource: selected.source,
   browserPath: 'redacted-local-executable',
   scheduledAnalysisExecuted: false,
-  providerRequests: 0,
-  tradingRequests: 0,
+  fixtureProviderRequests: 0,
+  fixtureTradingRequests: 0,
+  blockedPageHttpRequests,
   proofLimit: 'disposable CI browser only; does not certify scheduled provider-integrated runtime',
 }));
