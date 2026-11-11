@@ -3,8 +3,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer';
 
-const browserPath = puppeteer.executablePath();
-assert.ok(fs.existsSync(browserPath), 'Puppeteer browser not installed; runtime compatibility unverified');
+// PR CI uses the installed, published runner Chrome; do not fetch a browser or call providers.
+const candidates = [
+  { source: 'puppeteer-managed', path: puppeteer.executablePath() },
+  { source: 'system-google-chrome', path: '/usr/bin/google-chrome' },
+  { source: 'system-google-chrome-stable', path: '/usr/bin/google-chrome-stable' },
+  { source: 'system-chromium', path: '/usr/bin/chromium' },
+  { source: 'system-chromium-browser', path: '/usr/bin/chromium-browser' },
+  { source: 'system-google-chrome-alt', path: '/opt/google/chrome/chrome' },
+];
+const selected = candidates.find((candidate) => fs.existsSync(candidate.path));
+assert.ok(selected, 'No locally installed Chrome/Chromium found; runtime compatibility unverified');
+const browserPath = selected.path;
 
 const offlineDocument = '<!doctype html><html><head><title>OFFLINE_PUPPETEER_CONTRACT</title></head><body><div id="fixture">LOCAL_ONLY</div></body></html>';
 const checks = [];
@@ -15,6 +25,7 @@ for (const protocol of ['cdp', 'webDriverBiDi']) {
     // --no-sandbox is confined to this disposable CI runner, never the scheduled production workflow.
     browser = await puppeteer.launch({
       protocol,
+      executablePath: browserPath,
       headless: true,
       timeout: 25000,
       args: [
@@ -47,6 +58,8 @@ for (const protocol of ['cdp', 'webDriverBiDi']) {
 console.log(JSON.stringify({
   check: 'OFFLINE_PUPPETEER_CDP_BIDI_SMOKE',
   checks,
+  browserSource: selected.source,
+  browserPath: 'redacted-local-executable',
   scheduledAnalysisExecuted: false,
   providerRequests: 0,
   tradingRequests: 0,
