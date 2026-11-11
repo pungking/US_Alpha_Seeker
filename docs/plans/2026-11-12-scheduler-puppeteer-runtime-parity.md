@@ -14,6 +14,7 @@ Recorded 2026-11-12 KST. This is an **offline-focused proposal**, not permission
 2. Add `scripts/test-scheduled-puppeteer-runtime-contract.mjs`, an offline static proof with synthetic Node20/21 and ws drift negatives. Print a **separate explicit HOLD** for the known ws mismatch instead of falsely treating global CI success as WS compatibility.
 3. Add `scripts/test-scheduled-puppeteer-offline-browser.mjs`: disposable CI Chrome launch using CDP and WebDriver BiDi, a single `data:` HTML document, blocked HTTP(S) page requests and no keys/external providers. Its `--no-sandbox` flag applies only inside the CI fixture, not to the production workflow.
 4. Register both checks in the pre-existing PR-only `analysis-safety-ci.yml` workflow following `npm ci` and audit. The browser fixture must fail rather than claim success if Chrome is absent or cannot start.
+   - CI browser selection first checks Puppeteer's managed binary, then the **already installed** GitHub runner system Chrome/Chromium. The 2026-11-12 Ubuntu runner image documents system Chrome **156.0.8078.79** while Puppeteer 25.13.0 prefers Chrome 155; tests therefore demonstrate disposable compatibility, **not exact preferred-browser revision parity**. The fixture does not download Chrome, and asserts zero HTTP(S) requests from its test page. It is not a full operating-system egress sandbox.
 
 ## Acceptance, risk and next boundary
 - Tests and exact-HEAD GitHub CI must complete. If Chrome smoke fails, report the blocker and correct only within this isolated PR without weakening other checks.
