@@ -8,6 +8,8 @@ Snapshot captured: **2026-11-12 (Asia/Seoul)** from connected GitHub repository 
 - Last inspected `main`: `b1fb609d762274c50824681f555095c78cf2b3b4` (PR #56 merge, observed 2026-10-23).
 - Latest relevant completed source PR in repository: https://github.com/pungking/US_Alpha_Seeker/pull/56 — Stage2 large-artifact verified persistence. This is **not** the execution sidecar's PR #88.
 - Deferred, unrelated cleanup: https://github.com/pungking/US_Alpha_Seeker/issues/57 — legacy Knowledge Intake / NotebookLM / Obsidian schedules, **not authorized for deletion in current sidecar work**.
+- **Active Draft PR:** https://github.com/pungking/US_Alpha_Seeker/pull/58 — this continuity documentation proposal, **not merged**.
+- **Blocking CI result on this docs-only proposal:** https://github.com/pungking/US_Alpha_Seeker/actions/runs/43070264003 — `analysis-safety` **FAILURE** at `npm audit --audit-level=high` on unchanged dependencies (4 high, 1 moderate). Resolve in **separate** security Issue https://github.com/pungking/US_Alpha_Seeker/issues/59 and security-only PR before reviewing a refreshed docs PR. Do not bypass required CI.
 - Exact latest post-merge `main` CI in this repository: **NOT VERIFIED IN THIS HANDOFF**; inspect Actions before reporting.
 - `main` returned `protected=false` when inspected. This does **not** grant permission for direct commits: branch/PR review discipline is mandatory.
 
