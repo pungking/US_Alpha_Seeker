@@ -21,6 +21,8 @@ jobs:
       - run: npm ci
       - name: Dependency high-severity gate
         run: npm audit --audit-level=high
+      - name: Drive progress token rotation regression (offline)
+        run: node scripts/test-drive-progress-token-rotation.mjs
       - name: Analysis repo boundary guard
         run: npm run ops:safety:analysis-boundary
       - name: Telegram routing policy audit
