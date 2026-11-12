@@ -21,6 +21,14 @@ jobs:
       - run: npm ci
       - name: Dependency high-severity gate
         run: npm audit --audit-level=high
+      - name: Scheduled Puppeteer Node and ws proof gaps (offline)
+        run: node scripts/test-scheduled-puppeteer-runtime-contract.mjs
+      - name: Disposable Puppeteer CDP and BiDi browser smoke (no providers)
+        run: node scripts/test-scheduled-puppeteer-offline-browser.mjs
+      - name: Drive progress token rotation regression (offline)
+        run: node scripts/test-drive-progress-token-rotation.mjs
+      - name: Offline web bundle with refreshed Drive token accessor
+        run: npm run build
       - name: Analysis repo boundary guard
         run: npm run ops:safety:analysis-boundary
       - name: Telegram routing policy audit
