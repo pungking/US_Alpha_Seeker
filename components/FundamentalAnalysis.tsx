@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { recordAutoTiming } from '../services/autoSchedulerTiming.mjs';
+import { currentDriveProgressToken } from '../services/driveProgressToken.mjs';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GITHUB_DISPATCH_CONFIG } from '../constants';
 import { ApiProvider } from '../types';
@@ -715,6 +716,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const progressCompleteLoggedRef = useRef(false);
     const readySignalHandledRef = useRef(false);
     const progressCheckErrorRef = useRef<{ signature: string; lastAt: number }>({ signature: '', lastAt: 0 });
+    const missingProgressTokenLoggedRef = useRef(false);
 
     const isTransientProgressError = (error: unknown): boolean => {
         const message = String((error as any)?.message || error || '').toLowerCase();
@@ -1331,10 +1333,25 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               if (!systemMapId) {
                   addLog("[WARN] System Map Folder를 즉시 찾지 못했습니다. Ready Signal 자동 탐색을 계속 시도합니다.", "warn");
               }
-              await checkProgress(accessToken, systemMapId);
+              // Always read the latest browser token: automate.js may rotate it without a React rerender.
+              const initialProgressToken = currentDriveProgressToken(sessionStorage);
+              if (initialProgressToken) {
+                  await checkProgress(initialProgressToken, systemMapId);
+              } else {
+                  addLog('Drive progress polling paused: session token unavailable', 'warn');
+              }
               if (!readySignalHandledRef.current && pendingStage4TriggerRef.current) {
                   pollingInterval.current = setInterval(() => {
-                      checkProgress(accessToken, systemMapId);
+                      const pollingToken = currentDriveProgressToken(sessionStorage);
+                      if (!pollingToken) {
+                          if (!missingProgressTokenLoggedRef.current) {
+                              missingProgressTokenLoggedRef.current = true;
+                              addLog('Drive progress polling paused: session token unavailable', 'warn');
+                          }
+                          return; // No stale-token fallback and no Drive request.
+                      }
+                      missingProgressTokenLoggedRef.current = false;
+                      void checkProgress(pollingToken, systemMapId);
                   }, 10000);
               }
               
