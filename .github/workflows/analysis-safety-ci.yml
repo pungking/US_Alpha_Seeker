@@ -21,6 +21,8 @@ jobs:
       - run: npm ci
       - name: Dependency high-severity gate
         run: npm audit --audit-level=high
+      - name: Linux npm ci vs npm install parity (isolated cache)
+        run: node scripts/test-scheduled-installer-parity.mjs
       - name: Scheduled Node engine and WebSocket contract (offline)
         run: node scripts/test-scheduled-puppeteer-runtime-contract.mjs
       - name: Linux Chrome CDP and BiDi smoke (data page only)
@@ -152,35 +154,9 @@ jobs:
           cache: 'npm'
       - name: Install exact lock without Puppeteer browser download
         run: npm ci
+      - name: macOS npm ci vs npm install parity (isolated cache)
+        run: node scripts/test-scheduled-installer-parity.mjs
       - name: macOS scheduled Node and ws static contract
         run: node scripts/test-scheduled-puppeteer-runtime-contract.mjs
       - name: macOS installed Chrome CDP and BiDi smoke (data page only)
         run: node scripts/test-scheduled-puppeteer-offline-browser.mjs
-
-  installer-parity-linux:
-    name: npm install vs npm ci — Linux offline parity
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Isolated npm install vs npm ci resolution proof (registry cache then offline)
-        run: node scripts/test-scheduled-installer-parity.mjs
-
-  installer-parity-macos:
-    name: npm install vs npm ci — macOS offline parity
-    runs-on: macos-15
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Isolated npm install vs npm ci resolution proof (registry cache then offline)
-        run: node scripts/test-scheduled-installer-parity.mjs

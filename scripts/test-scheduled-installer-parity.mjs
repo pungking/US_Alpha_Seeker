@@ -14,7 +14,10 @@ const baselineLock = fs.readFileSync(path.join(repositoryRoot, 'package-lock.jso
 const manifest = JSON.parse(baselineManifest.toString('utf8'));
 const lock = JSON.parse(baselineLock.toString('utf8'));
 const schedule = fs.readFileSync(path.join(repositoryRoot, '.github/workflows/schedule.yml'), 'utf8');
-assert.match(schedule, /name: 3\. 의존성 패키지 설치[\s\S]*?run: npm install/, 'scheduled installer must remain unchanged in this proof PR');
+const scheduledInstall = schedule.match(/      - name: 3\. 의존성 패키지 설치\n(?:[^\n]*\n){0,5}/);
+assert.ok(scheduledInstall, 'scheduled installer step missing');
+assert.match(scheduledInstall[0], /^\s*run: npm ci\s*$/m,
+  'proposed scheduled installer must use npm ci after Issue #68 evidence');
 assert.equal(lock.lockfileVersion, 3);
 for (const scope of ['dependencies', 'devDependencies']) {
   assert.deepEqual(lock.packages[''][scope], Object.fromEntries(
