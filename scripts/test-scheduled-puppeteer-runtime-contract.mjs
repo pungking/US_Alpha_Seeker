@@ -70,7 +70,7 @@ const ws = checkWsContract();
 // not an acceptable HOLD result in this proposal.
 assert.equal(ws.status, 'WS_REQUIREMENT_SATISFIED', 'Merged ws override must satisfy Puppeteer core');
 const genaiRange = lock.packages['node_modules/@google/genai']?.dependencies?.ws;
-const genaiMin = /^\\^(\\d+\\.\\d+\\.\\d+)$/.exec(String(genaiRange))?.[1];
+const genaiMin = /^\^(\d+\.\d+\.\d+)$/.exec(String(genaiRange))?.[1];
 assert.ok(genaiMin, 'Google GenAI ws dependency must be explicit');
 assert.ok(atLeast(ws.installed, genaiMin) && versionTuple(ws.installed)[0] === versionTuple(genaiMin)[0],
   'Resolved ws must satisfy Google GenAI');
