@@ -319,8 +319,8 @@ jobs:
           fc-cache -fv
 
       - name: 3. 의존성 패키지 설치
-        # npm ci 대신 npm install을 사용하여 package-lock.json 불일치 문제 해결
-        run: npm install
+        # Issue #68: reproducible Node22 lockfile parity verified on Linux/macOS in Draft CI.
+        run: npm ci
 
       - name: 3.05 Symbol-agnostic runtime guard
         run: npm run ops:safety:symbol-agnostic
