@@ -66,6 +66,14 @@ function checkWsContract({ lockfile = lock, packageJson = manifest } = {}) {
 
 const node = checkNodeContract(workflow);
 const ws = checkWsContract();
+// Issue #63/PR #67 is merged: a previously known WS mismatch is now a regression,
+// not an acceptable HOLD result in this proposal.
+assert.equal(ws.status, 'WS_REQUIREMENT_SATISFIED', 'Merged ws override must satisfy Puppeteer core');
+const genaiRange = lock.packages['node_modules/@google/genai']?.dependencies?.ws;
+const genaiMin = /^\\^(\\d+\\.\\d+\\.\\d+)$/.exec(String(genaiRange))?.[1];
+assert.ok(genaiMin, 'Google GenAI ws dependency must be explicit');
+assert.ok(atLeast(ws.installed, genaiMin) && versionTuple(ws.installed)[0] === versionTuple(genaiMin)[0],
+  'Resolved ws must satisfy Google GenAI');
 
 // Negative regressions must fail if the scheduled job is downgraded or its Node setting disappears.
 for (const downgraded of ['20', '21']) {
@@ -87,6 +95,12 @@ assert.ok(minimumWs);
 patchedManifest.overrides['ws@^8.0.0'] = minimumWs;
 patchedLock.packages['node_modules/ws'].version = minimumWs;
 assert.equal(checkWsContract({ lockfile: patchedLock, packageJson: patchedManifest }).status, 'WS_REQUIREMENT_SATISFIED');
+const staleManifest = structuredClone(manifest);
+const staleLock = structuredClone(lock);
+staleManifest.overrides['ws@^8.0.0'] = '8.21.0';
+staleLock.packages['node_modules/ws'].version = '8.21.0';
+assert.equal(checkWsContract({ lockfile: staleLock, packageJson: staleManifest }).status,
+  'KNOWN_WS_OVERRIDE_HOLD', 'Legacy 8.21.0 must never be accepted as compatible');
 
 console.log(JSON.stringify({
   check: 'OFFLINE_SCHEDULED_PUPPETEER_RUNTIME_CONTRACT',
@@ -96,5 +110,5 @@ console.log(JSON.stringify({
   externalRequests: 0,
   liveAnalysisRuns: 0,
   operationalAuthority: false,
-  note: ws.status === 'KNOWN_WS_OVERRIDE_HOLD' ? 'Node fix can be reviewed; existing ws requirement remains HOLD (Issue #61)' : 'Node and ws static constraints satisfied',
+  note: 'Node and both declared ws consumer ranges are satisfied; provider-integrated scheduled runtime still unverified',
 }));

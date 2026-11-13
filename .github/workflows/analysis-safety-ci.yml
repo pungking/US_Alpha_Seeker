@@ -21,10 +21,14 @@ jobs:
       - run: npm ci
       - name: Dependency high-severity gate
         run: npm audit --audit-level=high
-      - name: Scheduled Puppeteer Node and ws proof gaps (offline)
+      - name: Scheduled Node engine and WebSocket contract (offline)
         run: node scripts/test-scheduled-puppeteer-runtime-contract.mjs
-      - name: Disposable Puppeteer CDP and BiDi browser smoke (no providers)
+      - name: Linux Chrome CDP and BiDi smoke (data page only)
         run: node scripts/test-scheduled-puppeteer-offline-browser.mjs
+      - name: Drive progress token rotation regression (offline)
+        run: node scripts/test-drive-progress-token-rotation.mjs
+      - name: Offline web bundle with refreshed Drive token accessor
+        run: npm run build
       - name: Analysis repo boundary guard
         run: npm run ops:safety:analysis-boundary
       - name: Telegram routing policy audit
@@ -133,3 +137,22 @@ jobs:
             state/stage6-earnings-coverage-audit.*
             state/auto-scheduler-reliability-audit.*
             state/tsc-debt-report.*
+
+  puppeteer-offline-macos:
+    name: Puppeteer macOS offline compatibility (no providers)
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install exact lock without Puppeteer browser download
+        run: npm ci
+      - name: macOS scheduled Node and ws static contract
+        run: node scripts/test-scheduled-puppeteer-runtime-contract.mjs
+      - name: macOS installed Chrome CDP and BiDi smoke (data page only)
+        run: node scripts/test-scheduled-puppeteer-offline-browser.mjs

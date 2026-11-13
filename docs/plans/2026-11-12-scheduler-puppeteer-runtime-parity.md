@@ -1,28 +1,25 @@
-# Issue #61 — Scheduled Puppeteer runtime compatibility proof (bounded proposal)
+# Issue #61 — Scheduled Puppeteer runtime source compatibility proposal
 
-Recorded 2026-11-12 KST. This is an **offline-focused proposal**, not permission to dispatch scheduled analysis or change live operational settings.
+Updated 2026-11-14 KST after user-approved security PR #60, Drive-token PR #65 and ws override PR #67 merges. This is a **source-only, offline-verified proposal**. PR #62 is **Draft/unmerged**; no authorization for an actual scheduled provider run or PAPER/LIVE execution is implied.
 
-## Verified baseline and dependency
-- Latest inspected source `main`: `b1fb609d762274c50824681f555095c78cf2b3b4`.
-- This branch is **stacked on unmerged security Draft PR #60** (HEAD `18a9f98115cf786bf9dab65b79f425ad4a3f0c15`) so CI can exercise the patched, zero-audit dependency lock. **Do not merge this stacked PR before PR #60's separately approved merge and fresh rebase/retargeting.**
-- `schedule.yml` job `alpha-mining` uses Node **20** at the baseline, yet `puppeteer-core 25.6.0` (baseline) and `25.13.0` (PR #60) both require Node `>=22.12.0`.
-- Existing scheduled runner uses `npm install`, not `npm ci`, reportedly due to earlier lockfile incompatibility. **Do not silently switch the installer** without deterministic evidence and historical-context review.
-- Existing override `ws@^8.0.0: 8.21.0` and locked `node_modules/ws 8.21.0` are below Puppeteer core's historical `^8.21.1` and security-PR `^8.21.3` requirements. The initial browser smoke from PR #60 is not proof of all WS features or scheduled execution. This remains **KNOWN_WS_OVERRIDE_HOLD**, not PASS.
+## Baseline, lineage and scope
 
-## Changes in this stacked PR
-1. Switch only `alpha-mining` setup-node from `20` to `22`; leave daily gate, cron, dispatch conditions, providers, accounts and credentials unchanged.
-2. Add `scripts/test-scheduled-puppeteer-runtime-contract.mjs`, an offline static proof with synthetic Node20/21 and ws drift negatives. Print a **separate explicit HOLD** for the known ws mismatch instead of falsely treating global CI success as WS compatibility.
-3. Add `scripts/test-scheduled-puppeteer-offline-browser.mjs`: disposable CI Chrome launch using CDP and WebDriver BiDi, a single `data:` HTML document, blocked HTTP(S) page requests and no keys/external providers. Its `--no-sandbox` flag applies only inside the CI fixture, not to the production workflow.
-4. Register both checks in the pre-existing PR-only `analysis-safety-ci.yml` workflow following `npm ci` and audit. The browser fixture must fail rather than claim success if Chrome is absent or cannot start.
-   - CI browser selection first checks Puppeteer's managed binary, then the **already installed** GitHub runner system Chrome/Chromium. The 2026-11-12 Ubuntu runner image documents system Chrome **156.0.8078.79** while Puppeteer 25.13.0 prefers Chrome 155; tests therefore demonstrate disposable compatibility, **not exact preferred-browser revision parity**. The fixture does not download Chrome, and asserts zero HTTP(S) requests from its test page. It is not a full operating-system egress sandbox.
+- Current main baseline at reconciliation: `cc6d822b5d4c35fd5f5bf4026b02ce22526af56e`. PR #60 and PR #65 are already merged; **both security audit and Drive-token polling regression steps must remain in CI**.
+- Dependency PR #67 merged with `ws@^8.0.0 -> 8.21.3`; `puppeteer-core 25.13.0` requires `ws ^8.21.3`; `@google/genai 1.39.0` requires `ws ^8.18.0`. These declarations are satisfied in the merged lockfile. The offline contract now **fails** if a previously known ws mismatch recurs rather than printing an acceptable HOLD.
+- Current main scheduled `alpha-mining` job still uses Node **20**, while Puppeteer requires **>=22.12.0**. This PR changes **only this job's** `actions/setup-node` major to `22`. It does not change the separate jobs, cron, triggers, provider integrations, budgets, stage gates, auth flows, Secrets, or trading HOLD.
+- The scheduled job still uses `npm install` because of a historical lockfile-mismatch comment. This PR deliberately leaves it unchanged. npm CI reproducibility and the scheduled installer are separate proof boundaries.
 
-## Acceptance, risk and next boundary
-- Tests and exact-HEAD GitHub CI must complete. If Chrome smoke fails, report the blocker and correct only within this isolated PR without weakening other checks.
-- Scheduled Node22 *source* configuration is not operational runtime proof. New main push CI after a user-approved merge is necessary but not a live analysis/Chrome/paid provider end-to-end attestation.
-- Updating Node20->22 affects future scheduled workflow environment **only if separately source-merged** and may have runtime compatibility risk for code outside this fixture. A direct production workflow rerun is NOT allowed by this PR.
-- `ws` override requires a separate, reproducibly npm-generated override+lockfile patch (recommended `8.21.3` or a tested supported security-compatible version), all-dependent graph verification, offline network-restricted browser smoke, `npm ci`, `npm audit` and full CI. Do not fake lock integrity fields, weaken existing security overrides, or force the dependency graph.
-- Resolve the existing `npm install`/lockfile reproducibility gap only in a separate reviewed change after a clear historical reason and offline performance/compatibility test; no schedule or provider changes.
-- Existing `AGENTS.md` safety, broker/order HOLD and explicit user PR-specific merge authorization remain effective.
+## Offline integration evidence and tests
 
-## Rollback
-Revert this proposed schedule/fixture change via a separate reviewed PR; retain all prior security/audit artifacts and do not rewrite production run history.
+1. The existing `analysis-safety` Ubuntu job retains merged PR #65's Drive token rotation and web bundle steps and adds Node engine/ws and disposable Chrome CDP/BiDi tests before those existing steps.
+2. A **separate targeted macOS GitHub-hosted CI job** runs Node22, clean `PUPPETEER_SKIP_DOWNLOAD=true npm ci`, static engine/ws contract and disposable CDP/BiDi Chrome smoke. It uses only browser executables already installed on the runner; no Puppeteer browser download and no provider credentials. Do not mistake npm package downloads for a full network isolation proof.
+3. Browser path discovery awaits the Puppeteer 25 async `executablePath()` and accepts explicit `PUPPETEER_EXECUTABLE_PATH`, Linux system paths, and macOS application binaries. Invalid explicit paths fail closed. Linux CI's `--no-sandbox` flags apply only to the disposable CI fixture and are **not** set in the scheduled production workflow. macOS does not receive those Linux-only flags.
+4. Both browser protocols navigate only a local `data:` HTML fixture; browser page HTTP(S) requests are intercepted, denied and counted. This is not an OS-level egress firewall and does **not** certify a provider-integrated production run.
+5. CI must prove Linux and macOS exact-head results; failure or missing Chrome is a blocker and cannot be waived as PASS. The already observed Linux Chrome and current macOS system Chrome are **not guaranteed to equal Puppeteer's preferred Chrome 155.0.8059.39** for v25.13.0. Smoke success only verifies exercised behavior.
+
+## Merge, risks, and rollback
+
+- Do not merge PR #62 without a **distinct user PR-specific source-merge approval**, an independent exact-HEAD code review and GitHub CI checks.
+- Merging this source-only PR would alter future scheduled job Node runtime. It is **not** permission to trigger or manually replay any actual analysis, change providers, modify Google Drive, or enable PAPER/LIVE. These permissions remain separately gated.
+- After source merge, verify fresh new-main push CI. Keep broader Issue #61 open until scheduled installer and operational runtime evidence are separately verified without weakening HOLD.
+- Rollback is a separately approved reviewed revert; do not rewrite Git history or revert merged security/Drive-token fixes. Reverting Node22 restores the known unsupported Node20/Puppeteer engine mismatch.
