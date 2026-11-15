@@ -155,6 +155,8 @@ const classifyQuote = (row, referenceTime, quoteFreshnessMaxAgeMs) => {
   const rawTimestamp = row?.quoteTimestamp ?? row?.quoteAsOf;
   const quoteAsOf = normalizeIso(rawTimestamp);
   const hasTimestamp = rawTimestamp !== null && rawTimestamp !== undefined && rawTimestamp !== '' && Number(rawTimestamp) !== 0;
+  const quoteRetrievedAtRaw = row?.quoteRetrievedAt;
+  const quoteRetrievedAt = normalizeIso(quoteRetrievedAtRaw);
   const referenceIso = normalizeIso(referenceTime);
   const quoteMs = Date.parse(String(quoteAsOf || ''));
   const referenceMs = Date.parse(String(referenceIso || ''));
@@ -172,12 +174,15 @@ const classifyQuote = (row, referenceTime, quoteFreshnessMaxAgeMs) => {
   else if (!hasTimestamp) quoteEvidenceStatus = 'QUOTE_TIMESTAMP_MISSING';
   else if (!quoteAsOf || !referenceIso) quoteEvidenceStatus = 'QUOTE_EVIDENCE_INVALID';
   else if (quoteFreshnessStatus === 'FUTURE') quoteEvidenceStatus = 'QUOTE_TIMESTAMP_FUTURE';
-  else if (quoteFreshnessStatus === 'STALE') quoteEvidenceStatus = 'QUOTE_TIMESTAMP_STALE';
+  else if (!quoteRetrievedAtRaw) quoteEvidenceStatus = 'QUOTE_RETRIEVAL_TIMESTAMP_MISSING';
+  else if (!quoteRetrievedAt || quoteRetrievedAt < quoteAsOf || quoteRetrievedAt > referenceIso) {
+    quoteEvidenceStatus = 'QUOTE_EVIDENCE_INVALID';
+  } else if (quoteFreshnessStatus === 'STALE') quoteEvidenceStatus = 'QUOTE_TIMESTAMP_STALE';
 
   return {
     quoteSource,
     quoteAsOf,
-    quoteRetrievedAt: normalizeIso(row?.quoteRetrievedAt),
+    quoteRetrievedAt,
     quoteFreshnessStatus,
     quoteEvidenceStatus
   };
@@ -227,6 +232,8 @@ const classifyTarget = (row, referenceTime) => {
   const targetSource = normalizeSource(row?.targetSource ?? row?.targetMeanPriceSource);
   const rawTargetAsOf = row?.targetAsOf ?? row?.targetMeanPriceAsOf;
   const targetAsOf = normalizeIso(rawTargetAsOf);
+  const rawTargetRetrievedAt = row?.targetRetrievedAt ?? row?.targetMeanPriceRetrievedAt;
+  const targetRetrievedAt = normalizeIso(rawTargetRetrievedAt);
   const sourceStatus = normalizeText(row?.targetAsOfStatus ?? row?.targetMeanPriceAsOfStatus).toUpperCase();
   const referenceIso = normalizeIso(referenceTime);
 
@@ -239,12 +246,16 @@ const classifyTarget = (row, referenceTime) => {
     targetEvidenceStatus = 'TARGET_EVIDENCE_INVALID';
   } else if (targetAsOf > referenceIso) {
     targetEvidenceStatus = 'TARGET_TIMESTAMP_FUTURE';
+  } else if (!rawTargetRetrievedAt) {
+    targetEvidenceStatus = 'TARGET_RETRIEVAL_TIMESTAMP_MISSING';
+  } else if (!targetRetrievedAt || targetRetrievedAt < targetAsOf || targetRetrievedAt > referenceIso) {
+    targetEvidenceStatus = 'TARGET_EVIDENCE_INVALID';
   }
 
   return {
     targetSource,
     targetAsOf,
-    targetRetrievedAt: normalizeIso(row?.targetRetrievedAt ?? row?.targetMeanPriceRetrievedAt),
+    targetRetrievedAt,
     targetAsOfStatus: sourceStatus || null,
     targetEvidenceStatus
   };
