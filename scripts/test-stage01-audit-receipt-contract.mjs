@@ -26,7 +26,26 @@ const check = (label, mutate, expected) => {
   assert.ok(result.issues.includes(expected), label + ': ' + JSON.stringify(result.issues));
   assert.equal(result.requestCount, 0);
 };
-assert.equal(auditStage01Receipts(valid()).verdict, 'PASS_EVIDENCE_ONLY'); // A01 A02
+const selfConsistent = auditStage01Receipts(valid()); // A01 A02: consistency alone cannot attest provenance
+assert.equal(selfConsistent.verdict, 'CONSISTENT_UNATTESTED');
+assert.equal(selfConsistent.finalQualityJudgement, 'withheld');
+assert.equal(selfConsistent.provenanceAttested, false);
+assert.equal(selfConsistent.stageV2Validated, false);
+assert.equal(selfConsistent.status.stage0, 'PRESENT_SELF_CONSISTENT');
+assert.equal(selfConsistent.status.stage1, 'PRESENT_SELF_CONSISTENT');
+// Critical regression: plausible but entirely fabricated fixture hashes/Run values
+// must NEVER be promoted to evidence or investment-quality PASS.
+const forged = valid();
+forged.run.githubRunId = 987654321;
+forged.run.commitSha = 'f'.repeat(40);
+forged.stage0.origin = { ...forged.run };
+forged.stage1.origin = { ...forged.run };
+forged.stage0.expectedRawSha256 = H(forged.stage0.bytes);
+forged.stage1.expectedRawSha256 = H(forged.stage1.bytes);
+const forgedResult = auditStage01Receipts(forged);
+assert.equal(forgedResult.verdict, 'CONSISTENT_UNATTESTED');
+assert.equal(forgedResult.finalQualityJudgement, 'withheld');
+assert.equal(forgedResult.provenanceAttested, false);
 check('A03 raw tamper', v => { v.stage0.bytes = new Uint8Array([...v.stage0.bytes, 32]); }, 'STAGE0_RAW_SHA_MISMATCH');
 check('A04 historical not exported', v => { v.stage0 = { availability: 'NOT_EXPORTED' }; }, 'CHAIN_INCOMPLETE');
 check('A05 source hash forged', v => { v.stage1.sourceStage0RawSha256 = h('f'); }, 'STAGE1_SOURCE_RAW_SHA_UNBOUND');
@@ -46,4 +65,4 @@ const absent = auditStage01Receipts({ run, stage0: { availability: 'NOT_EXPORTED
 assert.equal(absent.verdict, 'WITHHELD');
 assert.equal(absent.status.stage0, 'NOT_EXPORTED');
 assert.equal(absent.status.stage1, 'NOT_EXPORTED'); // A14
-console.log('[STAGE01_AUDIT_RECEIPT] PASS (offline; raw SHA, PIT, provenance, skip/export negatives; requests=0)');
+console.log('[STAGE01_AUDIT_RECEIPT] PASS (offline fail-closed; untrusted receipt cannot attest provenance; raw SHA/PIT/skip/export negatives; requests=0)');
