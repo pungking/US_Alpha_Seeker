@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { auditStage01Receipts } from '../services/stage01AuditReceiptContract.mjs';
+import { auditStage01Receipts, auditStage01ReceiptsWithV2 } from '../services/stage01AuditReceiptContract.mjs';
 
 const H = s => createHash('sha256').update(s).digest('hex');
 const h = k => k.repeat(64);
@@ -65,4 +65,56 @@ const absent = auditStage01Receipts({ run, stage0: { availability: 'NOT_EXPORTED
 assert.equal(absent.verdict, 'WITHHELD');
 assert.equal(absent.status.stage0, 'NOT_EXPORTED');
 assert.equal(absent.status.stage1, 'NOT_EXPORTED'); // A14
+
+// STEP #AS-INTEGRATION-38: independent v2 contract check must reject a
+// self-consistent synthetic manifest with arbitrary 64-hex hash claims.
+const fakeV2 = await auditStage01ReceiptsWithV2(valid());
+assert.equal(fakeV2.verdict, 'WITHHELD');
+assert.equal(fakeV2.stageV2Validated, false);
+assert.equal(fakeV2.provenanceAttested, false);
+assert.equal(fakeV2.anchorAttested, false);
+assert.equal(fakeV2.finalQualityJudgement, 'withheld');
+assert.ok(fakeV2.issues.includes('STAGE0_V2_CONTRACT_INVALID'));
+assert.ok(fakeV2.issues.includes('STAGE1_V2_CONTRACT_INVALID'));
+assert.ok(fakeV2.v2Reasons.stage0.length > 0);
+assert.ok(fakeV2.v2Reasons.stage1.length > 0);
+// Fabricated anchors, even when syntactically plausible, are not trusted.
+const forgedV2 = await auditStage01ReceiptsWithV2({
+  ...forged, trusted: true, anchorAttested: true,
+  signedAnchor: { ...forged.run, trusted: true, sha256: H(forged.stage0.bytes) }
+});
+assert.equal(forgedV2.verdict, 'WITHHELD');
+assert.equal(forgedV2.anchorAttested, false);
+assert.equal(forgedV2.provenanceAttested, false);
+// Cross-Run Stage0 producer and Stage1 consumer cannot be implicitly approved.
+const otherRun = valid();
+otherRun.stage1.origin.githubRunId += 1;
+const otherRunResult = await auditStage01ReceiptsWithV2(otherRun);
+assert.equal(otherRunResult.verdict, 'WITHHELD');
+assert.ok(otherRunResult.issues.includes('STAGE1_CROSS_RUN_MISMATCH'));
+const otherAttempt = valid();
+otherAttempt.stage1.origin.runAttempt += 1;
+assert.equal((await auditStage01ReceiptsWithV2(otherAttempt)).verdict, 'WITHHELD');
+// Missing/exported-not/skipped cannot be silently treated as verified.
+for (const availability of ['MISSING', 'SKIPPED', 'NOT_EXPORTED']) {
+  const incomplete = valid();
+  incomplete.stage0 = { availability };
+  const out = await auditStage01ReceiptsWithV2(incomplete);
+  assert.equal(out.verdict, 'WITHHELD');
+  assert.equal(out.status.stage0, availability);
+  assert.equal(out.stageV2Validated, false);
+}
+for (const mutate of [
+  v => { v.stage1.sourceStage0RawSha256 = h('f'); },
+  v => { v.stage0.expectedRawSha256 = h('f'); },
+  v => { const b = structuredClone(s1); b.manifest.decisionAt = '2026-11-13T16:00:00Z'; v.stage1 = { ...item(v.stage1.fileName, encode(b)), sourceStage0RawSha256: H(raw0) }; }
+]) {
+  const input = valid(); mutate(input);
+  const out = await auditStage01ReceiptsWithV2(input);
+  assert.equal(out.verdict, 'WITHHELD');
+  assert.equal(out.finalQualityJudgement, 'withheld');
+}
+assert.deepEqual(await auditStage01ReceiptsWithV2(valid()), await auditStage01ReceiptsWithV2(valid()));
+console.log('[STAGE01_V2_COMPOUND_AUDIT] PASS (v2 contract rejection, forged anchors, cross-run, PIT, skip/export; authenticated provenance=HOLD)');
+
 console.log('[STAGE01_AUDIT_RECEIPT] PASS (offline fail-closed; untrusted receipt cannot attest provenance; raw SHA/PIT/skip/export negatives; requests=0)');
