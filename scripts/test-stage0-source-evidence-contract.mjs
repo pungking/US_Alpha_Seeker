@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -758,3 +759,111 @@ console.log('[STAGE0_SOURCE_EVIDENCE_CONTRACT] PASS');
 
 // AS-INTEGRATION-36: report-only receipt acceptance, no producer/consumer or workflow changes.
 await import('./test-stage01-audit-receipt-contract.mjs');
+
+
+// STEP AS-INTEGRATION-39: true positive for both existing v2 validators,
+// using the same 26-source Stage0 producer fixture, not fake manifest hashes.
+// Observed anchors and handoff metadata below are *synthetic*; correlation is
+// explicitly UNATTESTED and must never become market/execution quality PASS.
+const { buildStage1Artifact: buildStage1ForAudit, validateStage1ArtifactForStage2: validateStage1ForAudit } =
+  await import('../services/stage1PointInTimeFilterContract.mjs');
+const { auditStage01ObservedHandoff } =
+  await import('../services/stage01AuditReceiptContract.mjs');
+const approvedRowsForAudit = appliedLineage.rows.map(row => ({
+  ...row,
+  instrumentType: 'common',
+  analysisEligible: true,
+  volume: 500_000,
+  marketCap: 500_000_000,
+  pe: 15,
+  roe: 12,
+  quoteAsOf: '2026-08-26T09:00:00.000Z'
+}));
+const fullStage0ForAudit = await buildStage0Artifact({
+  generatedAt: GENERATED_AT,
+  sourceFiles: completeSources,
+  universe: approvedRowsForAudit,
+  eligibleUniverse: approvedRowsForAudit,
+  monitoringUniverse: [],
+  financialLineageContract: appliedLineage.contract
+});
+assert.equal((await validateStage0ArtifactForStage1(fullStage0ForAudit)).valid, true);
+const sourceNameForAudit = 'STAGE0_MASTER_UNIVERSE_FIXTURE.json';
+const fullStage1ForAudit = await buildStage1ForAudit({
+  decisionAt: '2026-08-26T10:01:56.970Z',
+  sourceStage0File: sourceNameForAudit,
+  sourceStage0Manifest: fullStage0ForAudit.manifest,
+  rows: fullStage0ForAudit.eligible_universe,
+  thresholds: { minPrice: 2, minVolume: 350_000, thresholdSource: 'MANUAL_CAPTURED' }
+});
+const v1Audit = await validateStage1ForAudit(fullStage1ForAudit);
+assert.equal(v1Audit.valid, true, v1Audit.reasons.join(','));
+assert.equal(fullStage1ForAudit.investable_universe.length, 26);
+const encodeAudit = obj => new TextEncoder().encode(JSON.stringify(obj));
+const raw0Audit = encodeAudit(fullStage0ForAudit);
+const raw1Audit = encodeAudit(fullStage1ForAudit);
+const digestAudit = data => crypto.createHash('sha256').update(data).digest('hex');
+const originAudit = (githubRunId, runAttempt, commitSha) => ({
+  repository: 'pungking/US_Alpha_Seeker', workflow: 'synthetic-offline-fixture',
+  githubRunId, runAttempt, commitSha
+});
+const anchorAudit = (origin, artifactId, fileName, bytes) => ({
+  ...origin, artifactId, artifactName: 'synthetic-stage-evidence',
+  fileName, innerSha256: digestAudit(bytes), zipSha256: 'a'.repeat(64)
+});
+const sameShaAudit = 'b'.repeat(40);
+const buildObservedAudit = (crossRun = false) => {
+  const o0 = originAudit(17, 1, sameShaAudit);
+  const o1 = crossRun ? originAudit(18, 2, 'c'.repeat(40)) : originAudit(17, 1, sameShaAudit);
+  const stage0FileName = sourceNameForAudit;
+  const stage1FileName = 'STAGE1_PURIFIED_UNIVERSE_FIXTURE.json';
+  return {
+    stage0: { availability: 'PRESENT', bytes: raw0Audit, fileName: stage0FileName,
+      expectedRawSha256: digestAudit(raw0Audit), origin: { ...o0 } },
+    stage1: { availability: 'PRESENT', bytes: raw1Audit, fileName: stage1FileName,
+      expectedRawSha256: digestAudit(raw1Audit), origin: { ...o1 } },
+    observations: {
+      stage0: anchorAudit(o0, 1001, stage0FileName, raw0Audit),
+      stage1: anchorAudit(o1, 1002, stage1FileName, raw1Audit)
+    },
+    handoff: {
+      sourceRunId: o0.githubRunId, sourceAttempt: o0.runAttempt,
+      consumerRunId: o1.githubRunId, consumerAttempt: o1.runAttempt,
+      stage0RawSha256: digestAudit(raw0Audit), stage1RawSha256: digestAudit(raw1Audit),
+      stage0ManifestRunId: fullStage0ForAudit.manifest.runId,
+      stage1ManifestRunId: fullStage1ForAudit.manifest.runId,
+      sourceStage0File: stage0FileName
+    }
+  };
+};
+for (const crossRun of [false, true]) {
+  const candidate = buildObservedAudit(crossRun);
+  const observation = await auditStage01ObservedHandoff(candidate);
+  assert.equal(observation.verdict, 'CORRELATED_UNATTESTED', JSON.stringify(observation));
+  assert.equal(observation.stageV2Validated, true);
+  assert.equal(observation.provenanceAttested, false);
+  assert.equal(observation.anchorAttested, false);
+  assert.equal(observation.finalQualityJudgement, 'withheld');
+  assert.equal(observation.requestCount, 0);
+}
+const expectHandoffWithheld = async (name, mutate, expected) => {
+  const v = buildObservedAudit(true);
+  mutate(v);
+  const result = await auditStage01ObservedHandoff(v);
+  assert.equal(result.verdict, 'WITHHELD', name);
+  assert.ok(result.issues.includes(expected), name + ': ' + JSON.stringify(result.issues));
+  assert.equal(result.finalQualityJudgement, 'withheld');
+  assert.equal(result.provenanceAttested, false);
+};
+await expectHandoffWithheld('forged SHA', v => { v.observations.stage0.innerSha256 = 'f'.repeat(64); }, 'STAGE0_OBSERVATION_MISMATCH');
+await expectHandoffWithheld('forged run', v => { v.observations.stage1.githubRunId++; }, 'STAGE1_OBSERVATION_MISMATCH');
+await expectHandoffWithheld('forged attempt', v => { v.observations.stage1.runAttempt++; }, 'STAGE1_OBSERVATION_MISMATCH');
+await expectHandoffWithheld('forged commit', v => { v.observations.stage1.commitSha = 'd'.repeat(40); }, 'STAGE1_OBSERVATION_MISMATCH');
+await expectHandoffWithheld('missing edge', v => { v.handoff = null; }, 'HANDOFF_EDGE_UNVERIFIED');
+await expectHandoffWithheld('wrong handoff', v => { v.handoff.stage0RawSha256 = 'f'.repeat(64); }, 'HANDOFF_EDGE_UNVERIFIED');
+await expectHandoffWithheld('stage0 tampering', v => { v.stage0.bytes = new Uint8Array([...v.stage0.bytes, 32]); }, 'STAGE0_OBSERVATION_MISMATCH');
+await expectHandoffWithheld('stage1 tampering', v => { v.stage1.bytes = new Uint8Array([...v.stage1.bytes, 32]); }, 'STAGE1_OBSERVATION_MISMATCH');
+await expectHandoffWithheld('skip', v => { v.stage1 = { availability: 'SKIPPED' }; }, 'STAGE1_ORIGINAL_MISSING');
+await expectHandoffWithheld('not exported', v => { v.stage0 = { availability: 'NOT_EXPORTED' }; }, 'STAGE0_ORIGINAL_MISSING');
+await expectHandoffWithheld('missing', v => { v.stage0 = { availability: 'MISSING' }; }, 'STAGE0_ORIGINAL_MISSING');
+console.log('[STAGE01_OBSERVED_HANDOFF] PASS (valid dual v2; synthetic same/cross-run correlation; forged anchors/edge/raw bytes fail closed; trust withheld)');
