@@ -754,6 +754,23 @@ function deriveStageVerdicts(stages, subreports, runtimeProof) {
 
 function dataHealthFindings(stageDataHealth) {
   const findings = [];
+  // Absence of an auditable source or any market-data rows is not freshness proof.
+  // Keep the existing age thresholds and status policy; add only a report finding.
+  for (const stage of Object.keys(STAGE_CONFIGS)) {
+    const health = stageDataHealth?.[stage];
+    const rows = Number(health?.rows);
+    if (!health?.source || !Number.isInteger(rows) || rows <= 0) {
+      findings.push({
+        stage,
+        category: 'stage_source_unverified',
+        field: 'source/rows',
+        finding: 'missing source artifact or no auditable rows',
+        range: `source=${health?.source ? 'present' : 'missing'}, rows=${Number.isInteger(rows) ? rows : 'unverified'}`,
+        severity: 'warn',
+        nextAction: 'refresh_same_run_stage_artifacts_before_policy_tuning'
+      });
+    }
+  }
   for (const [stage, health] of Object.entries(stageDataHealth)) {
     for (const [field, info] of Object.entries(health.scoreBounds || {})) {
       if (info.outOfBounds > 0) {
@@ -832,6 +849,7 @@ function deriveDataFreshnessPolicy(stageDataHealth) {
   const findings = dataHealthFindings(stageDataHealth);
   const staleFindings = findings.filter((item) => ['price_history_freshness', 'freshness_age'].includes(item.category));
   const parseFindings = findings.filter((item) => item.category === 'freshness_parse');
+  const missingSourceFindings = findings.filter((item) => item.category === 'stage_source_unverified');
   const missingPriceHistoryFindings = findings.filter((item) => item.category === 'price_history');
   const worstFreshnessAgeDays = Math.max(
     0,
@@ -852,7 +870,7 @@ function deriveDataFreshnessPolicy(stageDataHealth) {
   const staleFields = unique(staleFindings.map((item) => `${item.stage}.${item.field}`));
   const status = findings.length === 0
     ? 'pass_data_freshness_policy'
-    : parseFindings.length || missingPriceHistoryFindings.length
+    : missingSourceFindings.length || parseFindings.length || missingPriceHistoryFindings.length
       ? 'warn_data_lineage_or_price_history_gap'
       : staleFindings.length
         ? 'warn_stale_stage_artifacts_for_policy_tuning'
