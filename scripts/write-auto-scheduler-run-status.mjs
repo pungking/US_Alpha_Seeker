@@ -45,7 +45,8 @@ timing.scheduleBasis = external ? 'EXTERNAL_CALLER_ASSERTED_NOT_CALENDAR_VERIFIE
 const exitCode = process.env.AUTOMATION_EXIT_CODE ?? previous?.automation?.exitCode ?? null;
 const outcome = process.env.AUTOMATION_OUTCOME || previous?.automation?.outcome || 'unknown';
 const conclusion = process.env.AUTOMATION_CONCLUSION || previous?.automation?.conclusion || 'unknown';
-const completedSuccessfully = (outcome === 'success' && conclusion === 'success') || exitCode === '0';
+// An exit code by itself cannot override a failed or unknown automation conclusion.
+const completedSuccessfully = outcome === 'success' && conclusion === 'success' && exitCode === '0';
 
 const payload = {
   schemaVersion: 'auto_scheduler_run_status.v1',
