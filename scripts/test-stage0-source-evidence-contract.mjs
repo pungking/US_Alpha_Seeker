@@ -755,3 +755,6 @@ assert.ok(stage1Consumer.includes('validateStage0ArtifactForStage1'), 'Stage1 ma
 assert.match(stage1Consumer, /await validateStage0ArtifactForStage1\(content\)/);
 
 console.log('[STAGE0_SOURCE_EVIDENCE_CONTRACT] PASS');
+
+// AS-INTEGRATION-36: report-only receipt acceptance, no producer/consumer or workflow changes.
+await import('./test-stage01-audit-receipt-contract.mjs');
