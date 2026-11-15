@@ -68,6 +68,19 @@ try {
   fs.writeFileSync(json, JSON.stringify(status));
   const completed = write({ AUTOMATION_PHASE: 'completed', AUTOMATION_EXIT_CODE: '0' });
   const post = write({ AUTOMATION_PHASE: 'post_step' });
+  // Combined PR #71: completed status cannot override contradictory evidence.
+  assert.equal(write({ AUTOMATION_PHASE: 'post_step', AUTOMATION_OUTCOME: 'failure',
+    AUTOMATION_CONCLUSION: 'failure', AUTOMATION_EXIT_CODE: '0' }).automation.completedSuccessfully, false,
+  'exit code zero must not override failed outcome/conclusion');
+  assert.equal(write({ AUTOMATION_PHASE: 'post_step', AUTOMATION_OUTCOME: 'success',
+    AUTOMATION_CONCLUSION: 'failure', AUTOMATION_EXIT_CODE: '0' }).automation.completedSuccessfully, false,
+  'failed conclusion must block false success');
+  assert.equal(write({ AUTOMATION_PHASE: 'post_step', AUTOMATION_OUTCOME: 'success',
+    AUTOMATION_CONCLUSION: 'success', AUTOMATION_EXIT_CODE: '1' }).automation.completedSuccessfully, false,
+  'nonzero exit must block false success');
+  assert.equal(write({ AUTOMATION_PHASE: 'post_step', AUTOMATION_OUTCOME: 'success',
+    AUTOMATION_CONCLUSION: 'success', AUTOMATION_EXIT_CODE: '0' }).automation.completedSuccessfully, true,
+  'coherent successful outcome must stay successful');
   assert.equal(completed.timing.durationsSeconds.stage6ToTelegram, 5);
   assert.deepEqual(post.timing.events, completed.timing.events);
   assert.equal(post.timing.scheduledFor, at(0));
