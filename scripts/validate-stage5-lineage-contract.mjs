@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
 const sourcePath = 'components/IctAnalysis.tsx';
@@ -86,11 +87,17 @@ function verifyFullAuditLineage() {
   const outJson = path.join(tmp, 'full-audit.json');
   const outMd = path.join(tmp, 'full-audit.md');
 
+  const byteSha = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
   writeJson(stage3, { manifest: { timestamp: '2099-01-02T09:30:00Z' }, fundamental_universe: [{ symbol: 'TEST' }] });
-  writeJson(stage4, { manifest: { sourceStage3File: path.basename(stage3), timestamp: '2099-01-02T09:40:00Z' }, technical_universe: [{ symbol: 'TEST' }] });
+  writeJson(stage4, { manifest: {
+    sourceStage3File: path.basename(stage3),
+    sourceStage3ContentSha256: byteSha(stage3),
+    timestamp: '2099-01-02T09:40:00Z'
+  }, technical_universe: [{ symbol: 'TEST' }] });
   writeJson(stage5, {
     manifest: {
       sourceStage4File: path.basename(stage4),
+      sourceStage4ContentSha256: byteSha(stage4),
       sourceStage4FileId: 'stage4-file-id-fixture',
       sourceStage4Timestamp: '2099-01-02T09:40:00Z',
       sourceStage4SourceStage3File: path.basename(stage3),
@@ -101,7 +108,7 @@ function verifyFullAuditLineage() {
     ict_universe: [{ symbol: 'TEST' }]
   });
   writeJson(stage6, {
-    manifest: { sourceStage5File: path.basename(stage5), timestamp: '2099-01-02T10:00:00Z' },
+    manifest: { sourceStage5File: path.basename(stage5), sourceStage5ContentSha256: byteSha(stage5), timestamp: '2099-01-02T10:00:00Z' },
     execution_contract: {
       modelTop6: [{
         symbol: 'TEST',
@@ -140,7 +147,9 @@ function verifyFullAuditLineage() {
 
   const audit = JSON.parse(fs.readFileSync(outJson, 'utf8'));
   const lineage = audit.lineage || {};
-  if (lineage.status !== 'pass_same_run_lineage' || lineage.stage5MatchesStage4 !== true) {
+  if (lineage.status !== 'pass_same_run_lineage' || lineage.stage5MatchesStage4 !== true
+      || Object.values(lineage.contentSha256Matches || {}).length !== 3
+      || !Object.values(lineage.contentSha256Matches).every((value) => value === true)) {
     throw new Error(`lineage fixture expected pass_same_run_lineage with stage5MatchesStage4=true, got ${JSON.stringify(lineage)}`);
   }
   if (audit.stageVerdicts?.Stage6?.rows !== 1) {
