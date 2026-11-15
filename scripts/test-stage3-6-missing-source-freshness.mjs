@@ -93,3 +93,4 @@ for (const report of [empty, partial, completeFixture]) {
   assert.equal(report.safety.stateMutationAllowed, false);
 }
 console.log('[STAGE36_MISSING_SOURCE_FRESHNESS] PASS (no source=no freshness PASS, partial missing, synthetic complete; provider/Drive/broker calls=0)');
+await import('./test-stage3-6-byte-lineage.mjs');
