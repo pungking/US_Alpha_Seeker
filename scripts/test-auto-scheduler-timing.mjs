@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import vm from 'node:vm';
 import { recordAutoTiming, sanitizeTimingEvents, summarizeAutoTiming } from '../services/autoSchedulerTiming.mjs';
+import { isVerifiedStage4ReadyHandoff } from '../services/stage4ReadyHandoffContract.mjs';
 
 const at = n => new Date(Date.UTC(2026, 8, 28, 12, 0, n)).toISOString();
 globalThis.window = { __AUTO_TIMING: {} };
@@ -67,6 +68,19 @@ try {
   fs.writeFileSync(json, JSON.stringify(status));
   const completed = write({ AUTOMATION_PHASE: 'completed', AUTOMATION_EXIT_CODE: '0' });
   const post = write({ AUTOMATION_PHASE: 'post_step' });
+  // Combined PR #71: completed status cannot override contradictory evidence.
+  assert.equal(write({ AUTOMATION_PHASE: 'post_step', AUTOMATION_OUTCOME: 'failure',
+    AUTOMATION_CONCLUSION: 'failure', AUTOMATION_EXIT_CODE: '0' }).automation.completedSuccessfully, false,
+  'exit code zero must not override failed outcome/conclusion');
+  assert.equal(write({ AUTOMATION_PHASE: 'post_step', AUTOMATION_OUTCOME: 'success',
+    AUTOMATION_CONCLUSION: 'failure', AUTOMATION_EXIT_CODE: '0' }).automation.completedSuccessfully, false,
+  'failed conclusion must block false success');
+  assert.equal(write({ AUTOMATION_PHASE: 'post_step', AUTOMATION_OUTCOME: 'success',
+    AUTOMATION_CONCLUSION: 'success', AUTOMATION_EXIT_CODE: '1' }).automation.completedSuccessfully, false,
+  'nonzero exit must block false success');
+  assert.equal(write({ AUTOMATION_PHASE: 'post_step', AUTOMATION_OUTCOME: 'success',
+    AUTOMATION_CONCLUSION: 'success', AUTOMATION_EXIT_CODE: '0' }).automation.completedSuccessfully, true,
+  'coherent successful outcome must stay successful');
   assert.equal(completed.timing.durationsSeconds.stage6ToTelegram, 5);
   assert.deepEqual(post.timing.events, completed.timing.events);
   assert.equal(post.timing.scheduledFor, at(0));
@@ -96,13 +110,37 @@ try {
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
 }
+// Harvester emits both canonical and original-content hashes. Stage4 must
+// bind the ready signal to the original Stage3 bytes, not only its filename.
+const stage3BytesHash = 'a'.repeat(64);
+const validReady = {
+  status: 'COMPLETED',
+  trigger_file: 'STAGE3_FUNDAMENTAL_FULL_fixture.json',
+  trigger_content_hash_basis: 'UTF8_JSON_BYTES',
+  trigger_content_sha256: stage3BytesHash,
+  trigger_sha256: 'b'.repeat(64),
+};
+const isReady = (ready = validReady, file = validReady.trigger_file, hash = stage3BytesHash) =>
+  isVerifiedStage4ReadyHandoff(ready, file, hash);
+assert.equal(isReady(), true);
+assert.equal(isReady({ ...validReady, trigger_content_sha256: 'c'.repeat(64) }), false);
+assert.equal(isReady({ ...validReady, trigger_content_sha256: undefined }), false);
+assert.equal(isReady({ ...validReady, trigger_content_hash_basis: 'CANONICAL_JSON' }), false);
+assert.equal(isReady({ ...validReady, status: 'PROCESSING' }), false);
+assert.equal(isReady({ ...validReady, trigger_file: 'STAGE3_OTHER.json' }), false);
+assert.equal(isReady(validReady, validReady.trigger_file, null), false);
+assert.equal(isReady({ ...validReady, trigger_sha256: 'b'.repeat(64), trigger_content_sha256: 'd'.repeat(64) }), false);
+assert.equal(isReady(null), false);
+
 const app = fs.readFileSync('App.tsx', 'utf8');
 const fundamental = fs.readFileSync('components/FundamentalAnalysis.tsx', 'utf8');
 const alpha = fs.readFileSync('components/AlphaAnalysis.tsx', 'utf8');
 const automation = fs.readFileSync('automate.js', 'utf8');
 assert.match(app, /if \(delivery.deliverySucceeded\) recordAutoTiming\('TELEGRAM_DELIVERED'\)/);
-assert.match(fundamental, /readyData\?\.trigger_file === expectedTriggerFile\) \{\s*recordAutoTiming\('STAGE4_READY_OBSERVED'\)/);
+assert.match(fundamental, /if \(isVerifiedStage4ReadyHandoff\(readyData, expectedTriggerFile, expectedContentSha256\)\) \{\s*recordAutoTiming\('STAGE4_READY_OBSERVED'\)/);
 assert.match(fundamental, /if \(dispatchResult.ok\) \{\s*recordAutoTiming\('HARVESTER_DISPATCHED'\)/);
+assert.match(fundamental, /pendingStage4ContentSha256Ref\.current = triggerFileSha256;/);
+assert.match(fundamental, /pendingStage4ContentSha256Ref\.current = null;/);
 assert.match(alpha, /await uploadFile\(accessToken, stage6FolderId, stage6FinalFileName, finalPayload, finalPayloadJson\);\s*recordAutoTiming\('STAGE6_PERSISTED'\)/);
 assert.match(automation, /finally \{\s*try \{ await persistTiming\(\)/);
 assert.match(automation, /catch \(error\) \{\s*try \{ await persistTiming\(\)/);
