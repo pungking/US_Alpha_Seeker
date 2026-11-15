@@ -10920,7 +10920,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               stage6Hash: stage6FinalHash,
               stage6HashAlgo,
               stage6HashShort: stage6FinalHash.slice(0, 12),
-              sourceRunId: stage6FinalRunIdRef.current || getKstTimestamp(),
+              // GitHub run ID, not the local Stage6 timestamp: downstream sourceRunId is provenance.
+              sourceRunId: stage6BuildSourceAudit.runId || '',
               sourceSha: stage6BuildSourceAudit.sha,
               buildSource: stage6BuildSourceAudit,
               generatedAt: new Date().toISOString(),
