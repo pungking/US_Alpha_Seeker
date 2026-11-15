@@ -798,7 +798,11 @@ const fullStage1ForAudit = await buildStage1ForAudit({
 });
 const v1Audit = await validateStage1ForAudit(fullStage1ForAudit);
 assert.equal(v1Audit.valid, true, v1Audit.reasons.join(','));
-assert.equal(fullStage1ForAudit.investable_universe.length, 26);
+// One of the 26 source rows has unresolved SEC lineage; Stage1 correctly
+// rejects it rather than weakening the financial evidence gate.
+assert.equal(fullStage0ForAudit.eligible_universe.length, 26);
+assert.equal(fullStage1ForAudit.investable_universe.length, 25);
+assert.equal(fullStage1ForAudit.manifest.evidenceBlockedRows, 1);
 const encodeAudit = obj => new TextEncoder().encode(JSON.stringify(obj));
 const raw0Audit = encodeAudit(fullStage0ForAudit);
 const raw1Audit = encodeAudit(fullStage1ForAudit);
