@@ -38,7 +38,9 @@ assert.match(interval[1], /const pollingToken\s*=\s*currentDriveProgressToken\(s
 assert.match(interval[1], /if\s*\(!pollingToken\)/);
 assert.match(interval[1], /checkProgress\(pollingToken,\s*systemMapId\)/);
 assert.doesNotMatch(interval[1], /checkProgress\(accessToken,/);
-assert.match(source, /readyData\?\.status\s*===\s*"COMPLETED"\s*&&\s*readyData\?\.trigger_file\s*===\s*expectedTriggerFile/,
-  'Stage4 ready signal must remain bound to the exact expected trigger');
+assert.match(source, /isVerifiedStage4ReadyHandoff\(readyData, expectedTriggerFile, expectedContentSha256\)/,
+  'Stage4 ready signal must stay bound to the exact expected trigger and Stage3 content hash');
+assert.match(source, /pendingStage4ContentSha256Ref\.current = triggerFileSha256;/,
+  'Stage3 original-content digest must be captured before dispatch');
 assert.match(source, /stopSyncPolling\(\);/);
 console.log('PASS Drive progress token rotation A->B->C, missing-token fail-closed, stable 10s polling and Stage4 trigger guard; externalRequests=0');
