@@ -85,7 +85,21 @@ export function auditStage01Receipts({ run, stage0, stage1 } = {}) {
     if (b.manifest.unresolvedPromotionRows !== 0 || b.manifest.downstreamPolicyChanged !== false) add('STAGE1_PROMOTION_INVALID');
   }
   if (!a || !b) add('CHAIN_INCOMPLETE');
-  const verified = issues.length === 0;
-  if (verified) { status.stage0 = 'PRESENT_VERIFIED'; status.stage1 = 'PRESENT_VERIFIED'; }
-  return { verdict: verified ? 'PASS_EVIDENCE_ONLY' : 'WITHHELD', finalQualityJudgement: verified ? 'evidence_only' : 'withheld', status, issues, observed, requestCount: 0 };
+  // All expected hashes and GitHub-origin fields above are caller-supplied.
+  // Even when internally consistent, they do not attest original-byte provenance,
+  // full Stage0/1 v2 validation, or an authenticated GitHub execution.
+  // Do not turn self-consistency into a quality, PIT, or execution PASS.
+  const consistent = issues.length === 0;
+  if (consistent) {
+    status.stage0 = 'PRESENT_SELF_CONSISTENT';
+    status.stage1 = 'PRESENT_SELF_CONSISTENT';
+  }
+  return {
+    verdict: consistent ? 'CONSISTENT_UNATTESTED' : 'WITHHELD',
+    finalQualityJudgement: 'withheld',
+    provenanceAttested: false,
+    stageV2Validated: false,
+    trustBasis: 'SELF_REPORTED_RECEIPT_UNAUTHENTICATED',
+    status, issues, observed, requestCount: 0
+  };
 }
