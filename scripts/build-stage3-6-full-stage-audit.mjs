@@ -619,6 +619,29 @@ function deriveLineage(stages) {
   if (stage5MatchesStage4 == null && !s5.missing && !s4.missing) incomplete.push('stage5_source_stage4_missing');
   if (stage6MatchesStage5 == null && !s6.missing && !s5.missing) incomplete.push('stage6_source_stage5_missing');
 
+  // Stage3–6 filename parity is not byte integrity. Bind each edge to the
+  // original, serialized upstream JSON SHA-256; never promote an unknown hash.
+  const contentSha256Matches = {};
+  for (const [edge, producer, consumer, expectedRaw] of [
+    ['stage4_source_stage3', s3, s4, s4.manifest.sourceStage3ContentSha256],
+    ['stage5_source_stage4', s4, s5, s5.manifest.sourceStage4ContentSha256],
+    ['stage6_source_stage5', s5, s6, s6.manifest.sourceStage5ContentSha256]
+  ]) {
+    if (producer.missing || consumer.missing) {
+      contentSha256Matches[edge] = null;
+      continue;
+    }
+    const expected = String(expectedRaw ?? '').trim();
+    const actual = String(producer.hash ?? '').trim();
+    if (!/^[a-f0-9]{64}$/.test(expected) || !/^[a-f0-9]{64}$/.test(actual)) {
+      incomplete.push(`${edge}_raw_sha256_missing_or_invalid`);
+      contentSha256Matches[edge] = null;
+    } else {
+      contentSha256Matches[edge] = expected === actual;
+      if (expected !== actual) mismatches.push(`${edge}_raw_sha256_mismatch`);
+    }
+  }
+
   let status = 'pass_same_run_lineage';
   if (missingArtifacts.length) status = 'warn_artifacts_missing';
   else if (mismatches.length) status = 'warn_lineage_mismatch';
@@ -639,7 +662,8 @@ function deriveLineage(stages) {
     stage5MatchesStage4,
     stage6File: s6.file,
     stage6SourceStage5File: s6SourceStage5File,
-    stage6MatchesStage5
+    stage6MatchesStage5,
+    contentSha256Matches
   };
 }
 
