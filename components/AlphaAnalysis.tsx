@@ -3623,16 +3623,16 @@ const fnv1aHash = (input: string): string => {
 
 const sha256Hex = async (input: string): Promise<string> => {
   const subtle = (globalThis as any)?.crypto?.subtle;
-  if (subtle) {
-    const encoded = new TextEncoder().encode(input);
-    const digest = await subtle.digest('SHA-256', encoded);
-    return Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('');
+  // A weak 8-hex FNV fallback cannot satisfy the Sidecar's 64-hex SHA-256
+  // dispatch contract. Stop before the Stage6 artifact is persisted.
+  if (!subtle || typeof subtle.digest !== 'function') {
+    throw new Error('STAGE6_SHA256_UNAVAILABLE');
   }
-  // Local fallback for non-secure runtime. Keeping legacy hash prevents hard failure.
-  console.warn('[STAGE6_DISPATCH] crypto.subtle unavailable; fallback hash=fnv1a32');
-  return fnv1aHash(input);
+  const encoded = new TextEncoder().encode(input);
+  const digest = await subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 };
 
 const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
@@ -10909,7 +10909,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           assertPerplexityBudgetHealthy();
           const stage6FinalFileName = `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`;
           const finalPayloadJson = JSON.stringify(finalPayload, null, 2);
-          const stage6HashAlgo = (globalThis as any)?.crypto?.subtle ? 'sha256' : 'fnv1a32_fallback';
+          const stage6HashAlgo = 'sha256';
           const stage6FinalHash = await sha256Hex(finalPayloadJson);
           await uploadFile(accessToken, stage6FolderId, stage6FinalFileName, finalPayload, finalPayloadJson);
           recordAutoTiming('STAGE6_PERSISTED');
