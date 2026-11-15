@@ -10,6 +10,7 @@ import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 import { hashCanonicalJsonSha256, hashTextSha256 } from '../services/stage0SourceEvidenceContract.mjs';
 import { validateStage2ArtifactForStage3 } from '../services/stage2QualityTruthContract.mjs';
 import { buildStage3Artifact } from '../services/stage3FundamentalTruthContract.mjs';
+import { isVerifiedStage4ReadyHandoff } from '../services/stage4ReadyHandoffContract.mjs';
 
 interface Props {
   autoStart?: boolean;
@@ -713,6 +714,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const [isSyncActive, setIsSyncActive] = useState(false);
     const pollingInterval = useRef<NodeJS.Timeout | null>(null);
     const pendingStage4TriggerRef = useRef<string | null>(null);
+    const pendingStage4ContentSha256Ref = useRef<string | null>(null);
     const progressCompleteLoggedRef = useRef(false);
     const readySignalHandledRef = useRef(false);
     const progressCheckErrorRef = useRef<{ signature: string; lastAt: number }>({ signature: '', lastAt: 0 });
@@ -753,6 +755,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             if (!sysFolderId) return;
 
             const expectedTriggerFile = pendingStage4TriggerRef.current;
+            const expectedContentSha256 = pendingStage4ContentSha256Ref.current;
             const progressFileId = await findFileId(token, "COLLECTION_PROGRESS.json", sysFolderId);
             if (progressFileId) {
                 const data = await downloadFile(token, progressFileId);
@@ -782,10 +785,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             if (!readyFileId) return;
 
             const readyData = await downloadFile(token, readyFileId);
-            if (readyData?.status === "COMPLETED" && readyData?.trigger_file === expectedTriggerFile) {
+            if (isVerifiedStage4ReadyHandoff(readyData, expectedTriggerFile, expectedContentSha256)) {
                 recordAutoTiming('STAGE4_READY_OBSERVED');
                 readySignalHandledRef.current = true;
                 pendingStage4TriggerRef.current = null;
+                pendingStage4ContentSha256Ref.current = null;
                 setIsSyncActive(false);
                 stopSyncPolling();
                 addLog(`[OK] Stage 4 Ready Signal Verified: ${readyData.trigger_file}`, "ok");
@@ -1311,6 +1315,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             
             // ── [GITHUB DISPATCH] Stage 3 완료 → Harvester 트리거 ──
             pendingStage4TriggerRef.current = fileName;
+            pendingStage4ContentSha256Ref.current = triggerFileSha256;
             progressCompleteLoggedRef.current = false;
             readySignalHandledRef.current = false;
             addLog(`GitHub Harvester Trigger 전송 중...`, 'info');
@@ -1357,6 +1362,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               
             } else {
               pendingStage4TriggerRef.current = null;
+              pendingStage4ContentSha256Ref.current = null;
               setIsSyncActive(false);
               stopSyncPolling();
               const reason = dispatchResult.detail ? ` | ${dispatchResult.detail}` : '';
