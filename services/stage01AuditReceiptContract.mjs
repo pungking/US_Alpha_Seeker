@@ -1,5 +1,7 @@
 // Offline, report-only audit receipts. Does not modify Stage0/1 v2 artifacts.
 import { createHash } from 'node:crypto';
+import { validateStage0ArtifactForStage1 } from './stage0SourceEvidenceContract.mjs';
+import { validateStage1ArtifactForStage2 } from './stage1PointInTimeFilterContract.mjs';
 
 const HASH = /^[a-f0-9]{64}$/;
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/;
@@ -101,5 +103,53 @@ export function auditStage01Receipts({ run, stage0, stage1 } = {}) {
     stageV2Validated: false,
     trustBasis: 'SELF_REPORTED_RECEIPT_UNAUTHENTICATED',
     status, issues, observed, requestCount: 0
+  };
+}
+
+// Compound audit is deliberately stricter than the receipt self-consistency
+// check. Both existing v2 contracts must validate against the *exact* parsed
+// original bytes. No caller-supplied anchor can promote provenance to trusted.
+// Cross-Run handoffs require future independently verified GitHub evidence.
+export async function auditStage01ReceiptsWithV2(input = {}) {
+  const receipt = auditStage01Receipts(input);
+  const issues = [...receipt.issues];
+  const add = reason => { if (!issues.includes(reason)) issues.push(reason); };
+  let stage0Valid = false;
+  let stage1Valid = false;
+  const v2Reasons = { stage0: [], stage1: [] };
+  if (receipt.verdict === 'CONSISTENT_UNATTESTED') {
+    try {
+      const parse = item => JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(item.bytes));
+      const stage0Artifact = parse(input.stage0);
+      const stage1Artifact = parse(input.stage1);
+      const stage0 = await validateStage0ArtifactForStage1(stage0Artifact);
+      const stage1 = await validateStage1ArtifactForStage2(stage1Artifact);
+      stage0Valid = stage0.valid === true;
+      stage1Valid = stage1.valid === true;
+      v2Reasons.stage0 = [...(stage0.reasons || [])];
+      v2Reasons.stage1 = [...(stage1.reasons || [])];
+      if (!stage0Valid) add('STAGE0_V2_CONTRACT_INVALID');
+      if (!stage1Valid) add('STAGE1_V2_CONTRACT_INVALID');
+    } catch {
+      add('STAGE01_V2_VALIDATION_ERROR');
+    }
+  } else {
+    add('STAGE01_RECEIPT_INCOMPLETE');
+  }
+  // Externally authenticated run/attempt/SHA/artifact anchors are not
+  // available in this offline API. `trusted: true` passed by a caller
+  // is never recognized as proof, even when all metadata matches.
+  const bothValid = stage0Valid && stage1Valid && issues.length === 0;
+  return {
+    ...receipt,
+    verdict: bothValid ? 'V2_VALIDATED_UNATTESTED' : 'WITHHELD',
+    finalQualityJudgement: 'withheld',
+    provenanceAttested: false,
+    stageV2Validated: bothValid,
+    anchorAttested: false,
+    runRelationship: 'SAME_RUN_CLAIM_ONLY',
+    trustBasis: 'OFFLINE_V2_VALIDATION_WITHOUT_AUTHENTICATED_GITHUB_ANCHOR',
+    issues,
+    v2Reasons
   };
 }
