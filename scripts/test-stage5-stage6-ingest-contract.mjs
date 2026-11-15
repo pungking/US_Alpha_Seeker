@@ -97,3 +97,4 @@ assert.equal(enriched, false, 'failed Drive lock must not reuse cached elite50')
 assert.ok(!source.includes('const prefetchStage5 ='), 'no background loader may overwrite an active run source');
 console.log('stage5-stage6-ingest-contract: PASS (mock Drive only; external requests=0)');
 await import('./test-stage6-sha256-handoff.mjs');
+await import('./test-stage6-source-run-provenance.mjs');
