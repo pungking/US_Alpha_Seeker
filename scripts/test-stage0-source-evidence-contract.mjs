@@ -566,6 +566,43 @@ const noFreshnessPolicy = classifyStage0RowEvidence(completeRow, { referenceTime
 assert.equal(noFreshnessPolicy.quoteFreshnessStatus, 'FRESHNESS_POLICY_UNAVAILABLE');
 assert.equal(noFreshnessPolicy.evidenceQualityStatus, 'EVIDENCE_PARTIAL');
 
+// AS-INTEGRATION-24: actual Stage0 classification must reject retrieval-after-decision
+// and retrieved-before-source timestamps. No market session assumptions or policy relaxation.
+const classifyPIT = overrides => classifyStage0RowEvidence({
+  ...completeRow, ...overrides
+}, { referenceTime: GENERATED_AT, quoteFreshnessMaxAgeMs: FRESHNESS_MS });
+assert.equal(classifyPIT({}).evidenceQualityStatus, 'EVIDENCE_COMPLETE');
+for (const [label, input, quoteStatus, evidence] of [
+  ['quote retrieval absent', { quoteRetrievedAt: null }, 'QUOTE_RETRIEVAL_TIMESTAMP_MISSING', 'EVIDENCE_PARTIAL'],
+  ['quote retrieved after reference', { quoteRetrievedAt: '2026-08-27T12:00:00.000Z' }, 'QUOTE_EVIDENCE_INVALID', 'EVIDENCE_INVALID'],
+  ['quote retrieved before quote as-of', { quoteRetrievedAt: '2026-08-26T08:59:00.000Z' }, 'QUOTE_EVIDENCE_INVALID', 'EVIDENCE_INVALID'],
+  ['quote retrieval timezone unknown', { quoteRetrievedAt: '2026-08-26 10:00:00' }, 'QUOTE_EVIDENCE_INVALID', 'EVIDENCE_INVALID']
+]) {
+  const result = classifyPIT(input);
+  assert.equal(result.quoteEvidenceStatus, quoteStatus, label);
+  assert.equal(result.evidenceQualityStatus, evidence, label);
+}
+for (const [label, input, targetStatus, evidence] of [
+  ['target retrieval absent', { targetRetrievedAt: null, targetMeanPriceRetrievedAt: null }, 'TARGET_RETRIEVAL_TIMESTAMP_MISSING', 'EVIDENCE_PARTIAL'],
+  ['target retrieved after reference', { targetRetrievedAt: '2026-08-27T12:00:00.000Z', targetMeanPriceRetrievedAt: '2026-08-27T12:00:00.000Z' }, 'TARGET_EVIDENCE_INVALID', 'EVIDENCE_INVALID'],
+  ['target retrieved before source as-of', { targetRetrievedAt: '2026-08-25T19:59:00.000Z', targetMeanPriceRetrievedAt: '2026-08-25T19:59:00.000Z' }, 'TARGET_EVIDENCE_INVALID', 'EVIDENCE_INVALID'],
+  ['target retrieval timezone unknown', { targetRetrievedAt: '2026-08-26 10:00:00', targetMeanPriceRetrievedAt: '2026-08-26 10:00:00' }, 'TARGET_EVIDENCE_INVALID', 'EVIDENCE_INVALID']
+]) {
+  const result = classifyPIT(input);
+  assert.equal(result.targetEvidenceStatus, targetStatus, label);
+  assert.equal(result.evidenceQualityStatus, evidence, label);
+}
+assert.equal(classifyPIT({
+  targetAsOf: null, targetMeanPriceAsOf: null,
+  targetAsOfStatus: 'VENDOR_TARGET_ASOF_UNKNOWN',
+  targetMeanPriceAsOfStatus: 'VENDOR_TARGET_ASOF_UNKNOWN'
+}).targetEvidenceStatus, 'VENDOR_TARGET_ASOF_UNKNOWN', 'unknown vendor publication must remain unverified');
+assert.equal(classifyPIT({ netIncomeAsOf: '2026-08-27 11:00:00' }).financialEvidenceStatus,
+  'FINANCIAL_EVIDENCE_VERIFIED', 'naive netIncomeAsOf is not a publication timestamp substitute');
+assert.equal(classifyPIT({ financialRetrievedAt: '2026-08-27T12:00:00.000Z' }).financialEvidenceStatus,
+  'FINANCIAL_EVIDENCE_INVALID', 'existing SEC financial PIT retrieval gate must remain fail-closed');
+console.log('[STAGE0_PIT_RETRIEVAL_BOUNDARY] PASS (quote/target missing, future, reversed, tz-naive; financial SEC gate intact; requests=0)');
+
 const artifact = await buildStage0Artifact({
   generatedAt: GENERATED_AT,
   sourceFiles: completeSources,
