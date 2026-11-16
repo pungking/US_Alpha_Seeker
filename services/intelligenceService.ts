@@ -1,6 +1,8 @@
 
 import { AI_USAGE_KEY, requestPerplexity, isPerplexityStopError, assertPerplexityBudgetHealthy } from './perplexityRequest.mjs';
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
+import { createGeminiClient } from './geminiClient';
+import { hasAiAccess } from './dashboardAiClient.mjs';
 import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
 import { fetchPortalIndices } from "./portalIndicesService";
@@ -404,6 +406,7 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000,
     return await Promise.race([fn(), timeoutPromise]); 
   } catch (error: any) {
     const msg = (error.message || JSON.stringify(error)).toLowerCase();
+    if (error?.noRetry) throw error;
     
     // Fatal errors that shouldn't be retried immediately
     if (msg.includes('401') || msg.includes('402') || msg.includes('payment') || msg.includes('unauthorized') || msg.includes('api_key_missing')) throw error; 
@@ -915,7 +918,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = config?.key;
-  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
+  if (!apiKey && !await hasAiAccess(provider, apiKey)) return { data: null, error: "API_KEY_MISSING" };
 
   const hfSmokeAudit = await runHuggingFaceSmokeTest();
   let hfAdvisoryAudit: HfAdvisoryAudit | null = null;
@@ -1056,7 +1059,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     let lastError: any = new Error("No models attempted");
     const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
     const pKey = pConfig?.key;
-    if (!pKey) throw new Error("Perplexity API Key Missing for Fallback");
+    if (!pKey && !await hasAiAccess(ApiProvider.PERPLEXITY, pKey)) throw new Error("Perplexity API Key Missing for Fallback");
     const expectedSymbols = targetCandidates.map((candidate: any) => String(candidate.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase());
     const prompt = buildPrompt(targetCandidates);
 
@@ -1400,7 +1403,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     };
 
     if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: config?.key || "" });
+      const ai = createGeminiClient(config?.key);
       
       // [NEW] Batch Processing Implementation (25 items per batch)
       const BATCH_SIZE = 25;
@@ -1484,8 +1487,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
             try {
               console.warn(`[ATTEMPT] Batch ${i + 1}: Engaging ${modelLabel} (${model})...`);
-              const guardedResult: any = await Promise.race([
-                fetchWithRetry(() => ai.models.generateContent({
+              const request = () => ai.models.generateContent({
                   model,
                   contents: batchPrompt,
                   config: {
@@ -1493,9 +1495,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                       responseSchema: ALPHA_SCHEMA,
                       systemInstruction: SYSTEM_INSTRUCTION
                   }
-                }), 1, 2000),
-                timeoutAfter(timeoutMs, `${modelLabel} Timeout`)
-              ]);
+                });
+              // The server transport owns its deadline; an earlier race could duplicate an in-flight request.
+              const guardedResult: any = apiKey ? await Promise.race([
+                fetchWithRetry(request, 1, 2000), timeoutAfter(timeoutMs, `${modelLabel} Timeout`)
+              ]) : await request();
               trackUsage(ApiProvider.GEMINI, guardedResult.usageMetadata?.totalTokenCount || 0);
               const parsed = sanitizeAndParseJson(guardedResult.text);
 
@@ -1509,6 +1513,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
               throw new Error(`${model} returned invalid format for batch`);
             } catch (modelError: any) {
+              if (modelError?.noRetry) throw modelError;
               const errorMessage = compactGeminiError(modelError);
 
               if (isGeminiCredentialHardStop(modelError)) {
@@ -1733,7 +1738,7 @@ export async function generateTop6NeuralOutlook(candidates: any[], provider: Api
   const runPerplexity = async () => {
     const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
     const pKey = pConfig?.key;
-    if (!pKey) return { data: null, error: "PERPLEXITY_KEY_MISSING" };
+    if (!pKey && !await hasAiAccess(ApiProvider.PERPLEXITY, pKey)) return { data: null, error: "PERPLEXITY_KEY_MISSING" };
 
     const expectedSymbols = top6.map((c: any) => String(c?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase());
     const hasStructuredSections = (text: string) => /##\s*1\./i.test(text) && /##\s*2\./i.test(text) && /##\s*3\./i.test(text);
@@ -1841,7 +1846,7 @@ export async function analyzePipelineStatus(data: {
 }, provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = config?.key;
-  if (!apiKey) return "AUDIT_ERROR: API Key Missing";
+  if (!apiKey && !await hasAiAccess(provider, apiKey)) return "AUDIT_ERROR: API Key Missing";
 
   const isPortfolio = data.mode === 'PORTFOLIO';
   const isIntegrityCheck = data.mode === 'INTEGRITY_CHECK';
@@ -1934,7 +1939,7 @@ export async function analyzePipelineStatus(data: {
   try {
     // 1. Try Gemini First
     if (provider === ApiProvider.GEMINI) {
-        const ai = new GoogleGenAI({ apiKey });
+        const ai = createGeminiClient(apiKey);
         const result = await fetchWithRetry(() => ai.models.generateContent({
             model: GEMINI_MODELS.FAST,
             contents: userPrompt,
@@ -1979,7 +1984,7 @@ export async function generateTelegramBrief(
 ): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = config?.key;
-  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
+  if (!apiKey && !await hasAiAccess(provider, apiKey)) return "TELEGRAM_GEN_ERROR: API Key Missing";
 
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
   const dateStr = new Date().toLocaleDateString('ko-KR', dateOptions);
@@ -2169,7 +2174,7 @@ export async function generateTelegramBrief(
       let macroSection = "";
       try {
          if (provider === ApiProvider.GEMINI) {
-              const ai = new GoogleGenAI({ apiKey });
+              const ai = createGeminiClient(apiKey);
               const res = await ai.models.generateContent({ model: GEMINI_MODELS.FAST, contents: macroPrompt });
               macroSection = res.text ? res.text.trim() : "";
           } else {

@@ -1,3 +1,6 @@
+import { dashboardAiStatus } from './dashboardAiClient.mjs';
+import { currentDriveProgressToken } from './driveProgressToken.mjs';
+
 export const AI_USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
 export const PERPLEXITY_PRICE_BASIS = 'official-sonar-rates-2026-09-09-full-context-reservation';
 // Reserve the FULL documented context, not a guessed prompt tokenizer or search size.
@@ -111,7 +114,16 @@ function stop(storage, reason, code) {
 
 export async function requestPerplexity(payload, apiKey, config, { storage = globalThis.sessionStorage, fetchImpl = globalThis.fetch, timeoutMs = 30000, signal = undefined } = {}) {
   const body = validatePerplexityPayload(payload);
-  if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)) fail('REQUEST_KEY_MISSING');
+  const directKey = typeof apiKey === 'string' && !!apiKey.trim();
+  if (/[\r\n]/.test(apiKey ?? '')) fail('REQUEST_KEY_MISSING');
+  let token;
+  if (!directKey) {
+    token = currentDriveProgressToken(storage);
+    if (!token) fail('REQUEST_KEY_MISSING');
+    const access = await dashboardAiStatus({ storage, fetchImpl });
+    if (!access.perplexity || currentDriveProgressToken(storage) !== token) fail('REQUEST_KEY_MISSING');
+    config = { ...config, ...access.budget };
+  }
   const send = async url => {
     if (signal?.aborted) stop(storage, 'TRANSPORT_UNCERTAIN', 'TRANSPORT_UNCERTAIN_NO_RETRY');
     const reserved = reserve(storage, config, body);
@@ -128,8 +140,10 @@ export async function requestPerplexity(payload, apiKey, config, { storage = glo
         timer = setTimeout(cancel, timeoutMs);
       });
       const outcome = (async () => {
+        if (!directKey && currentDriveProgressToken(storage) !== token) fail('REQUEST_KEY_MISSING');
         const response = await fetchImpl(url, { method: 'POST', redirect: 'error', signal: controller.signal,
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }, body: JSON.stringify(body) });
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${directKey ? apiKey : token}`, Accept: 'application/json' },
+          body: JSON.stringify(directKey ? body : { provider: 'perplexity', payload: body }) });
         // Only a missing local route permits direct fallback; an upstream 404 does not.
         if (url === '/api/perplexity' && response.status === 404 && response.headers.get('X-Perplexity-Upstream-Attempted') !== 'true') return { routeMissing: true };
         if (!response.ok) stop(storage, 'HTTP_FAILURE', `HTTP_${response.status}`);
@@ -151,7 +165,7 @@ export async function requestPerplexity(payload, apiKey, config, { storage = glo
       stop(storage, 'TRANSPORT_UNCERTAIN', 'TRANSPORT_UNCERTAIN_NO_RETRY');
     } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
   };
-  const response = await send('/api/perplexity');
+  const response = await send(directKey ? '/api/perplexity' : '/api/dashboard_ai');
   if ('routeMissing' in response) {
     const direct = await send('https://api.perplexity.ai/chat/completions');
     if ('routeMissing' in direct) fail('RESPONSE_INVALID');
