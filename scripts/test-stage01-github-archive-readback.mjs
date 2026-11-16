@@ -52,7 +52,8 @@ assert.equal(valid.networkRequests,0);
 assert.equal(valid.provenanceAttested,false);
 assert.equal(valid.finalQualityJudgement,'withheld');
 assert.deepEqual(inspectOfflineZip(zip).names, ['state/stage3-audit-source.json','state/stage6-output.json']);
-assert.equal(inspectOfflineZip(zip).readEntry('state/stage6-output.json').toString(),'{"status":"fixture"}');
+assert.equal(inspectOfflineZip(zip).verifiedEntryCount,2);
+assert.equal(inspectOfflineZip(zip).readEntry('state/stage6-output.json'),null); // non-stage CRC-checked and discarded
 
 const block = async (name,change,reason) => {
   const v=source();change(v);
@@ -97,7 +98,7 @@ assert.throws(()=>inspectOfflineZip(traversal),/ZIP_PATH_INVALID/);
 const crcDamaged=Buffer.from(zip);
 const idx=crcDamaged.indexOf(Buffer.from('{"status":"fixture"}'));
 assert.ok(idx>0);crcDamaged[idx]^=1;
-assert.throws(()=>inspectOfflineZip(crcDamaged).readEntry('state/stage3-audit-source.json'),/ZIP_ENTRY_CRC_INVALID/);
+assert.throws(()=>inspectOfflineZip(crcDamaged),/ZIP_ENTRY_CRC_INVALID/);
 const duplicate=zipStored({'STAGE0_MASTER_UNIVERSE_A.json':'{}','STAGE0_MASTER_UNIVERSE_B.json':'{}'});
 const amb=source();amb.zipBytes=duplicate;amb.artifact.digest='sha256:'+hash(duplicate);
 const ambResult=await auditGitHubArchiveReadback(amb);
@@ -150,5 +151,29 @@ manipulated.artifact.digest = 'sha256:'+hash(manipulated.zipBytes);
 const stillUnattested = await auditGitHubArchiveReadback(manipulated);
 assert.equal(stillUnattested.provenanceAttested,false);
 assert.equal(stillUnattested.finalQualityJudgement,'withheld');
+
+// AS-INTEGRATION-44: corrupted non-stage entry must prohibit NOT_EXPORTED.
+const nonstageDamaged=source();
+nonstageDamaged.zipBytes=crcDamaged;
+nonstageDamaged.artifact.digest='sha256:'+hash(crcDamaged);
+const nonstageResult=await auditGitHubArchiveReadback(nonstageDamaged);
+assert.equal(nonstageResult.verdict,'WITHHELD');
+assert.ok(nonstageResult.issues.includes('ARCHIVE_ZIP_INVALID'));
+assert.equal(nonstageResult.stages.stage0.availability,'UNKNOWN');
+assert.equal(nonstageResult.stages.stage1.availability,'UNKNOWN');
+// Metadata-only huge entry and aggregate overflow must be refused before inflate.
+const declaredOversize=Buffer.from(zip);
+const oversizedDir=declaredOversize.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));
+declaredOversize.writeUInt32LE(129*1024*1024,oversizedDir+24);
+assert.throws(()=>inspectOfflineZip(declaredOversize),/ZIP_ENTRY_TOO_LARGE/);
+const totalOverflow=zipStored({a:'0',b:'1',c:'2'});
+const totalCentral=totalOverflow.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));
+const modifiedTotal=Buffer.from(totalOverflow);
+let pos=totalCentral;
+for(let i=0;i<3;i++){
+  modifiedTotal.writeUInt32LE(100*1024*1024,pos+24);
+  pos+=46+modifiedTotal.readUInt16LE(pos+28)+modifiedTotal.readUInt16LE(pos+30)+modifiedTotal.readUInt16LE(pos+32);
+}
+assert.throws(()=>inspectOfflineZip(modifiedTotal),/ZIP_TOTAL_TOO_LARGE/);
 
 console.log('[STAGE01_GITHUB_ARCHIVE_READBACK] PASS (offline ZIP CRC/hash, independent API claim parity, NOT_EXPORTED, forged/partial/skipped/PIT negatives; no network)');
