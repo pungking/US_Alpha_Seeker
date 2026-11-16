@@ -45,7 +45,13 @@ export function validateOfflineGitHubZipRedirect({
   // Authentication headers and cookies must not be forwarded to the signed
   // storage endpoint. This is a check of reported request metadata ONLY.
   if (!record(storage.requestHeaders)) fail('REDIRECT_REQUEST_HEADERS_UNVERIFIED');
-  if (Object.keys(storage.requestHeaders).some(k => /^(?:authorization|cookie|proxy-authorization|x-api-key)$/i.test(k))) fail('REDIRECT_CREDENTIAL_FORWARDING_DENIED');
+  // Fail closed on ALL unreviewed header names, including custom token aliases.
+  // The signed storage GET needs no GitHub Authorization/Cookie; an explicit
+  // Accept header is the only permitted caller-controlled request header.
+  if (Object.keys(storage.requestHeaders).some(k => k.toLowerCase() !== 'accept')
+    || (storage.requestHeaders.accept !== undefined && storage.requestHeaders.accept !== 'application/zip')) {
+    fail('REDIRECT_CREDENTIAL_FORWARDING_DENIED');
+  }
   if (!(storage.body instanceof Uint8Array) || storage.body.byteLength < 22
     || storage.body.byteLength > MAX_ZIP) fail('REDIRECT_ZIP_BYTES_INVALID');
   const headerLength = storage.headers?.['content-length'];
