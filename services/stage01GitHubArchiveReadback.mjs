@@ -53,14 +53,40 @@ export function inspectOfflineZip(zipBytes) {
     const localOffset = buf.readUInt32LE(at + 42);
     const next = at + 46 + nameLen + extraLen + commentLen;
     if (next > offset + size || nameLen === 0 || (flags & 1) || ![0, 8].includes(method)
-      || [compressed, uncompressed, localOffset].includes(0xffffffff)) fail('ZIP_ENTRY_INVALID');
-    const name = buf.subarray(at + 46, at + 46 + nameLen).toString('utf8');
+      || [compressed, uncompressed, localOffset].includes(0xffffffff)
+      || (method === 0 && compressed !== uncompressed)) fail('ZIP_ENTRY_INVALID');
+    // ZIP64 may hide behind a legal-looking 32-bit directory entry.
+    // Reject the extra field instead of interpreting its caller-controlled sizes.
+    for (let p = at + 46 + nameLen, limit = p + extraLen; p < limit;) {
+      if (p + 4 > limit) fail('ZIP_EXTRA_INVALID');
+      const kind = buf.readUInt16LE(p), n = buf.readUInt16LE(p + 2);
+      if (p + 4 + n > limit) fail('ZIP_EXTRA_INVALID');
+      if (kind === 0x0001) fail('ZIP64_UNSUPPORTED');
+      p += 4 + n;
+    }
+    const rawName = buf.subarray(at + 46, at + 46 + nameLen);
+    const name = new TextDecoder('utf-8', { fatal: true }).decode(rawName);
     if (name.includes('\0') || name.startsWith('/') || name.includes('\\')
-      || name.split('/').includes('..') || entries.has(name)) fail('ZIP_PATH_INVALID');
+      || /^[A-Za-z]:/.test(name) || name.split('/').includes('..') || entries.has(name)) fail('ZIP_PATH_INVALID');
     if (localOffset + 30 > offset || buf.readUInt32LE(localOffset) !== 0x04034b50
-      || buf.readUInt16LE(localOffset + 8) !== method) fail('ZIP_LOCAL_INVALID');
-    const start = localOffset + 30 + buf.readUInt16LE(localOffset + 26) + buf.readUInt16LE(localOffset + 28);
+      || buf.readUInt16LE(localOffset + 8) !== method
+      || buf.readUInt16LE(localOffset + 6) !== flags) fail('ZIP_LOCAL_INVALID');
+    const localNameLen = buf.readUInt16LE(localOffset + 26);
+    const localExtraLen = buf.readUInt16LE(localOffset + 28);
+    const start = localOffset + 30 + localNameLen + localExtraLen;
     if (start + compressed > offset) fail('ZIP_LOCAL_BOUNDS_INVALID');
+    if (localNameLen !== nameLen
+      || !buf.subarray(localOffset + 30, localOffset + 30 + localNameLen).equals(rawName)) fail('ZIP_LOCAL_NAME_MISMATCH');
+    for (let p = localOffset + 30 + localNameLen, limit = start; p < limit;) {
+      if (p + 4 > limit) fail('ZIP_EXTRA_INVALID');
+      const kind = buf.readUInt16LE(p), n = buf.readUInt16LE(p + 2);
+      if (p + 4 + n > limit) fail('ZIP_EXTRA_INVALID');
+      if (kind === 0x0001) fail('ZIP64_UNSUPPORTED');
+      p += 4 + n;
+    }
+    if (!(flags & 8) && (buf.readUInt32LE(localOffset + 14) !== crc
+      || buf.readUInt32LE(localOffset + 18) !== compressed
+      || buf.readUInt32LE(localOffset + 22) !== uncompressed)) fail('ZIP_LOCAL_METADATA_MISMATCH');
     entries.set(name, { name, method, crc, compressed, uncompressed, start });
     at = next;
   }
