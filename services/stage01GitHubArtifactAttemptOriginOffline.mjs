@@ -55,7 +55,10 @@ export function assessOfflineArtifactAttemptOrigin({
    || artifactTime>Date.parse(attempt.updated_at)) add('TIMELINE_UNVERIFIED');
  const jobsValid=Array.isArray(attemptJobs)&&attemptJobs.length>0
    && attemptJobs.every(j=>obj(j)&&integer(j.id)&&j.run_id===runId
-     && j.head_sha===commitSha&&validWindow(j.started_at,j.completed_at));
+     && j.head_sha===commitSha&&validWindow(j.started_at,j.completed_at)
+     && attemptWindow
+     && Date.parse(j.started_at)>=Date.parse(attempt.run_started_at)
+     && Date.parse(j.completed_at)<=Date.parse(attempt.updated_at));
  if (!jobsValid) add('ATTEMPT_JOBS_UNVERIFIED');
  // Job timestamps provide a narrower diagnostic window, but do not
  // identify which job uploaded any particular artifact.
