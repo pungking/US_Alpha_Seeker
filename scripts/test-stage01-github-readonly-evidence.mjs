@@ -53,6 +53,8 @@ async function observe(mutator, expectedIssue, expectedReads) {
   });
   assert.equal(data.provenanceAttested,false);
   assert.equal(data.originAuthenticated,false);
+  // Metadata success cannot be promoted when inner archive integrity/lineage withholds.
+  assert.equal(data.readbackCorrelated,false);
   assert.equal(data.finalQualityJudgement,'withheld');
   assert.equal(data.requestCount, expectedReads);
   assert.equal(urls.length + bytes,expectedReads);
@@ -69,6 +71,9 @@ assert.equal(ok.audit.verdict,'WITHHELD');
 const cases = [
   [x=>{x.records[0].id=4;},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[0].full_name='forged/repository';},'GITHUB_RUN_IDENTITY_MISMATCH'],
+  [x=>{x.records[1].id++;},'GITHUB_RUN_IDENTITY_MISMATCH'],
+  [x=>{x.records[1].repository.full_name='other/repo';},'GITHUB_RUN_IDENTITY_MISMATCH'],
+  [x=>{x.records[1].repository.id++;},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[1].run_attempt=2;},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[1].head_sha='f'.repeat(40);},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[1].conclusion='failure';},'GITHUB_RUN_IDENTITY_MISMATCH'],
@@ -76,12 +81,29 @@ const cases = [
   [x=>{x.records[1].status='in_progress';},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[2].id++;},'GITHUB_ARTIFACT_IDENTITY_MISMATCH'],
   [x=>{x.records[2].workflow_run.id++;},'GITHUB_ARTIFACT_IDENTITY_MISMATCH'],
+  [x=>{x.records[2].workflow_run.repository_id++;},'GITHUB_ARTIFACT_IDENTITY_MISMATCH'],
+  [x=>{x.records[2].workflow_run.head_repository_id++;},'GITHUB_ARTIFACT_IDENTITY_MISMATCH'],
   [x=>{x.records[2].workflow_run.head_sha='e'.repeat(40);},'GITHUB_ARTIFACT_IDENTITY_MISMATCH'],
   [x=>{x.records[2].expired=true;},'GITHUB_ARTIFACT_IDENTITY_MISMATCH'],
   [x=>{x.records[2].digest=null;},'GITHUB_ARTIFACT_IDENTITY_MISMATCH']
 ];
 for(const [mutate,reason] of cases) await observe(mutate,reason,3);
 await observe(x=>{x.overrideZip=storedZip('other.json','changed');},'GITHUB_ARCHIVE_AUDIT_WITHHELD',4);
+// A forged, self-consistent transport is still NEVER an authenticated GitHub source.
+const counterfeit=build();
+counterfeit.records[0].id=777;
+counterfeit.records[1].repository.id=777;
+counterfeit.records[2].workflow_run.repository_id=777;
+counterfeit.records[2].workflow_run.head_repository_id=777;
+const counterfeitResult=await auditReadOnlyGitHubEvidence({
+  repository,runId,runAttempt:attempt,commitSha:commit,artifactId,
+  readJson:async url=>counterfeit.records[[root,root+'/actions/runs/'+runId,root+'/actions/artifacts/'+artifactId].indexOf(url)],
+  readArtifactBytes:async()=>zip
+});
+assert.equal(counterfeitResult.provenanceAttested,false);
+assert.equal(counterfeitResult.originAuthenticated,false);
+assert.equal(counterfeitResult.finalQualityJudgement,'withheld');
+assert.equal(counterfeitResult.readbackCorrelated,false);
 await observe(x=>{x.overrideZip=Buffer.alloc(0);},'GITHUB_ARTIFACT_BYTES_UNAVAILABLE',4);
 // Reader failures must never fall through to a caller-claimed authenticated PASS.
 const failed = await auditReadOnlyGitHubEvidence({
