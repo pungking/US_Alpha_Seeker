@@ -899,3 +899,5 @@ await import('./test-stage01-github-readonly-evidence.mjs');
 await import('./test-stage01-github-transport-boundary.mjs');
 // AS-INTEGRATION-52: synthetic GitHub 302 and signed ZIP storage security boundary.
 await import('./test-stage01-github-zip-302-offline.mjs');
+// AS-INTEGRATION-57: untrusted observation-only downloader predeployment gates.
+await import('./test-stage01-github-downloader-preflight.mjs');
