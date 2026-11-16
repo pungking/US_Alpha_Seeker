@@ -27,8 +27,12 @@ export function fixedGitHubReadEndpoints({ repository, runId, artifactId }) {
 // An exchange's self-reported metadata is untrusted, even if it matches perfectly.
 export function verifyReadOnlyExchange({ expectedUrl, kind, exchange }) {
   if (typeof expectedUrl !== 'string'
-    || !/^https:\/\/api\.github\.com\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/actions\/(?:runs|artifacts)\/[0-9]+(?:\/zip)?)?$/.test(expectedUrl)) fail('TRANSPORT_URL_INVALID');
+    || !/^https:\/\/api\.github\.com\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/actions\/(?:runs\/[0-9]+|artifacts\/[0-9]+(?:\/zip)?))?$/.test(expectedUrl)) fail('TRANSPORT_URL_INVALID');
   if (kind !== 'json' && kind !== 'zip') fail('TRANSPORT_KIND_INVALID');
+  // Validate kind at the standalone verifier too: a ZIP cannot be accepted
+  // as JSON metadata (or vice versa) even when the adapter is bypassed.
+  const isArtifactZip = /\/actions\/artifacts\/[0-9]+\/zip$/.test(expectedUrl);
+  if ((kind === 'zip') !== isArtifactZip) fail('TRANSPORT_KIND_URL_MISMATCH');
   if (!safeObject(exchange) || exchange.method !== 'GET' || exchange.url !== expectedUrl
     || exchange.finalUrl !== expectedUrl || exchange.redirectCount !== 0) fail('TRANSPORT_METHOD_OR_REDIRECT_DENIED');
   if (exchange.status !== 200 || exchange.truncated !== false || exchange.timedOut !== false) fail('TRANSPORT_PARTIAL_OR_FAILED');
