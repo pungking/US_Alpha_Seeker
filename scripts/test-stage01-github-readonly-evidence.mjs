@@ -74,6 +74,8 @@ const cases = [
   [x=>{x.records[1].id++;},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[1].repository.full_name='other/repo';},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[1].repository.id++;},'GITHUB_RUN_IDENTITY_MISMATCH'],
+  [x=>{x.records[1].path='.github/workflows/../../evil.yml';},'GITHUB_RUN_IDENTITY_MISMATCH'],
+  [x=>{x.records[1].path='.github/workflows/untrusted.txt';},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[1].run_attempt=2;},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[1].head_sha='f'.repeat(40);},'GITHUB_RUN_IDENTITY_MISMATCH'],
   [x=>{x.records[1].conclusion='failure';},'GITHUB_RUN_IDENTITY_MISMATCH'],
