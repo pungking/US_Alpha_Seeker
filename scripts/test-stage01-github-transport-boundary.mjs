@@ -72,6 +72,25 @@ reject(x=>{x[0].method='POST';},'TRANSPORT_METHOD_OR_REDIRECT_DENIED');
 reject(x=>{x[0].url='https://evil.example/';},'TRANSPORT_METHOD_OR_REDIRECT_DENIED');
 reject(x=>{x[0].finalUrl='https://evil.example/';},'TRANSPORT_METHOD_OR_REDIRECT_DENIED');
 reject(x=>{x[3].redirectCount=1;},'TRANSPORT_METHOD_OR_REDIRECT_DENIED');
+// GitHub Actions ZIP API normally responds HTTP 302 with an ephemeral Location.
+// This offline verifier must block raw redirect observations, never follow them.
+reject(x=>{x[3].status=302;x[3].headers.location='https://evil.example/secret?token=fake';},'TRANSPORT_PARTIAL_OR_FAILED');
+assert.throws(()=>verifyReadOnlyExchange({
+  expectedUrl:urls[3],kind:'json',exchange:exchanges()[3]
+}),/TRANSPORT_KIND_URL_MISMATCH/);
+assert.throws(()=>verifyReadOnlyExchange({
+  expectedUrl:urls[0],kind:'zip',exchange:exchanges()[0]
+}),/TRANSPORT_KIND_URL_MISMATCH/);
+assert.throws(()=>verifyReadOnlyExchange({
+  expectedUrl:urls[1]+'/zip',kind:'zip',exchange:{...exchanges()[1],url:urls[1]+'/zip',finalUrl:urls[1]+'/zip'}
+}),/TRANSPORT_URL_INVALID/);
+// Headers must never enter receipts, even for otherwise accepted observations.
+const secretExchange=exchanges()[0];
+secretExchange.headers.authorization='Bearer TEST_SECRET_NOT_FOR_LOGS';
+secretExchange.headers.cookie='session=TEST_SECRET_NOT_FOR_LOGS';
+const safe=verifyReadOnlyExchange({expectedUrl:urls[0],kind:'json',exchange:secretExchange});
+assert.equal(JSON.stringify(safe.receipt).includes('TEST_SECRET_NOT_FOR_LOGS'),false);
+assert.equal(safe.receipt.originAuthenticated,false);
 reject(x=>{x[0].status=206;},'TRANSPORT_PARTIAL_OR_FAILED');
 reject(x=>{x[0].status=401;},'TRANSPORT_PARTIAL_OR_FAILED');
 reject(x=>{x[0].truncated=true;},'TRANSPORT_PARTIAL_OR_FAILED');
