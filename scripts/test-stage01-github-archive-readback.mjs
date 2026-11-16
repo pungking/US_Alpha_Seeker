@@ -170,7 +170,7 @@ declaredOversize.writeUInt16LE(8,oversizedDir+10);
 declaredOversize.writeUInt16LE(8,oversizedDir+8);
 declaredOversize.writeUInt32LE(129*1024*1024,oversizedDir+24);
 assert.throws(()=>inspectOfflineZip(declaredOversize),/ZIP_ENTRY_TOO_LARGE/);
-const totalOverflow=zipStored({a:'0',b:'1',c:'2'});
+// Five individually sub-128 MiB advertised entries exceed the 400 MiB cap.\nconst totalOverflow=zipStored({a:'0',b:'1',c:'2',d:'3',e:'4'});
 const totalCentral=totalOverflow.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));
 const modifiedTotal=Buffer.from(totalOverflow);
 let pos=totalCentral;
@@ -180,7 +180,7 @@ for(let i=0;i<3;i++){
   modifiedTotal.writeUInt16LE(8,local+6); // descriptor
   modifiedTotal.writeUInt16LE(8,pos+10);
   modifiedTotal.writeUInt16LE(8,pos+8);
-  modifiedTotal.writeUInt32LE(100*1024*1024,pos+24);
+  modifiedTotal.writeUInt32LE(110*1024*1024,pos+24);
   pos+=46+modifiedTotal.readUInt16LE(pos+28)+modifiedTotal.readUInt16LE(pos+30)+modifiedTotal.readUInt16LE(pos+32);
 }
 assert.throws(()=>inspectOfflineZip(modifiedTotal),/ZIP_TOTAL_TOO_LARGE/);
