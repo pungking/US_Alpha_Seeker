@@ -11,7 +11,8 @@ function fixture(){
     status:'completed',conclusion:'success',created_at:T,
     repository:{id:1139620490,full_name:'pungking/US_Alpha_Seeker'}},
   attempt:{id:43823841886,run_attempt:1,workflow_id:289086216,
-    head_sha:SHA,status:'completed',conclusion:'success',run_started_at:T},
+    head_sha:SHA,status:'completed',conclusion:'success',run_started_at:T,
+    updated_at:'2026-11-16T07:27:41Z'},
   artifact:{id:14205447992,created_at:U,expired:false,
     digest:'sha256:2212c394bf69f226b9572f9e2cf1e4d4f190c2120ea61dda31855911ff299668',
     workflow_run:{id:43823841886,repository_id:1139620490,
@@ -31,6 +32,33 @@ assert.equal(good.finalQualityJudgement,'withheld');
 assert.equal(good.actualDownloaderApproval,'HOLD');
 assert.equal(good.networkRequests,0);
 assert.deepEqual(good.issues,[]);
+// Boundary inclusivity: exact attempt and job endpoints are allowed as
+// correlation-only observations, never cryptographic origin evidence.
+for (const [label,createdAt] of [
+ ['job start','2026-11-16T07:26:14Z'],
+ ['job end','2026-11-16T07:27:40Z']
+]) {
+ const x=fixture();x.artifact.created_at=createdAt;
+ const r=assessOfflineArtifactAttemptOrigin(x);
+ assert.equal(r.runCorrelation,'RUN_CORRELATED',label);
+ assert.equal(r.producingAttempt,'UNPROVEN',label);
+ assert.equal(r.actualDownloaderApproval,'HOLD',label);
+}
+// Artificial aligned boundaries: inclusive exact attempt start/end also hold,
+// but never elevate the untrusted producing-Attempt claim.
+for (const [label,createdAt] of [
+ ['attempt start','2026-11-16T07:26:11Z'],
+ ['attempt end','2026-11-16T07:27:41Z']
+]) {
+ const x=fixture();x.artifact.created_at=createdAt;
+ if(label==='attempt start')x.attemptJobs[0].started_at=createdAt;
+ else x.attemptJobs[0].completed_at=createdAt;
+ const r=assessOfflineArtifactAttemptOrigin(x);
+ assert.equal(r.runCorrelation,'RUN_CORRELATED',label);
+ assert.equal(r.producingAttempt,'UNPROVEN',label);
+ assert.equal(r.finalQualityJudgement,'withheld',label);
+}
+
 const block=(name,fn,issue)=>{
  const x=fixture();fn(x);const r=assessOfflineArtifactAttemptOrigin(x);
  assert.equal(r.runCorrelation,'WITHHELD',name);
@@ -48,6 +76,20 @@ block('missing artifact SHA',x=>delete x.artifact.digest,'ARTIFACT_IDENTITY_MISM
 block('invalid digest',x=>x.artifact.digest='sha256:abc','ARTIFACT_IDENTITY_MISMATCH');
 block('expired artifact',x=>x.artifact.expired=true,'ARTIFACT_IDENTITY_MISMATCH');
 block('created before attempt',x=>x.artifact.created_at='2026-11-15T07:27:38Z','TIMELINE_UNVERIFIED');
+block('artifact after attempt end',x=>x.artifact.created_at='2026-11-16T07:27:42Z','TIMELINE_UNVERIFIED');
+block('artifact after job end within attempt',x=>x.artifact.created_at='2026-11-16T07:27:41Z','TIMELINE_UNVERIFIED');
+block('artifact before job start within attempt',x=>x.artifact.created_at='2026-11-16T07:26:12Z','TIMELINE_UNVERIFIED');
+block('missing attempt end',x=>delete x.attempt.updated_at,'TIMELINE_UNVERIFIED');
+block('null attempt end',x=>x.attempt.updated_at=null,'TIMELINE_UNVERIFIED');
+block('invalid attempt end',x=>x.attempt.updated_at='invalid','TIMELINE_UNVERIFIED');
+block('attempt end earlier than start',x=>x.attempt.updated_at='2026-11-16T07:26:10Z','TIMELINE_UNVERIFIED');
+block('artifact after shortened attempt end',x=>x.attempt.updated_at='2026-11-16T07:27:37Z','TIMELINE_UNVERIFIED');
+block('missing job end',x=>delete x.attemptJobs[0].completed_at,'ATTEMPT_JOBS_UNVERIFIED');
+block('missing job start',x=>delete x.attemptJobs[0].started_at,'ATTEMPT_JOBS_UNVERIFIED');
+block('job end earlier than start',x=>x.attemptJobs[0].completed_at='2026-11-16T07:26:13Z','ATTEMPT_JOBS_UNVERIFIED');
+block('artifact after shortened job end',x=>x.attemptJobs[0].completed_at='2026-11-16T07:27:37Z','TIMELINE_UNVERIFIED');
+block('artifact before shifted job start',x=>x.attemptJobs[0].started_at='2026-11-16T07:27:39Z','TIMELINE_UNVERIFIED');
+block('disjoint job windows',x=>{x.attemptJobs[0].completed_at='2026-11-16T07:27:00Z'; x.attemptJobs.push({...x.attemptJobs[0],id:133152858730,started_at:'2026-11-16T07:27:39Z',completed_at:'2026-11-16T07:27:40Z'})},'TIMELINE_UNVERIFIED');
 block('missing timestamp',x=>delete x.artifact.created_at,'TIMELINE_UNVERIFIED');
 block('no attempt jobs',x=>x.attemptJobs=[],'ATTEMPT_JOBS_UNVERIFIED');
 block('wrong job run',x=>x.attemptJobs[0].run_id=1,'ATTEMPT_JOBS_UNVERIFIED');
