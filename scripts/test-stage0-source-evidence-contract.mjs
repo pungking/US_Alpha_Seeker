@@ -893,3 +893,5 @@ console.log('[STAGE01_OBSERVED_HANDOFF] PASS (valid dual v2; synthetic same/cros
 
 // AS-INTEGRATION-42: offline-only independent API claims vs ZIP bytes; no provider or dispatch.
 await import('./test-stage01-github-archive-readback.mjs');
+// AS-INTEGRATION-45: injected read-only GitHub transport contract, mock responses only.
+await import('./test-stage01-github-readonly-evidence.mjs');
