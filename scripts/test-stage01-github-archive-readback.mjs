@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { auditGitHubArchiveReadback, inspectOfflineZip } from '../services/stage01GitHubArchiveReadback.mjs';
+
+const hash = value => createHash('sha256').update(value).digest('hex');
+const crc32 = bytes => {
+  let n = 0xffffffff;
+  for (const b of bytes) { n ^= b; for (let i=0;i<8;i++) n = (n >>> 1) ^ (n & 1 ? 0xedb88320 : 0); }
+  return (n ^ 0xffffffff) >>> 0;
+};
+function zipStored(entries) {
+  const locals=[], centrals=[];
+  let offset=0;
+  for (const [name, value] of Object.entries(entries)) {
+    const nameBuf = Buffer.from(name), body = Buffer.from(value), crc = crc32(body);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50,0);local.writeUInt16LE(20,4);
+    local.writeUInt32LE(crc,14);local.writeUInt32LE(body.length,18);
+    local.writeUInt32LE(body.length,22);local.writeUInt16LE(nameBuf.length,26);
+    locals.push(local,nameBuf,body);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50,0);central.writeUInt16LE(20,4);
+    central.writeUInt16LE(20,6);central.writeUInt32LE(crc,16);
+    central.writeUInt32LE(body.length,20);central.writeUInt32LE(body.length,24);
+    central.writeUInt16LE(nameBuf.length,28);central.writeUInt32LE(offset,42);
+    centrals.push(central,nameBuf);
+    offset += local.length + nameBuf.length + body.length;
+  }
+  const centralSize = centrals.reduce((n,b)=>n+b.length,0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(Object.keys(entries).length,8);
+  end.writeUInt16LE(Object.keys(entries).length,10);end.writeUInt32LE(centralSize,12);
+  end.writeUInt32LE(offset,16);
+  return Buffer.concat([...locals,...centrals,end]);
+}
+const repo = 'pungking/US_Alpha_Seeker';
+const run = () => ({ id:43470901390, run_attempt:1,
+  head_sha:'77c40cb70d65197466e8382cde1c6f71690bbc6a', workflow_id:230326556,
+  path:'.github/workflows/schedule.yml', status:'completed', conclusion:'success' });
+const metadata = () => ({ id:14062682867, name:'automation-evidence', expired:false, digest:null,
+  workflow_run:{id:43470901390,repository_id:1139620490,head_repository_id:1139620490,
+    head_sha:'77c40cb70d65197466e8382cde1c6f71690bbc6a'} });
+const zip = zipStored({'state/stage3-audit-source.json':'{"status":"fixture"}','state/stage6-output.json':'{"status":"fixture"}'});
+const source = () => ({repository:repo,run:run(),artifact:{...metadata(),digest:'sha256:'+hash(zip)},zipBytes:zip});
+const valid = await auditGitHubArchiveReadback(source());
+assert.equal(valid.verdict,'WITHHELD');
+assert.equal(valid.stages.stage0.availability,'NOT_EXPORTED');
+assert.equal(valid.stages.stage1.availability,'NOT_EXPORTED');
+assert.ok(valid.issues.includes('STAGE01_ORIGINALS_NOT_EXPORTED'));
+assert.equal(valid.observedZipSha256,hash(zip));
+assert.equal(valid.networkRequests,0);
+assert.equal(valid.provenanceAttested,false);
+assert.equal(valid.finalQualityJudgement,'withheld');
+assert.deepEqual(inspectOfflineZip(zip).names, ['state/stage3-audit-source.json','state/stage6-output.json']);
+assert.equal(inspectOfflineZip(zip).readEntry('state/stage6-output.json').toString(),'{"status":"fixture"}');
+
+const block = async (name,change,reason) => {
+  const v=source();change(v);
+  const result=await auditGitHubArchiveReadback(v);
+  assert.equal(result.verdict,'WITHHELD',name);
+  assert.ok(result.issues.includes(reason),name+': '+result.issues);
+  assert.equal(result.provenanceAttested,false,name);
+  assert.equal(result.finalQualityJudgement,'withheld',name);
+};
+await block('forged ZIP SHA',v=>{v.artifact.digest='sha256:'+'f'.repeat(64);},'ARCHIVE_SHA256_MISMATCH');
+await block('tampered ZIP bytes',v=>{v.zipBytes=new Uint8Array([...v.zipBytes,32]);},'ARCHIVE_SHA256_MISMATCH');
+await block('forged Run',v=>{v.run.id++;},'GITHUB_API_CLAIM_INCOMPLETE');
+await block('forged Commit',v=>{v.run.head_sha='a'.repeat(40);},'GITHUB_API_CLAIM_INCOMPLETE');
+await block('forged Repository',v=>{v.artifact.workflow_run.head_repository_id++;},'GITHUB_API_CLAIM_INCOMPLETE');
+await block('expired',v=>{v.artifact.expired=true;},'GITHUB_API_CLAIM_INCOMPLETE');
+await block('partial failure',v=>{v.run.conclusion='failure';},'GITHUB_API_CLAIM_INCOMPLETE');
+await block('skipped',v=>{v.run.conclusion='skipped';},'GITHUB_API_CLAIM_INCOMPLETE');
+await block('missing Attempt',v=>{v.run.run_attempt=null;},'GITHUB_API_CLAIM_INCOMPLETE');
+await block('unknown ZIP digest',v=>{v.artifact.digest=null;},'GITHUB_API_CLAIM_INCOMPLETE');
+// When a source appears in the ZIP, the existing v2 source-of-truth
+// contract rejects synthetic and manipulated hashes, including future PIT.
+const malformed = zipStored({
+  'STAGE0_MASTER_UNIVERSE_FIXTURE.json':JSON.stringify({manifest:{
+    schemaVersion:'stage0-source-truth-v2', generatedAt:'2026-11-14T12:00:00Z', runId:'fake',
+    sourceInventorySha256:'a'.repeat(64), inputHash:'b'.repeat(64),outputHash:'c'.repeat(64)
+  },universe:[]}),
+  'STAGE1_PURIFIED_UNIVERSE_FIXTURE.json':JSON.stringify({manifest:{
+    schemaVersion:'stage1-point-in-time-v2', decisionAt:'2026-11-13T12:00:00Z',
+    sourceStage0RunId:'fake',sourceStage0InputHash:'b'.repeat(64),
+    sourceStage0OutputHash:'c'.repeat(64),sourceStage0InventorySha256:'a'.repeat(64)
+  },investable_universe:[]})
+});
+const bad = source();bad.zipBytes=malformed;bad.artifact.digest='sha256:'+hash(malformed);
+const falsePIT=await auditGitHubArchiveReadback(bad);
+assert.equal(falsePIT.verdict,'WITHHELD');
+assert.ok(falsePIT.issues.includes('STAGE0_V2_CONTRACT_INVALID'));
+assert.ok(falsePIT.issues.includes('STAGE1_V2_CONTRACT_INVALID'));
+assert.ok(falsePIT.issues.includes('STAGE01_LINEAGE_OR_PIT_INVALID'));
+assert.equal(falsePIT.provenanceAttested,false);
+const traversal=zipStored({'../STAGE0_MASTER_UNIVERSE.json':'{}'});
+assert.throws(()=>inspectOfflineZip(traversal),/ZIP_PATH_INVALID/);
+const crcDamaged=Buffer.from(zip);
+const idx=crcDamaged.indexOf(Buffer.from('{"status":"fixture"}'));
+assert.ok(idx>0);crcDamaged[idx]^=1;
+assert.throws(()=>inspectOfflineZip(crcDamaged).readEntry('state/stage3-audit-source.json'),/ZIP_ENTRY_CRC_INVALID/);
+const duplicate=zipStored({'STAGE0_MASTER_UNIVERSE_A.json':'{}','STAGE0_MASTER_UNIVERSE_B.json':'{}'});
+const amb=source();amb.zipBytes=duplicate;amb.artifact.digest='sha256:'+hash(duplicate);
+const ambResult=await auditGitHubArchiveReadback(amb);
+assert.ok(ambResult.issues.includes('STAGE0_AMBIGUOUS_ORIGINALS'));
+assert.equal(ambResult.verdict,'WITHHELD');
+console.log('[STAGE01_GITHUB_ARCHIVE_READBACK] PASS (offline ZIP CRC/hash, independent API claim parity, NOT_EXPORTED, forged/partial/skipped/PIT negatives; no network)');
