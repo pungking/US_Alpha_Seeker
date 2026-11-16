@@ -20,7 +20,8 @@ function baseResult(repository, runId, artifactId, issues, requests, audit = nul
     requestCount: requests.length,
     requestedEndpoints: requests,
     issues,
-    readbackCorrelated: issues.length === 0 && audit !== null,
+    // A returned audit object is not evidence of correlation when it WITHHELD.
+    readbackCorrelated: issues.length === 0 && audit?.verdict === 'CORRELATED_UNATTESTED',
     audit,
     verdict: issues.length === 0 && audit?.verdict === 'CORRELATED_UNATTESTED'
       ? 'READBACK_CORRELATED_UNATTESTED' : 'WITHHELD',
