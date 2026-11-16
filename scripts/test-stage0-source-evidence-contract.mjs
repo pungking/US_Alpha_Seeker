@@ -890,3 +890,6 @@ await expectHandoffWithheld('skip', v => { v.stage1 = { availability: 'SKIPPED' 
 await expectHandoffWithheld('not exported', v => { v.stage0 = { availability: 'NOT_EXPORTED' }; }, 'STAGE0_ORIGINAL_MISSING');
 await expectHandoffWithheld('missing', v => { v.stage0 = { availability: 'MISSING' }; }, 'STAGE0_ORIGINAL_MISSING');
 console.log('[STAGE01_OBSERVED_HANDOFF] PASS (valid dual v2; synthetic same/cross-run correlation; forged anchors/edge/raw bytes fail closed; trust withheld)');
+
+// AS-INTEGRATION-42: offline-only independent API claims vs ZIP bytes; no provider or dispatch.
+await import('./test-stage01-github-archive-readback.mjs');
