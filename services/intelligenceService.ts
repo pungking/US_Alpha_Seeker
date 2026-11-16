@@ -2,7 +2,7 @@
 import { AI_USAGE_KEY, requestPerplexity, isPerplexityStopError, assertPerplexityBudgetHealthy } from './perplexityRequest.mjs';
 import { Type } from "@google/genai";
 import { createGeminiClient } from './geminiClient';
-import { hasAiAccess } from './dashboardAiClient.mjs';
+import { hasAiAccess, explainAiAccess } from './dashboardAiClient.mjs';
 import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, PERPLEXITY_CONFIG, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
 import { fetchPortalIndices } from "./portalIndicesService";
@@ -918,7 +918,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = config?.key;
-  if (!apiKey && !await hasAiAccess(provider, apiKey)) return { data: null, error: "API_KEY_MISSING" };
+  if (!apiKey && !await hasAiAccess(provider, apiKey)) return { data: null, error: await explainAiAccess(provider) };
 
   const hfSmokeAudit = await runHuggingFaceSmokeTest();
   let hfAdvisoryAudit: HfAdvisoryAudit | null = null;
@@ -1059,7 +1059,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     let lastError: any = new Error("No models attempted");
     const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
     const pKey = pConfig?.key;
-    if (!pKey && !await hasAiAccess(ApiProvider.PERPLEXITY, pKey)) throw new Error("Perplexity API Key Missing for Fallback");
+    if (!pKey && !await hasAiAccess(ApiProvider.PERPLEXITY, pKey)) throw new Error(await explainAiAccess(ApiProvider.PERPLEXITY));
     const expectedSymbols = targetCandidates.map((candidate: any) => String(candidate.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase());
     const prompt = buildPrompt(targetCandidates);
 
@@ -1738,7 +1738,7 @@ export async function generateTop6NeuralOutlook(candidates: any[], provider: Api
   const runPerplexity = async () => {
     const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
     const pKey = pConfig?.key;
-    if (!pKey && !await hasAiAccess(ApiProvider.PERPLEXITY, pKey)) return { data: null, error: "PERPLEXITY_KEY_MISSING" };
+    if (!pKey && !await hasAiAccess(ApiProvider.PERPLEXITY, pKey)) return { data: null, error: await explainAiAccess(ApiProvider.PERPLEXITY) };
 
     const expectedSymbols = top6.map((c: any) => String(c?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase());
     const hasStructuredSections = (text: string) => /##\s*1\./i.test(text) && /##\s*2\./i.test(text) && /##\s*3\./i.test(text);
@@ -1846,7 +1846,7 @@ export async function analyzePipelineStatus(data: {
 }, provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = config?.key;
-  if (!apiKey && !await hasAiAccess(provider, apiKey)) return "AUDIT_ERROR: API Key Missing";
+  if (!apiKey && !await hasAiAccess(provider, apiKey)) return `AUDIT_ERROR: ${await explainAiAccess(provider)}`;
 
   const isPortfolio = data.mode === 'PORTFOLIO';
   const isIntegrityCheck = data.mode === 'INTEGRITY_CHECK';
@@ -1984,7 +1984,7 @@ export async function generateTelegramBrief(
 ): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = config?.key;
-  if (!apiKey && !await hasAiAccess(provider, apiKey)) return "TELEGRAM_GEN_ERROR: API Key Missing";
+  if (!apiKey && !await hasAiAccess(provider, apiKey)) return `TELEGRAM_GEN_ERROR: ${await explainAiAccess(provider)}`;
 
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
   const dateStr = new Date().toLocaleDateString('ko-KR', dateOptions);

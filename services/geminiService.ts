@@ -1,6 +1,6 @@
 
 import { createGeminiClient } from './geminiClient';
-import { hasAiAccess } from './dashboardAiClient.mjs';
+import { hasAiAccess, explainAiAccess } from './dashboardAiClient.mjs';
 import { API_CONFIGS, GEMINI_MODELS } from "../constants";
 import { ApiProvider } from "../types";
 
@@ -30,7 +30,7 @@ export async function analyzePipelineStatus(data: {
   systemLoad: string;
 }) {
   const apiKey = getApiKey();
-  if (!apiKey && !await hasAiAccess(ApiProvider.GEMINI, apiKey)) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
+  if (!apiKey && !await hasAiAccess(ApiProvider.GEMINI, apiKey)) return `AUDIT_NODE_ERROR: ${await explainAiAccess(ApiProvider.GEMINI)}`;
 
   const ai = createGeminiClient(apiKey);
   const activeNodes = data.apiStatuses.filter(s => s.isConnected).map(s => s.provider).join(", ");

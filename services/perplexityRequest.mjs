@@ -1,4 +1,4 @@
-import { dashboardAiStatus } from './dashboardAiClient.mjs';
+import { dashboardAiStatus, safeDashboardFailure } from './dashboardAiClient.mjs';
 import { currentDriveProgressToken } from './driveProgressToken.mjs';
 
 export const AI_USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
@@ -10,7 +10,7 @@ const RATES = {
   'sonar-pro': { context: 200 * 1024, input: 3, output: 15, fees: { low: 6000, medium: 10000, high: 14000 } }
 };
 class PerplexityControlError extends Error {}
-const fail = code => { throw new PerplexityControlError(`PERPLEXITY_${code}`); };
+const fail = (code, details = {}) => { throw Object.assign(new PerplexityControlError(`PERPLEXITY_${code}`), details); };
 export const isPerplexityStopError = error => /PERPLEXITY_(BUDGET_|CIRCUIT_|HTTP_|TRANSPORT_|RESPONSE_|REQUEST_)/.test(String(error?.message || error));
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 
@@ -103,13 +103,13 @@ function reserve(storage, config, payload) {
   return amount;
 }
 
-function stop(storage, reason, code) {
+function stop(storage, reason, code, details = {}) {
   const usage = readUsage(storage);
   usage.perplexity.budget ??= { maxMicroUsd: 0, maxRequests: 0, priceBasis: PERPLEXITY_PRICE_BASIS,
     requestsAttempted: 0, reservedMicroUsd: 0, reportedMicroUsd: 0 };
   usage.perplexity.budget.blockedReason = reason;
   writeUsage(storage, usage);
-  fail(code);
+  fail(code, details);
 }
 
 export async function requestPerplexity(payload, apiKey, config, { storage = globalThis.sessionStorage, fetchImpl = globalThis.fetch, timeoutMs = 30000, signal = undefined } = {}) {
@@ -119,9 +119,10 @@ export async function requestPerplexity(payload, apiKey, config, { storage = glo
   let token;
   if (!directKey) {
     token = currentDriveProgressToken(storage);
-    if (!token) fail('REQUEST_KEY_MISSING');
+    if (!token) fail('REQUEST_KEY_MISSING', { reason: 'DASHBOARD_AI_DRIVE_LOGIN_REQUIRED', httpStatus: null, httpSource: 'local authentication' });
     const access = await dashboardAiStatus({ storage, fetchImpl });
-    if (!access.perplexity || currentDriveProgressToken(storage) !== token) fail('REQUEST_KEY_MISSING');
+    if (currentDriveProgressToken(storage) !== token) fail('REQUEST_KEY_MISSING', { reason: 'DASHBOARD_AI_DRIVE_LOGIN_REQUIRED', httpStatus: null, httpSource: 'local authentication' });
+    if (!access.perplexity) fail('REQUEST_KEY_MISSING', { reason: access.reason || (access.providers?.Perplexity ? 'DASHBOARD_AI_BUDGET_NOT_CONFIGURED' : 'DASHBOARD_AI_PROVIDER_NOT_CONFIGURED'), httpStatus: access.httpStatus, httpSource: access.httpSource || 'owner authentication' });
     config = { ...config, ...access.budget };
   }
   const send = async url => {
@@ -140,13 +141,19 @@ export async function requestPerplexity(payload, apiKey, config, { storage = glo
         timer = setTimeout(cancel, timeoutMs);
       });
       const outcome = (async () => {
-        if (!directKey && currentDriveProgressToken(storage) !== token) fail('REQUEST_KEY_MISSING');
+        if (!directKey && currentDriveProgressToken(storage) !== token) fail('REQUEST_KEY_MISSING', { reason: 'DASHBOARD_AI_DRIVE_LOGIN_REQUIRED', httpStatus: null, httpSource: 'local authentication' });
         const response = await fetchImpl(url, { method: 'POST', redirect: 'error', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${directKey ? apiKey : token}`, Accept: 'application/json' },
           body: JSON.stringify(directKey ? body : { provider: 'perplexity', payload: body }) });
         // Only a missing local route permits direct fallback; an upstream 404 does not.
         if (url === '/api/perplexity' && response.status === 404 && response.headers.get('X-Perplexity-Upstream-Attempted') !== 'true') return { routeMissing: true };
-        if (!response.ok) stop(storage, 'HTTP_FAILURE', `HTTP_${response.status}`);
+        if (!response.ok) {
+          let details = {};
+          if (!directKey) {
+            try { details = safeDashboardFailure(await response.json(), response.status); } catch { /* Never relay raw error bodies. */ }
+          }
+          stop(storage, 'HTTP_FAILURE', `HTTP_${response.status}`, details);
+        }
         const data = await response.json();
         const cost = data?.usage?.cost?.total_cost;
         if (data?.model !== body.model || !Array.isArray(data?.choices) || !data.choices.length || data.error ||
@@ -156,7 +163,7 @@ export async function requestPerplexity(payload, apiKey, config, { storage = glo
         const usage = readUsage(storage);
         usage.perplexity.budget.reportedMicroUsd += Math.ceil(cost * 1e6);
         writeUsage(storage, usage);
-        return { ok: true, status: response.status, json: async () => data };
+        return { ok: true, status: response.status, httpSource: url.startsWith('https://api.perplexity.ai/') ? 'AI provider' : 'request gateway', json: async () => data };
       })();
       return await Promise.race([outcome, deadline]);
     } catch (error) {

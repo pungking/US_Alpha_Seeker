@@ -150,7 +150,7 @@ test('manual paid transport reserves before POST and never falls back to public 
   const fetchImpl = async (url, init) => {
     calls.push(url);
     assert.equal(url, '/api/dashboard_ai');
-    if (!init.method) return new Response(JSON.stringify({ perplexity: true, budget: { RUN_MAX_COST_USD: '5', RUN_MAX_REQUESTS: '20' } }));
+    if (!init.method) return new Response(JSON.stringify({ gemini: false, perplexity: true, budget: { RUN_MAX_COST_USD: '5', RUN_MAX_REQUESTS: '20' } }));
     assert.equal(JSON.parse(storage.getItem(AI_USAGE_KEY)).perplexity.budget.requestsAttempted, 1);
     assert.equal(init.headers.Authorization, 'Bearer synthetic-drive');
     assert.equal(JSON.parse(init.body).provider, 'perplexity');
@@ -164,7 +164,7 @@ test('manual paid transport reserves before POST and never falls back to public 
 test('manual paid transport accepts a validated success and records cost', async () => {
   const storage = memory(); storage.setItem('gdrive_access_token', 'synthetic-drive');
   const fetchImpl = async (_url, init) => !init.method
-    ? new Response(JSON.stringify({ perplexity: true, budget: { RUN_MAX_COST_USD: '5', RUN_MAX_REQUESTS: '20' } }))
+    ? new Response(JSON.stringify({ gemini: false, perplexity: true, budget: { RUN_MAX_COST_USD: '5', RUN_MAX_REQUESTS: '20' } }))
     : new Response(JSON.stringify(paidResult));
   const response = await requestPerplexity(paid, undefined, {}, { storage, fetchImpl });
   assert.equal((await response.json()).choices[0].message.content, 'synthetic');

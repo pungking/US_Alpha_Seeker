@@ -20,6 +20,10 @@ export interface ApiStatus {
   latency: number;
   lastChecked: string;
   limitRemaining?: string;
+  diagnostics?: {
+    state: string; label: string; detail: string; verified: boolean;
+    httpStatus: number | null; httpSource: string; checkedAt: number | null; latency: number | null;
+  };
 }
 
 export interface TickerData {
