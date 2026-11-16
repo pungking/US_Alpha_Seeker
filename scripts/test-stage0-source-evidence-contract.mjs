@@ -895,3 +895,5 @@ console.log('[STAGE01_OBSERVED_HANDOFF] PASS (valid dual v2; synthetic same/cros
 await import('./test-stage01-github-archive-readback.mjs');
 // AS-INTEGRATION-45: injected read-only GitHub transport contract, mock responses only.
 await import('./test-stage01-github-readonly-evidence.mjs');
+// AS-INTEGRATION-49: offline-only HTTP observation policy; never invokes GitHub.
+await import('./test-stage01-github-transport-boundary.mjs');
