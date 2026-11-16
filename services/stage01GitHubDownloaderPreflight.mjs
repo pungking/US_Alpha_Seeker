@@ -50,9 +50,9 @@ export function assessOfflineDownloaderPreflight({
     || credentialBoundary.storageAuthorizationSent!==false
     || credentialBoundary.storageCookieSent!==false
     || credentialBoundary.storageProxyAuthorizationSent!==false
-    || credentialBoundary.storageHeaderNames?.length>1
-    || (credentialBoundary.storageHeaderNames?.length===1
-      && credentialBoundary.storageHeaderNames[0]!=='accept')
+    || !Array.isArray(credentialBoundary.storageHeaderNames)
+    || credentialBoundary.storageHeaderNames.length>1
+    || credentialBoundary.storageHeaderNames.some(name=>name!=='accept')
     || credentialBoundary.tokenPersisted!==false
     || credentialBoundary.secretInLogs!==false) add('credentials');
   // Conservative design gate: one A record, no CNAME and a public IPv4
@@ -82,7 +82,14 @@ export function assessOfflineDownloaderPreflight({
     || attemptEvidence.runAttempt!==runAttempt||attemptEvidence.commitSha!==commitSha
     || attemptEvidence.artifactId!==artifactId
     || attemptEvidence.independentAttemptProof!==true) add('attempt');
-  if (!obj(archiveReceipt)||archiveReceipt.rawSha256!==artifact?.digest?.replace(/^sha256:/,'')
+  // Validate each digest independently before equality: absent === absent
+  // must never turn missing artifact/receipt evidence into a design PASS.
+  if (!obj(archiveReceipt)
+    || typeof artifact?.digest!=='string'
+    || !/^sha256:[a-f0-9]{64}$/.test(artifact.digest)
+    || typeof archiveReceipt.rawSha256!=='string'
+    || !/^[a-f0-9]{64}$/.test(archiveReceipt.rawSha256)
+    || archiveReceipt.rawSha256!==artifact.digest.slice('sha256:'.length)
     || archiveReceipt.originAuthenticated!==false
     || archiveReceipt.tlsAuthenticated!==false
     || archiveReceipt.provenanceAttested!==false
