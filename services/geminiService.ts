@@ -1,5 +1,6 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { createGeminiClient } from './geminiClient';
+import { hasAiAccess } from './dashboardAiClient.mjs';
 import { API_CONFIGS, GEMINI_MODELS } from "../constants";
 import { ApiProvider } from "../types";
 
@@ -29,9 +30,9 @@ export async function analyzePipelineStatus(data: {
   systemLoad: string;
 }) {
   const apiKey = getApiKey();
-  if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
+  if (!apiKey && !await hasAiAccess(ApiProvider.GEMINI, apiKey)) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = createGeminiClient(apiKey);
   const activeNodes = data.apiStatuses.filter(s => s.isConnected).map(s => s.provider).join(", ");
   const prompt = `System Stage ${data.currentStage}, Active Nodes: ${activeNodes}. System Load: ${data.systemLoad}. Provide a deep diagnostic audit in Korean.`;
 
@@ -53,9 +54,9 @@ export async function analyzePipelineStatus(data: {
 
 export async function generateAlphaSynthesis(candidates: any[]) {
   const apiKey = getApiKey();
-  if (!apiKey) return null;
+  if (!apiKey && !await hasAiAccess(ApiProvider.GEMINI, apiKey)) return null;
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = createGeminiClient(apiKey);
   const prompt = `Synthesize investment strategies for: ${JSON.stringify(candidates)}. Use Korean. Return a valid JSON array matching the required Alpha schema.`;
 
   try {

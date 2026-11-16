@@ -1,7 +1,8 @@
 import { requestPerplexity } from '../services/perplexityRequest.mjs';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
+import { createGeminiClient } from '../services/geminiClient';
+import { hasAiAccess } from '../services/dashboardAiClient.mjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS, PERPLEXITY_CONFIG } from '../constants';
@@ -437,11 +438,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY) || API_CONFIGS.find(c => c.provider === 'Perplexity' as ApiProvider);
               let perplexityKey = perplexityConfig?.key;
 
-              if (!perplexityKey) {
+              if (!perplexityKey && !await hasAiAccess(ApiProvider.PERPLEXITY, perplexityKey)) {
                    throw new Error('Perplexity API key missing');
               }
               
-              if (perplexityKey) {
+              if (perplexityKey || await hasAiAccess(ApiProvider.PERPLEXITY, perplexityKey)) {
                   const res = await requestPerplexity({
                       model: PERPLEXITY_CONFIG.MODEL_CHAIN[0] || 'sonar',
                       messages: [{ role: "user", content: prompt + " Return JSON only." }],
@@ -476,8 +477,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
           const geminiKey = geminiConfig?.key || "";
           
-          if (geminiKey) {
-              const ai = new GoogleGenAI({ apiKey: geminiKey });
+          if (geminiKey || await hasAiAccess(ApiProvider.GEMINI, geminiKey)) {
+              const ai = createGeminiClient(geminiKey);
 
               for (let i = 0; i < geminiChain.length; i++) {
                   const model = geminiChain[i];
@@ -491,7 +492,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                           contents: prompt,
                           config: { responseMimeType: "application/json" }
                       });
-                      const response: any = await Promise.race([request, timeoutPromise(timeoutMs, `${nodeName} Timeout`)]);
+                      const response: any = geminiKey ? await Promise.race([request, timeoutPromise(timeoutMs, `${nodeName} Timeout`)]) : await request;
                       trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
                       const parsed = sanitizeJson(response.text);
                       aiResult = parsed ? {
@@ -503,6 +504,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       if (aiResult) break;
                       throw new Error(`${model} returned empty payload`);
                   } catch (geminiError: any) {
+                      if (geminiError?.noRetry) throw geminiError;
                       const message = compactGeminiError(geminiError);
 
                       if (isGeminiCredentialHardStop(geminiError)) {

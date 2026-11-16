@@ -119,6 +119,8 @@ const runtime = vm.createContext({ exports: {}, sessionStorage: fixtureStorage, 
   fetch: () => assert.fail('uncontrolled fetch'),
   require: id => {
     if (id.includes('perplexityRequest')) return consumerGuard;
+    if (id.includes('geminiClient')) return { createGeminiClient: () => assert.fail('other provider') };
+    if (id.includes('dashboardAiClient')) return { hasAiAccess: async (_provider, key) => !!key };
     if (id === '../constants') return constants;
     if (id === '../types') return { ApiProvider: provider };
     if (id === '@google/genai') return { Type: new Proxy({}, { get: (_t, p) => p }), GoogleGenAI: class { constructor() { assert.fail('other provider'); } } };

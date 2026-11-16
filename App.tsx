@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { recordAutoTiming } from './services/autoSchedulerTiming.mjs';
+import { dashboardAiStatus } from './services/dashboardAiClient.mjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ApiProvider, ApiStatus } from './types';
@@ -278,12 +279,8 @@ const App: React.FC = () => {
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
-    let geminiActive = !!API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
-    if (window.aistudio && !geminiActive) geminiActive = await window.aistudio.hasSelectedApiKey();
-    if (!geminiActive) {
-      const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-      geminiActive = !!geminiConfig?.key;
-    }
+    const server = await dashboardAiStatus();
+    const geminiActive = !!API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || server.gemini;
     
     // Refresh Usage Stats
     loadUsageStats();
@@ -297,12 +294,13 @@ const App: React.FC = () => {
       
       const statuses = orderedConfigs.map(config => {
         let isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : 
-                          config.provider === ApiProvider.GEMINI ? geminiActive : !!config.key;
+                          config.provider === ApiProvider.GEMINI ? geminiActive :
+                          config.provider === ApiProvider.PERPLEXITY ? !!config.key || server.perplexity : !!config.key;
         return {
           provider: config.provider,
           category: config.category,
           isConnected,
-          latency: isConnected ? Math.floor(Math.random() * 20) + 5 : 0,
+          latency: 0,
           lastChecked: new Date().toLocaleTimeString()
         };
       });
@@ -317,7 +315,7 @@ const App: React.FC = () => {
               provider: 'Hybrid Feed (FH+ALP)' as any,
               category: 'Acquisition',
               isConnected: hasFinnhub || hasAlpaca,
-              latency: 18, // Merged latency
+              latency: 0,
               lastChecked: 'REDUNDANT'
           });
       }
@@ -513,7 +511,7 @@ const App: React.FC = () => {
                              <span className="text-[8px] font-bold text-slate-300">GEMINI</span>
                          </div>
                          <span className={`text-[9px] font-mono ${aiUsage.gemini.status === 'OK' ? 'text-emerald-400' : 'text-red-400 font-black animate-pulse'}`}>
-                             {aiUsage.gemini.status === 'OK' ? `${aiUsage.gemini.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                             {aiUsage.gemini.status === 'OK' ? `${aiUsage.gemini.tokens.toLocaleString()} Tks` : 'AI REQUEST ERROR'}
                          </span>
                      </div>
                      <div className="flex flex-col">
@@ -522,7 +520,7 @@ const App: React.FC = () => {
                              <span className="text-[8px] font-bold text-slate-300">SONAR</span>
                          </div>
                          <span className={`text-[9px] font-mono ${aiUsage.perplexity.status === 'OK' ? 'text-cyan-400' : 'text-red-400 font-black animate-pulse'}`}>
-                             {aiUsage.perplexity.status === 'OK' ? `${aiUsage.perplexity.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                             {aiUsage.perplexity.status === 'OK' ? `${aiUsage.perplexity.tokens.toLocaleString()} Tks` : 'AI REQUEST ERROR'}
                          </span>
                      </div>
                  </div>

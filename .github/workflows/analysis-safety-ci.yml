@@ -47,6 +47,8 @@ jobs:
         run: npm run ops:test:auto-scheduler-trigger
       - name: Perplexity paid-call budget contract (mock network only)
         run: npm run ops:test:perplexity-call-budget
+      - name: Manual dashboard AI authentication and transport (offline)
+        run: npm run ops:test:dashboard-ai-connection
       - name: Notion analysis-only surface contract
         run: npm run ops:test:notion-analysis-surface
       - name: Client secret exposure audit

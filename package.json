@@ -62,6 +62,7 @@
     "ops:test:auto-scheduler-timing": "node scripts/test-auto-scheduler-timing.mjs",
     "ops:test:auto-scheduler-trigger": "node scripts/test-auto-scheduler-trigger.mjs",
     "ops:test:perplexity-call-budget": "node scripts/test-perplexity-call-budget.mjs",
+    "ops:test:dashboard-ai-connection": "node scripts/test-dashboard-ai-connection.mjs",
     "ops:stage6:fillability-contract:validate": "node scripts/validate-stage6-fillability-contract.mjs",
     "ops:stage6:fresh-focus:formula-coverage": "node scripts/validate-stage6-fresh-focus-formula-coverage.mjs",
     "ops:stage6:formula-tuning-backlog": "node scripts/build-stage6-formula-tuning-backlog.mjs",
