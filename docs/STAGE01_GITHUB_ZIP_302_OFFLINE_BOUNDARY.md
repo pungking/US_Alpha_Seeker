@@ -16,6 +16,9 @@ The existing GitHub API JSON → artifact ZIP evidence reader and Stage0/1 audit
 ## Negative tests
 Offline fixtures reject forged/unapproved storage hosts, HTTP, userinfo, alternate ports, fragments, CRLF, empty query, URL drift, storage double redirects, stale and reversed observation times, API 200/partial responses instead of 302, storage 206/302, truncated/timeout, leaked Authorization/Cookie/Proxy-Authorization, missing body, over-limit ZIP, bad content length/media type, replaced ZIP or mismatched artifact digest. An opaque signed token is never emitted into the receipt.
 
+## STEP #AS-INTEGRATION-53 independent review — URL canonicalization
+The first full PR review found that a syntactically matching API coordinate may contain repository path segments `.` or `..`; parsing them as a URL can change the target path. The security boundary now requires that the canonical parsed GitHub API URL equal the original exact requested URL, and rejects repository dot-segments. Signed storage URLs must also remain **byte-for-byte identical as URL strings after parsing**; hostname case changes, explicit `443` ports, and literal or percent-encoded dot path segments are treated as noncanonical and withheld. Synthetic negatives cover each case. This is offline string validation only and does **not** replace DNS/TLS verification or establish server authentication.
+
 ## Non-goals and next approval
 This does not implement a downloader, authenticate TLS or assert exact artifact-producing Run Attempt. Actual HTTPS peer identity, DNS rebinding protection, approved storage host inventory, signed URL lifetime, HTTP authorization separation, streaming decompression limits, retry policy and immutable receipt custody require **independent approval and isolation** before any real connection. No workflow, Ruleset, Admission, external provider, Drive, dispatch/rerun, PAPER/LIVE, accounts or orders may be changed.
 
