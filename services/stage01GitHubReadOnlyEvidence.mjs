@@ -70,7 +70,7 @@ export async function auditReadOnlyGitHubEvidence({
     || run.repository?.full_name !== repository
     || run.status !== 'completed' || run.conclusion !== 'success'
     || !ID(run.workflow_id) || typeof run.path !== 'string'
-    || !run.path.startsWith('.github/workflows/')) add('GITHUB_RUN_IDENTITY_MISMATCH');
+    || !/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(run.path)) add('GITHUB_RUN_IDENTITY_MISMATCH');
   if (artifact.id !== artifactId || artifact.workflow_run?.id !== runId
     || artifact.workflow_run?.repository_id !== repo.id
     || artifact.workflow_run?.head_repository_id !== repo.id
