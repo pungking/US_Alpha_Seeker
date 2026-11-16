@@ -42,7 +42,12 @@ export function inspectOfflineZip(zipBytes) {
   const offset = buf.readUInt32LE(end + 16);
   if (count !== buf.readUInt16LE(end + 8) || count > 2000 || count === 65535
     || size === 0xffffffff || offset === 0xffffffff || offset + size > end) fail('ZIP_CENTRAL_INVALID');
+  // Enforce cumulative decompression and entry limits before reading any
+  // content. A missing Stage0/1 claim is only meaningful for a fully verified ZIP.
+  const MAX_ENTRY_BYTES = 128 * 1024 * 1024;
+  const MAX_TOTAL_BYTES = 256 * 1024 * 1024;
   const entries = new Map();
+  let declaredTotal = 0;
   let at = offset;
   for (let i = 0; i < count; i++) {
     if (at + 46 > buf.length || buf.readUInt32LE(at) !== 0x02014b50) fail('ZIP_DIRECTORY_INVALID');
@@ -55,6 +60,9 @@ export function inspectOfflineZip(zipBytes) {
     if (next > offset + size || nameLen === 0 || (flags & 1) || ![0, 8].includes(method)
       || [compressed, uncompressed, localOffset].includes(0xffffffff)
       || (method === 0 && compressed !== uncompressed)) fail('ZIP_ENTRY_INVALID');
+    if (uncompressed > MAX_ENTRY_BYTES) fail('ZIP_ENTRY_TOO_LARGE');
+    declaredTotal += uncompressed;
+    if (declaredTotal > MAX_TOTAL_BYTES) fail('ZIP_TOTAL_TOO_LARGE');
     // ZIP64 may hide behind a legal-looking 32-bit directory entry.
     // Reject the extra field instead of interpreting its caller-controlled sizes.
     for (let p = at + 46 + nameLen, limit = p + extraLen; p < limit;) {
@@ -91,17 +99,28 @@ export function inspectOfflineZip(zipBytes) {
     at = next;
   }
   if (at !== offset + size) fail('ZIP_CENTRAL_SIZE_MISMATCH');
+  // CRC-check *every* archive entry, including non-Stage0/1 files. Otherwise
+  // a broken ZIP could be misreported as a complete NOT_EXPORTED inventory.
+  const verified = new Map();
+  let verifiedTotal = 0;
+  for (const e of entries.values()) {
+    const data = buf.subarray(e.start, e.start + e.compressed);
+    let raw;
+    try {
+      raw = e.method === 0 ? data : inflateRawSync(data, { maxOutputLength: MAX_ENTRY_BYTES });
+    } catch { fail('ZIP_ENTRY_DECOMPRESSION_INVALID'); }
+    verifiedTotal += raw.length;
+    if (verifiedTotal > MAX_TOTAL_BYTES) fail('ZIP_TOTAL_TOO_LARGE');
+    if (raw.length !== e.uncompressed || crc32(raw) !== e.crc) fail('ZIP_ENTRY_CRC_INVALID');
+    // Keep only Stage0/1 original bytes; non-stage entries are CRC checked
+    // and discarded rather than retained as unbounded copies.
+    if (/(?:^|\\/)STAGE[01]_[^/]*\\.json$/i.test(e.name)) verified.set(e.name, Buffer.from(raw));
+  }
   return {
     names: [...entries.keys()].sort(),
-    readEntry(name) {
-      const e = entries.get(name);
-      if (!e) return null;
-      if (e.uncompressed > 128 * 1024 * 1024) fail('ZIP_ENTRY_TOO_LARGE');
-      const data = buf.subarray(e.start, e.start + e.compressed);
-      const raw = e.method === 0 ? data : inflateRawSync(data, { maxOutputLength: 128 * 1024 * 1024 });
-      if (raw.length !== e.uncompressed || crc32(raw) !== e.crc) fail('ZIP_ENTRY_CRC_INVALID');
-      return raw;
-    }
+    verifiedEntryCount: entries.size,
+    verifiedUncompressedBytes: verifiedTotal,
+    readEntry(name) { return verified.get(name) ?? null; }
   };
 }
 
