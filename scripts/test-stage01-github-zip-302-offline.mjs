@@ -64,6 +64,10 @@ block('header missing',x=>{delete x.storage.requestHeaders;},'REDIRECT_REQUEST_H
 block('Authorization forwarded',x=>{x.storage.requestHeaders.Authorization='Bearer secret';},'REDIRECT_CREDENTIAL_FORWARDING_DENIED');
 block('Cookie forwarded',x=>{x.storage.requestHeaders.Cookie='secret';},'REDIRECT_CREDENTIAL_FORWARDING_DENIED');
 block('proxy Authorization forwarded',x=>{x.storage.requestHeaders['Proxy-Authorization']='secret';},'REDIRECT_CREDENTIAL_FORWARDING_DENIED');
+block('custom token forwarded',x=>{x.storage.requestHeaders['X-GitHub-Token']='secret';},'REDIRECT_CREDENTIAL_FORWARDING_DENIED');
+block('unreviewed header',x=>{x.storage.requestHeaders['x-observability-token']='secret';},'REDIRECT_CREDENTIAL_FORWARDING_DENIED');
+block('alternate-cased Accept with hidden token',x=>{delete x.storage.requestHeaders.accept;x.storage.requestHeaders.Accept='Bearer secret';},'REDIRECT_CREDENTIAL_FORWARDING_DENIED');
+block('Accept containing token',x=>{x.storage.requestHeaders.accept='Bearer secret';},'REDIRECT_CREDENTIAL_FORWARDING_DENIED');
 block('content length mismatch',x=>{x.storage.headers['content-length']='9000';},'REDIRECT_CONTENT_LENGTH_INVALID');
 block('content type invalid',x=>{x.storage.headers['content-type']='text/html';},'REDIRECT_CONTENT_TYPE_INVALID');
 block('missing bytes',x=>{x.storage.body=Buffer.alloc(0);},'REDIRECT_ZIP_BYTES_INVALID');
