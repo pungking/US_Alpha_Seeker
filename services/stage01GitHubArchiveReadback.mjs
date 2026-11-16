@@ -45,7 +45,9 @@ export function inspectOfflineZip(zipBytes) {
   // Enforce cumulative decompression and entry limits before reading any
   // content. A missing Stage0/1 claim is only meaningful for a fully verified ZIP.
   const MAX_ENTRY_BYTES = 128 * 1024 * 1024;
-  // 2026-11-13 archived automation-evidence ZIP contains 386,407,895\n  // uncompressed bytes (368.507 MiB). Retain a bounded 400 MiB ceiling.\n  const MAX_TOTAL_BYTES = 400 * 1024 * 1024;
+  // 2026-11-13 archive contains 386,407,895 uncompressed bytes.
+  // Retain a bounded 400 MiB ceiling for historical compatibility.
+  const MAX_TOTAL_BYTES = 400 * 1024 * 1024;
   const entries = new Map();
   let declaredTotal = 0;
   let at = offset;
