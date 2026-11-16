@@ -7,7 +7,11 @@ const deny = code => {throw new Error(code);};
 const obj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const id = v => Number.isSafeInteger(v) && v > 0;
 const sha = v => typeof v === 'string' && /^[a-f0-9]{40}$/.test(v);
-const host = v => typeof v === 'string' && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(v) && v.length <= 253;
+// Require a canonical lowercase DNS name, never an IP literal or a
+// numeric final label (including IPv4 shorthand/octal/hex host spellings).
+// This is only an offline syntax gate, not DNS or TLS authentication.
+const host = v => typeof v === 'string' && v.length <= 253 && isIP(v) === 0
+  && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(v);
 function publicIPv4(v) {
   if (isIP(v) !== 4) return false; // IPv6 needs a separate reviewed policy.
   const [a,b,c] = v.split('.').map(Number);
