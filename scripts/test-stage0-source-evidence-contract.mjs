@@ -901,3 +901,5 @@ await import('./test-stage01-github-transport-boundary.mjs');
 await import('./test-stage01-github-zip-302-offline.mjs');
 // AS-INTEGRATION-57: untrusted observation-only downloader predeployment gates.
 await import('./test-stage01-github-downloader-preflight.mjs');
+// AS-INTEGRATION-61: artifact Run correlation is NOT producing Attempt provenance.
+await import('./test-stage01-github-artifact-attempt-origin.mjs');
