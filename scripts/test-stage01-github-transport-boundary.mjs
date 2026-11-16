@@ -84,9 +84,9 @@ reject(x=>{x[0].body=Buffer.from([0xff]);x[0].headers['content-length']='1';},'T
 reject(x=>{x[0].body=Buffer.alloc(0);},'TRANSPORT_BYTES_LIMIT');
 reject(x=>{x[0].body=Buffer.alloc(4*1024*1024+1);},'TRANSPORT_BYTES_LIMIT');
 reject(x=>{x[3].body=Buffer.alloc(100*1024*1024+1);},'TRANSPORT_BYTES_LIMIT');
-assert.throws(()=>fixedGitHubReadEndpoints({repository:'bad/../repo',runId:id,artifactId}),'TRANSPORT_COORDINATES_INVALID');
-assert.throws(()=>fixedGitHubReadEndpoints({repository:'https://evil.example',runId:id,artifactId}),'TRANSPORT_COORDINATES_INVALID');
-assert.throws(()=>makeOfflineGitHubReadAdapter({repository:repo,runId:id,artifactId,exchanges:exchanges().slice(0,3)}),'TRANSPORT_EXCHANGE_COUNT_INVALID');
+assert.throws(()=>fixedGitHubReadEndpoints({repository:'bad/../repo',runId:id,artifactId}),/TRANSPORT_COORDINATES_INVALID/);
+assert.throws(()=>fixedGitHubReadEndpoints({repository:'https://evil.example',runId:id,artifactId}),/TRANSPORT_COORDINATES_INVALID/);
+assert.throws(()=>makeOfflineGitHubReadAdapter({repository:repo,runId:id,artifactId,exchanges:exchanges().slice(0,3)}),/TRANSPORT_EXCHANGE_COUNT_INVALID/);
 const wrong=makeOfflineGitHubReadAdapter({repository:repo,runId:id,artifactId,exchanges:exchanges()});
 await assert.rejects(()=>wrong.readArtifactBytes(urls[3]),/TRANSPORT_SEQUENCE_DENIED/);
 const forged=exchanges();forged[1].body=Buffer.from(JSON.stringify({...data[1],run_attempt:2}));
