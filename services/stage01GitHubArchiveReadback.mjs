@@ -114,7 +114,7 @@ export function inspectOfflineZip(zipBytes) {
     if (raw.length !== e.uncompressed || crc32(raw) !== e.crc) fail('ZIP_ENTRY_CRC_INVALID');
     // Keep only Stage0/1 original bytes; non-stage entries are CRC checked
     // and discarded rather than retained as unbounded copies.
-    if (/(?:^|\\/)STAGE[01]_[^/]*\\.json$/i.test(e.name)) verified.set(e.name, Buffer.from(raw));
+    if (/^STAGE[01]_[^/]*\.json$/i.test(e.name.split('/').at(-1))) verified.set(e.name, Buffer.from(raw));
   }
   return {
     names: [...entries.keys()].sort(),
