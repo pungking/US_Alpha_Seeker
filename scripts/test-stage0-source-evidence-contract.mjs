@@ -897,3 +897,5 @@ await import('./test-stage01-github-archive-readback.mjs');
 await import('./test-stage01-github-readonly-evidence.mjs');
 // AS-INTEGRATION-49: offline-only HTTP observation policy; never invokes GitHub.
 await import('./test-stage01-github-transport-boundary.mjs');
+// AS-INTEGRATION-52: synthetic GitHub 302 and signed ZIP storage security boundary.
+await import('./test-stage01-github-zip-302-offline.mjs');
