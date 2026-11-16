@@ -225,8 +225,14 @@ export async function auditStage01ObservedHandoff({ stage0, stage1, observations
     provenanceAttested: false,
     anchorAttested: false,
     stageV2Validated: correlated && v2.stage0 && v2.stage1,
-    relation: correlated && anchors[0].githubRunId === anchors[1].githubRunId
-      && anchors[0].runAttempt === anchors[1].runAttempt ? 'SAME_RUN_CLAIM' : 'CROSS_RUN_OR_UNVERIFIED',
+    // GitHub run IDs are not sufficient to identify one execution across
+    // repositories, workflows or commits. Keep all claims untrusted.
+    relation: correlated && anchors[0].repository === anchors[1].repository
+      && anchors[0].workflow === anchors[1].workflow
+      && anchors[0].githubRunId === anchors[1].githubRunId
+      && anchors[0].runAttempt === anchors[1].runAttempt
+      && anchors[0].commitSha === anchors[1].commitSha
+      ? 'SAME_RUN_CLAIM' : 'CROSS_RUN_OR_UNVERIFIED',
     issues, rawSha256: { stage0: digests[0], stage1: digests[1] },
     requestCount: 0
   };
