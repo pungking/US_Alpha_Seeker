@@ -18,6 +18,19 @@ In-memory GET responses exercise: fixed endpoint ordering; raw SHA-256 receipts;
 
 The offline adapter is passed into the previously merged `auditReadOnlyGitHubEvidence` function. Cross-Run, Stage0→1 PIT, Stage3–6 lineage, Stage6 safety and no-provider/no-Drive tests remain in existing CI. No live GitHub API or download is executed by the tests.
 
+## Independent STEP #AS-INTEGRATION-50 security review
+
+GitHub's official REST specification confirms that `GET /repos/{owner}/{repo}/actions/artifacts/{artifact_id}/zip` returns an **HTTP 302 redirect to a temporary archive URL that expires after one minute**. See [GitHub Actions artifacts REST API](https://docs.github.com/en/rest/actions/artifacts?apiVersion=2022-11-28#download-an-artifact). A `302` with `Location` is **not a ZIP byte response**, and an assertion of `finalUrl === requestedUrl` is not valid evidence that the redirect chain has been securely checked. The offline validator deliberately refuses 302 rather than performing a network fetch.
+
+An eventual real downloader must validate the GitHub API 302 response and ephemeral URL in a **separately approved, isolated stage**. Never accept arbitrary `Location` origins, userinfo, plaintext HTTP, chained redirects, DNS rebinding or credential forwarding to the redirected host. Transfer no GitHub Authorization header to a storage origin by default. Enforce a bounded expiry, timeouts, bytes, TLS validation and hash match against independently retrieved artifact metadata. Avoid logging the full signed URL, whose query may contain sensitive parameters.
+
+The independent review found that the standalone response verifier previously allowed an incorrect `runs/{run_id}/zip` URL shape and did not bind JSON-vs-ZIP kind to the corresponding path. Both are rejected now, even if that verifier is called outside the ordered adapter. Tests additionally check 302 refusal and redaction of Authorization/Cookie in observation receipts.
+
+**Trust boundary:** a receipt is a digest of **caller-provided bytes** plus declared GET metadata, not independent proof of server response, TLS identity, token authority, Artifact producer Attempt, or source correctness. All `originAuthenticated` and `provenanceAttested` flags remain false, Stage0/1 absence remains `NOT_EXPORTED`, and quality is withheld. The transport policy does not turn a `SKIPPED`, incomplete or cross-Run artifact into PASS.
+
+### Recovery after future integration (not authorized here)
+If a future credentialed downloader exhibits redirects to unexpected hosts, archive hash mismatch, ZIP truncation or Stage0/1 source mismatch, stop acceptance, preserve non-secret error codes plus immutable raw-byte hashes, disable only the newly added reader using its default-off gate, and revert its own PR after a separate owner approval if needed. Never downgrade TLS, bypass hash checks, modify Workflow/Ruleset, rerun production workflows or activate PAPER/LIVE to force a green result.
+
 ## Prerequisites for any authenticated integration (not in scope)
 
 1. Explicit separate approval for a real read-only GitHub transport, least-privilege token scopes, credential handling, source identity and destination/TLS controls; no write or dispatch endpoints.
