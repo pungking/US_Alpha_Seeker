@@ -42,15 +42,25 @@ export function assessOfflineArtifactAttemptOrigin({
    || artifact.workflow_run?.head_sha!==commitSha
    || artifact.expired!==false||!digest(artifact.digest))
    add('ARTIFACT_IDENTITY_MISMATCH');
- // Temporal consistency is only a heuristic for diagnosing contradictions.
- // Even perfect time overlap cannot prove a job uploaded this Artifact.
- if (!iso(artifact?.created_at) || !iso(attempt?.run_started_at)
-   || Date.parse(artifact?.created_at) < Date.parse(attempt?.run_started_at)
-   || !iso(run?.created_at)
-   || Date.parse(artifact?.created_at) < Date.parse(run?.created_at)) add('TIMELINE_UNVERIFIED');
- if (!Array.isArray(attemptJobs)||attemptJobs.length===0
-   || !attemptJobs.every(j=>obj(j)&&integer(j.id)&&j.run_id===runId
-     && j.head_sha===commitSha&&iso(j.started_at)&&iso(j.completed_at)
-     && Date.parse(j.started_at)<=Date.parse(j.completed_at))) add('ATTEMPT_JOBS_UNVERIFIED');
+ // A temporal overlap is a contradiction screen, NOT producer proof.
+ // Require inclusive start/end bounds from the attempt response and at
+ // least one matching job interval. All timestamps are forgeable input.
+ const validWindow = (start,end) => iso(start)&&iso(end)
+   && Date.parse(start)<=Date.parse(end);
+ const attemptWindow=validWindow(attempt?.run_started_at,attempt?.updated_at);
+ const artifactTime=iso(artifact?.created_at) ? Date.parse(artifact.created_at) : null;
+ if (!attemptWindow||!iso(run?.created_at)||artifactTime===null
+   || artifactTime<Date.parse(run.created_at)
+   || artifactTime<Date.parse(attempt.run_started_at)
+   || artifactTime>Date.parse(attempt.updated_at)) add('TIMELINE_UNVERIFIED');
+ const jobsValid=Array.isArray(attemptJobs)&&attemptJobs.length>0
+   && attemptJobs.every(j=>obj(j)&&integer(j.id)&&j.run_id===runId
+     && j.head_sha===commitSha&&validWindow(j.started_at,j.completed_at));
+ if (!jobsValid) add('ATTEMPT_JOBS_UNVERIFIED');
+ // Job timestamps provide a narrower diagnostic window, but do not
+ // identify which job uploaded any particular artifact.
+ if (jobsValid && artifactTime!==null
+   && !attemptJobs.some(j=>artifactTime>=Date.parse(j.started_at)
+     && artifactTime<=Date.parse(j.completed_at))) add('TIMELINE_UNVERIFIED');
  return result(issues,issues.length===0);
 }
