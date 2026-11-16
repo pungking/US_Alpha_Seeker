@@ -24,6 +24,28 @@ Source URLs:
 - https://api.github.com/repos/pungking/US_Alpha_Seeker_Harvester/actions/runs/43471709692
 - https://api.github.com/repos/pungking/US_Alpha_Seeker_Harvester/actions/runs/43471709692/artifacts
 
+## Pre-merge real preserved-artifact replay (read-only, 2026-11-16)
+
+The two ZIPs were downloaded from the matching GitHub Actions Artifact IDs and inspected independently in an isolated local Python `zipfile` replay. This replay reads all entries, checks all CRC-32, ZIP filenames and local-header names/methods/flags, and compares exact ZIP-byte SHA-256 against independent GitHub REST Artifact API `digest`. **It does not claim that the JavaScript production module was executed against these two files**, and does not authenticate self-supplied API JSON in the Node function.
+
+| Check | US_Alpha_Seeker | Harvester |
+|---|---:|---:|
+| Artifact ZIP bytes | 57,533,946 | 4,465,578 |
+| API SHA-256 equals locally downloaded ZIP | PASS | PASS |
+| ZIP entries | 69 | 9 |
+| CRC of every entry | PASS | PASS |
+| Total uncompressed original bytes | 386,407,895 (368.507 MiB) | 28,218,470 (26.911 MiB) |
+| Maximum individual entry bytes | 62,372,832 | 28,176,486 |
+| Local header name/method/flags parity | PASS | PASS |
+| Single 128 MiB cap | PASS | PASS |
+| Aggregate original 256 MiB cap | **FAIL** | PASS |
+| New aggregate 400 MiB cap | PASS | PASS |
+| Stage0/1 original JSON archive entries | NOT_EXPORTED | NOT_EXPORTED |
+
+The historical analysis ZIP exceeds 256 MiB because its 69 entries decompress to 386,407,895 bytes; the initial 256 MiB cap was a **compatibility blocker**. This PR lifts only the bounded aggregate ceiling to 400 MiB (419,430,400 bytes). The 128 MiB per-entry cap, original JSON v2 validators, full-entry CRC checks, parser fail-closed semantics and all execution HOLD remain unchanged. A synthetic 5-entry aggregate declaration of 550 MiB must be rejected as `ZIP_TOTAL_TOO_LARGE`.
+
+These are historical **archive compatibility** and metadata consistency observations only, not real Stage0/1 execution or finance-data proof. Both originals remain `NOT_EXPORTED` and both audit results must remain `WITHHELD`.
+
 ## Security / certification boundary
 `auditGitHubArchiveReadback` accepts GitHub API JSON and downloaded ZIP bytes from a **caller**. It verifies structural consistency, ZIP bytes SHA-256 against API-reported artifact digest, central-directory entries, relevant original JSON CRC-32 and full Stage0/1 v2 validators if both originals exist. The module has no network access and **does not itself authenticate the origin of the inputs**. A fabricated API response plus a fabricated matching ZIP is therefore *not proof of GitHub provenance*; `provenanceAttested` is always `false` and quality is always `withheld`.
 
