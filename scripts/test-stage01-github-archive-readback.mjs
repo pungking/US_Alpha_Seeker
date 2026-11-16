@@ -103,4 +103,52 @@ const amb=source();amb.zipBytes=duplicate;amb.artifact.digest='sha256:'+hash(dup
 const ambResult=await auditGitHubArchiveReadback(amb);
 assert.ok(ambResult.issues.includes('STAGE0_AMBIGUOUS_ORIGINALS'));
 assert.equal(ambResult.verdict,'WITHHELD');
+
+// AS-INTEGRATION-43: central/local disagreement and ZIP64 must fail closed.
+// Mutating archive bytes is intentional: this exercises independently
+// malformed ZIPs, not a builder that already forbids invalid structures.
+const localNameMismatch = Buffer.from(zip);
+const localNameIndex = localNameMismatch.indexOf(Buffer.from('state/stage3-audit-source.json'));
+assert.ok(localNameIndex >= 0);
+localNameMismatch[localNameIndex] = 'x'.charCodeAt(0);
+assert.throws(() => inspectOfflineZip(localNameMismatch), /ZIP_LOCAL_NAME_MISMATCH/);
+const localMethodMismatch = Buffer.from(zip);
+localMethodMismatch.writeUInt16LE(8, 8); // local compression method, central still "stored"
+assert.throws(() => inspectOfflineZip(localMethodMismatch), /ZIP_LOCAL_INVALID/);
+const localCrcMismatch = Buffer.from(zip);
+localCrcMismatch.writeUInt32LE(0, 14);
+assert.throws(() => inspectOfflineZip(localCrcMismatch), /ZIP_LOCAL_METADATA_MISMATCH/);
+const localFlagsMismatch = Buffer.from(zip);
+localFlagsMismatch.writeUInt16LE(1, 6);
+assert.throws(() => inspectOfflineZip(localFlagsMismatch), /ZIP_LOCAL_INVALID/);
+const storedSizeMismatch = Buffer.from(zip);
+const centralPos = storedSizeMismatch.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));
+assert.ok(centralPos > 0);
+storedSizeMismatch.writeUInt32LE(storedSizeMismatch.readUInt32LE(centralPos+24)+1, centralPos+24);
+assert.throws(() => inspectOfflineZip(storedSizeMismatch), /ZIP_ENTRY_INVALID/);
+// Rebuild a valid ZIP with a central extra field set to ZIP64, even
+// though the legacy 32-bit fields are not sentinel values.
+const centralZip64 = Buffer.from(zip);
+const centralStart = centralZip64.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));
+const endIndex = centralZip64.lastIndexOf(Buffer.from([0x50,0x4b,0x05,0x06]));
+const zip64Extra = Buffer.from([1,0,0,0]);
+const centralNameLen = centralZip64.readUInt16LE(centralStart+28);
+const insertedAt = centralStart+46+centralNameLen;
+const zip64File = Buffer.concat([centralZip64.subarray(0,insertedAt),zip64Extra,centralZip64.subarray(insertedAt)]);
+zip64File.writeUInt16LE(4,centralStart+30);
+zip64File.writeUInt32LE(centralZip64.readUInt32LE(endIndex+12)+4,endIndex+4+12);
+assert.throws(() => inspectOfflineZip(zip64File), /ZIP64_UNSUPPORTED/);
+// Reject advertised oversized source before attempting decompression.
+const oversize = Buffer.from(zip);
+oversize.writeUInt32LE(129*1024*1024, centralPos+24);
+assert.throws(() => inspectOfflineZip(oversize), /ZIP_ENTRY_INVALID/);
+// Both a bogus output and an observed, caller-controlled ZIP digest
+// cannot establish independently verified provenance.
+const manipulated = source();
+manipulated.zipBytes = Buffer.from(zip);
+manipulated.artifact.digest = 'sha256:'+hash(manipulated.zipBytes);
+const stillUnattested = await auditGitHubArchiveReadback(manipulated);
+assert.equal(stillUnattested.provenanceAttested,false);
+assert.equal(stillUnattested.finalQualityJudgement,'withheld');
+
 console.log('[STAGE01_GITHUB_ARCHIVE_READBACK] PASS (offline ZIP CRC/hash, independent API claim parity, NOT_EXPORTED, forged/partial/skipped/PIT negatives; no network)');
