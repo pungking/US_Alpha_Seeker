@@ -850,6 +850,25 @@ for (const crossRun of [false, true]) {
   assert.equal(observation.finalQualityJudgement, 'withheld');
   assert.equal(observation.requestCount, 0);
 }
+// AS-INTEGRATION-40: equal numeric Run/Attempt across different commit,
+// workflow or repository must never be represented as the same execution.
+for (const [key, different] of [
+  ['commitSha', 'd'.repeat(40)],
+  ['workflow', 'different-workflow'],
+  ['repository', 'other/US_Alpha_Seeker']
+]) {
+  const claim = buildObservedAudit(false);
+  claim.stage1.origin[key] = different;
+  claim.observations.stage1[key] = different;
+  const result = await auditStage01ObservedHandoff(claim);
+  assert.equal(result.verdict, 'CORRELATED_UNATTESTED', key);
+  assert.equal(result.relation, 'CROSS_RUN_OR_UNVERIFIED', key);
+  assert.equal(result.finalQualityJudgement, 'withheld', key);
+  assert.equal(result.provenanceAttested, false, key);
+}
+assert.equal((await auditStage01ObservedHandoff(buildObservedAudit(false))).relation, 'SAME_RUN_CLAIM');
+assert.equal((await auditStage01ObservedHandoff(buildObservedAudit(true))).relation, 'CROSS_RUN_OR_UNVERIFIED');
+
 const expectHandoffWithheld = async (name, mutate, expected) => {
   const v = buildObservedAudit(true);
   mutate(v);
