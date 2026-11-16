@@ -54,6 +54,10 @@ const MarkdownComponents: any = {
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
   const [probingApi, setProbingApi] = useState<ApiProvider | null>(null);
+  const [confirmingApi, setConfirmingApi] = useState<ApiProvider | null>(null);
+  const [apiFeedback, setApiFeedback] = useState('');
+  const manualApiRefresh = useRef(false);
+  const verifiedFeedbackScope = useRef<{ token: string | null; build: string | null; provider: ApiProvider } | null>(null);
   const [apiServerBuild, setApiServerBuild] = useState<string | null>(null);
   const probeInFlight = useRef(false);
   const apiObservations = useRef<Record<string, any>>({});
@@ -285,7 +289,8 @@ const App: React.FC = () => {
       }
   };
 
-  const refreshApiStatuses = useCallback(async (force = false) => {
+  const refreshApiStatuses = useCallback(async (force = false, manual = false) => {
+    if (manual) { manualApiRefresh.current = true; verifiedFeedbackScope.current = null; setApiFeedback('Checking settings; no provider request is sent.'); }
     const generation = ++settingsGeneration.current;
     const token = currentDriveProgressToken(sessionStorage);
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
@@ -298,7 +303,19 @@ const App: React.FC = () => {
     } })));
     const server = await dashboardAiStatus({ force });
     if (generation !== settingsGeneration.current || token !== currentDriveProgressToken(sessionStorage)) return;
+    if (manualApiRefresh.current) {
+      manualApiRefresh.current = false;
+      setApiFeedback(server.reason ? `Settings check failed: ${server.reason}. No provider request was sent.` :
+        `Settings refreshed. ${Object.values(server.providers || {}).filter(Boolean).length} provider settings available. No provider request was sent.`);
+    }
     const build = server.buildSha || null;
+    const verified = verifiedFeedbackScope.current;
+    const verifiedProviderEnabled = verified && (!!API_CONFIGS.find(config => config.provider === verified.provider)?.key ||
+      (verified.provider === ApiProvider.GEMINI ? server.gemini : server.perplexity));
+    if (verified && (verified.token !== token || verified.build !== build || !verifiedProviderEnabled)) {
+      verifiedFeedbackScope.current = null;
+      setApiFeedback('Previous response verification expired after login, settings or server build changed. Current connection not verified.');
+    }
     if (settingsScope.current.token !== token || settingsScope.current.build !== build) apiObservations.current = {};
     settingsScope.current = { token, build };
     setApiServerBuild(server.buildSha || null);
@@ -346,9 +363,25 @@ const App: React.FC = () => {
     });
   }, []);
 
-  const runApiProbe = async (provider: ApiProvider) => {
+  const requestApiProbe = (provider: ApiProvider) => {
     if (probeInFlight.current || ![ApiProvider.GEMINI, ApiProvider.PERPLEXITY].includes(provider)) return;
-    if (!window.confirm(`${provider}: send ONE real connection request (max 16 output tokens). Charges may apply. No analysis or trading. Continue?`)) return;
+    manualApiRefresh.current = false;
+    verifiedFeedbackScope.current = null;
+    const status = apiStatuses.find(item => item.provider === provider)?.diagnostics;
+    if (!status || !['CONFIGURED', 'VERIFIED', 'PROVIDER_ERROR', 'REQUEST_ERROR'].includes(status.state)) {
+      setConfirmingApi(null);
+      setApiFeedback(`${provider}: ${status?.label || 'SETTINGS NOT VERIFIED'}. ${status?.detail || 'Refresh settings first.'} No provider request was sent.`);
+      return;
+    }
+    setConfirmingApi(provider);
+    setApiFeedback(`${provider}: confirmation required. No provider request has been sent.`);
+  };
+
+  const runApiProbe = async (provider: ApiProvider) => {
+    if (probeInFlight.current || confirmingApi !== provider) return;
+    manualApiRefresh.current = false;
+    setConfirmingApi(null);
+    setApiFeedback(`${provider}: checking one real response (max 16 output tokens); no automatic retry.`);
     const scope = settingsScope.current;
     const currentScope = () => scope.token === currentDriveProgressToken(sessionStorage) && scope.token === settingsScope.current.token && scope.build === settingsScope.current.build;
     probeInFlight.current = true;
@@ -361,9 +394,13 @@ const App: React.FC = () => {
     } }));
     try {
       const observation = await probeDashboardAi(provider);
-      if (currentScope() && observation.buildSha === scope.build) apiObservations.current[provider] = observation;
+      if (currentScope() && observation.buildSha === scope.build) {
+        apiObservations.current[provider] = observation;
+        verifiedFeedbackScope.current = { ...scope, provider };
+        setApiFeedback(`${provider}: RESPONSE VERIFIED. One request completed; no automatic retry.`);
+      } else setApiFeedback(`${provider}: result discarded because login or server build changed. Not verified.`);
     } catch (error: any) {
-      if (!currentScope()) return;
+      if (!currentScope()) { setApiFeedback(`${provider}: login or server build changed. Result not verified; no retry.`); return; }
       const controlled = typeof error.reason === 'string' && /^DASHBOARD_AI_[A-Z_]+$/.test(error.reason) ? error.reason :
         /^PERPLEXITY_CIRCUIT_/.test(error.message || '') ? 'DASHBOARD_AI_CIRCUIT_OPEN' :
         /^PERPLEXITY_BUDGET_/.test(error.message || '') ? 'DASHBOARD_AI_BUDGET_BLOCKED' :
@@ -371,6 +408,7 @@ const App: React.FC = () => {
       trackUsage(provider, 0, true, controlled);
       apiObservations.current[provider] = { state: 'REQUEST_ERROR', reason: controlled, checkedAt: Date.now(),
         httpStatus: error.upstreamHttpStatus ?? error.httpStatus ?? null, httpSource: error.upstreamHttpStatus ? 'AI provider' : error.httpSource || 'request gateway', latency: null };
+      setApiFeedback(`${provider}: ${controlled}. Connection not verified; no automatic retry.`);
     } finally {
       if (apiObservations.current[provider] === pending) delete apiObservations.current[provider];
       probeInFlight.current = false;
@@ -627,12 +665,17 @@ const App: React.FC = () => {
         <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
           {apiStatuses.map((status, idx) => (
             <ApiStatusCard key={`${status.provider}-${idx}`} status={status} isAuthConnected={status.isConnected}
-              onRefresh={() => refreshApiStatuses(true)} onProbe={() => runApiProbe(status.provider)} probing={probingApi !== null} />
+              onRefresh={() => refreshApiStatuses(true, true)} onProbe={() => requestApiProbe(status.provider)} probing={probingApi !== null}
+              confirming={confirmingApi === status.provider} onConfirm={() => runApiProbe(status.provider)}
+              onCancel={() => { manualApiRefresh.current = false; verifiedFeedbackScope.current = null; setConfirmingApi(null); setApiFeedback('Cancelled. No provider request was sent.'); }} />
           ))}
         </div>
         <p className="px-1 text-[9px] font-mono text-slate-500" aria-label="Dashboard API settings source">
           API server build: {apiServerBuild ? apiServerBuild.slice(0, 12) : 'NOT VERIFIED (owner login / refresh required)'}
           {' · '}Settings presence is not a verified provider response.
+        </p>
+        <p id="api-action-feedback" role="status" aria-live="polite" className="px-1 text-xs text-amber-200">
+          {apiFeedback || 'Refresh settings checks server configuration. Test reply requires explicit confirmation and may cost.'}
         </p>
         <RenderGuard label="Market Ticker">
           <MarketTicker />

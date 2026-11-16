@@ -13,6 +13,12 @@ const problems = {
   DASHBOARD_AI_BUDGET_BLOCKED: ['BLOCKED', 'BUDGET BLOCKED', 'The session reservation limit blocked this request.'],
   DASHBOARD_AI_CIRCUIT_OPEN: ['BLOCKED', 'CIRCUIT OPEN', 'A previous uncertain/failed request stopped further paid calls. No automatic reset or retry.']
 };
+const settingNames = {
+  RapidAPI: 'RAPID_API_KEY', Polygon: 'POLYGON_API_KEY', Alpaca: 'ALPACA_KEY', Finnhub: 'FINNHUB_KEY',
+  'Financial Modeling Prep': 'FMP_KEY', 'Twelve Data': 'TWELVE_DATA_KEY', 'Alpha Vantage': 'ALPHA_VANTAGE_KEY',
+  'Google Gemini': 'GEMINI_API_KEY or API_KEY', Perplexity: 'PERPLEXITY_API_KEY',
+  'Hybrid Feed (FH+ALP)': 'FINNHUB_KEY or ALPACA_KEY'
+};
 
 export function describeDashboardProvider(provider, { server = {}, observation = null, localConfigured = false, driveTokenPresent = false, now = Date.now() } = {}) {
   const base = { state: 'NOT_CONFIGURED', label: 'KEY NOT CONFIGURED', detail: 'No usable configuration found.', verified: false,
@@ -26,7 +32,8 @@ export function describeDashboardProvider(provider, { server = {}, observation =
   const configured = localConfigured || server.providers?.[provider] ||
     (provider === 'Google Gemini' && server.gemini) || (provider === 'Perplexity' && server.perplexity) ||
     (provider === 'Hybrid Feed (FH+ALP)' && (server.providers?.Finnhub || server.providers?.Alpaca));
-  if (!configured) return base;
+  if (!configured) return { ...base,
+    detail: `${observation?.state === 'REQUEST_ERROR' ? 'No provider request could be verified. ' : ''}No usable server setting: ${settingNames[provider] || 'provider configuration'}. Refresh cannot create credentials.` };
   if (provider === 'Perplexity' && !localConfigured && !server.perplexity) return { ...base, state: 'BLOCKED', label: 'BUDGET REQUIRED', detail: problems.DASHBOARD_AI_BUDGET_NOT_CONFIGURED[2] };
   const age = now - (observation?.checkedAt ?? 0);
   if (observation && age >= 0 && age <= 300000) {

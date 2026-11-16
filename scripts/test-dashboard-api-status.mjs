@@ -131,3 +131,26 @@ for (const thinkingConfig of [{ thinkingBudget: 1 }, { thinkingBudget: -1 }, { t
     assert.equal(result.status, 400);
   });
 }
+
+for (const primary of ['   ', 'invalid\nembedded']) test('invalid Gemini primary cannot mask a valid fallback', async () => {
+  const deps = io(); let seenKey;
+  deps.generate = async (key) => { seenKey = key; return { text: 'OK' }; };
+  const settings = { ...env, GEMINI_API_KEY: primary, API_KEY: 'synthetic-valid-fallback' };
+  assert.equal((await handleDashboardAi(req(), settings, deps)).body.gemini, true);
+  const reply = await handleDashboardAi(req({ provider: 'gemini', payload: { model: 'gemini-2.5-flash', contents: 'OK', config: { maxOutputTokens: 16 } } }), settings, deps);
+  assert.equal(reply.status, 200); assert.equal(seenKey, 'synthetic-valid-fallback');
+});
+test('outer credential whitespace is normalized without allowing internal line breaks', async () => {
+  const deps = io(); let seenKey;
+  deps.generate = async (key) => { seenKey = key; return { text: 'OK' }; };
+  const settings = { ...env, GEMINI_API_KEY: '\r\n synthetic-trimmed \r\n' };
+  const reply = await handleDashboardAi(req({ provider: 'gemini', payload: { model: 'gemini-2.5-flash', contents: 'OK' } }), settings, deps);
+  assert.equal(reply.status, 200); assert.equal(seenKey, 'synthetic-trimmed');
+  assert.equal((await handleDashboardAi(req(), { ...env, GEMINI_API_KEY: 'invalid\nembedded', API_KEY: '' }, io())).body.gemini, false);
+});
+test('blocked test with absent configuration names the setting and explains no provider request', () => {
+  const result = describeDashboardProvider('Google Gemini', { server: { authenticated: true, gemini: false },
+    observation: { state: 'REQUEST_ERROR', reason: 'DASHBOARD_AI_PROVIDER_NOT_CONFIGURED', checkedAt: 1000 }, now: 1100 });
+  assert.equal(result.verified, false); assert.equal(result.httpStatus, null);
+  assert.match(result.detail, /GEMINI_API_KEY/); assert.match(result.detail, /No provider request/);
+});

@@ -8,7 +8,11 @@ class DashboardAiFailure extends Error {
 }
 const reject = (status, code, upstreamHttpStatus = undefined) => { throw new DashboardAiFailure(status, code, upstreamHttpStatus); };
 const keysOnly = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
-const credential = value => typeof value === 'string' && value.trim() && !/[\r\n]/.test(value) ? value.trim() : '';
+const credential = value => {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return /[\r\n]/.test(trimmed) ? '' : trimmed;
+};
+const geminiCredential = env => credential(env.GEMINI_API_KEY) || credential(env.API_KEY);
 
 function capabilities(env) {
   // shortcut: spend reservations remain owner/browser-session scoped; require durable accounting before multi-user use.
@@ -18,9 +22,9 @@ function capabilities(env) {
   const providers = Object.fromEntries(Object.entries({ RapidAPI: 'RAPID_API_KEY', Polygon: 'POLYGON_API_KEY', Alpaca: 'ALPACA_KEY',
     Finnhub: 'FINNHUB_KEY', 'Financial Modeling Prep': 'FMP_KEY', 'Twelve Data': 'TWELVE_DATA_KEY', 'Alpha Vantage': 'ALPHA_VANTAGE_KEY'
   }).map(([provider, key]) => [provider, !!credential(env[key])]));
-  providers['Google Gemini'] = !!credential(env.GEMINI_API_KEY || env.API_KEY);
+  providers['Google Gemini'] = !!geminiCredential(env);
   providers.Perplexity = !!credential(env.PERPLEXITY_API_KEY);
-  return { gemini: !!credential(env.GEMINI_API_KEY || env.API_KEY),
+  return { gemini: !!geminiCredential(env),
     perplexity: !!credential(env.PERPLEXITY_API_KEY) && paid, budget, providerVerified: false, providers, authenticated: true,
     buildSha: /^[a-f0-9]{40}$/.test(env.VERCEL_GIT_COMMIT_SHA || '') ? env.VERCEL_GIT_COMMIT_SHA : null };
 }
@@ -84,7 +88,7 @@ export async function handleDashboardAi(req, env, { fetchImpl = globalThis.fetch
     if (body.provider === 'gemini') {
       const payload = geminiPayload(body.payload);
       let result;
-      try { result = await generateImpl(credential(env.GEMINI_API_KEY || env.API_KEY), payload); }
+      try { result = await generateImpl(geminiCredential(env), payload); }
       catch (error) { providerFailure(error?.status); }
       if (typeof result?.text !== 'string' || Buffer.byteLength(result.text) > 2 * 1024 * 1024) reject(502, 'RESPONSE_INVALID');
       return reply(200, { text: result.text, usageMetadata: result.usageMetadata, buildSha: status.buildSha });
