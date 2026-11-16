@@ -87,6 +87,10 @@ block('artifact after shortened attempt end',x=>x.attempt.updated_at='2026-11-16
 block('missing job end',x=>delete x.attemptJobs[0].completed_at,'ATTEMPT_JOBS_UNVERIFIED');
 block('missing job start',x=>delete x.attemptJobs[0].started_at,'ATTEMPT_JOBS_UNVERIFIED');
 block('job end earlier than start',x=>x.attemptJobs[0].completed_at='2026-11-16T07:26:13Z','ATTEMPT_JOBS_UNVERIFIED');
+block('job starts before attempt',x=>x.attemptJobs[0].started_at='2026-11-16T07:26:10Z','ATTEMPT_JOBS_UNVERIFIED');
+block('job completes after attempt',x=>x.attemptJobs[0].completed_at='2026-11-16T07:27:42Z','ATTEMPT_JOBS_UNVERIFIED');
+block('attempt end before job end',x=>x.attempt.updated_at='2026-11-16T07:27:39Z','ATTEMPT_JOBS_UNVERIFIED');
+block('extra cross-attempt job',x=>x.attemptJobs.push({...x.attemptJobs[0],id:133152858730,started_at:'2026-11-16T07:25:00Z'}),'ATTEMPT_JOBS_UNVERIFIED');
 block('artifact after shortened job end',x=>x.attemptJobs[0].completed_at='2026-11-16T07:27:37Z','TIMELINE_UNVERIFIED');
 block('artifact before shifted job start',x=>x.attemptJobs[0].started_at='2026-11-16T07:27:39Z','TIMELINE_UNVERIFIED');
 block('disjoint job windows',x=>{x.attemptJobs[0].completed_at='2026-11-16T07:27:00Z'; x.attemptJobs.push({...x.attemptJobs[0],id:133152858730,started_at:'2026-11-16T07:27:39Z',completed_at:'2026-11-16T07:27:40Z'})},'TIMELINE_UNVERIFIED');
