@@ -170,11 +170,12 @@ declaredOversize.writeUInt16LE(8,oversizedDir+10);
 declaredOversize.writeUInt16LE(8,oversizedDir+8);
 declaredOversize.writeUInt32LE(129*1024*1024,oversizedDir+24);
 assert.throws(()=>inspectOfflineZip(declaredOversize),/ZIP_ENTRY_TOO_LARGE/);
-// Five individually sub-128 MiB advertised entries exceed the 400 MiB cap.\nconst totalOverflow=zipStored({a:'0',b:'1',c:'2',d:'3',e:'4'});
+// Five individually sub-128 MiB advertised entries exceed the 400 MiB cap.
+const totalOverflow=zipStored({a:'0',b:'1',c:'2',d:'3',e:'4'});
 const totalCentral=totalOverflow.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));
 const modifiedTotal=Buffer.from(totalOverflow);
 let pos=totalCentral;
-for(let i=0;i<3;i++){
+for(let i=0;i<5;i++){
   const local=modifiedTotal.readUInt32LE(pos+42);
   modifiedTotal.writeUInt16LE(8,local+8); // local DEFLATE
   modifiedTotal.writeUInt16LE(8,local+6); // descriptor
