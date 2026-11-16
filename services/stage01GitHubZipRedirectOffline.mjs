@@ -15,6 +15,7 @@ function parseStorageUrl(location, allowedHosts) {
   if (typeof location !== 'string' || location.length > 8192 || /[\r\n\\\s]/.test(location)) fail('REDIRECT_LOCATION_INVALID');
   let u;
   try { u = new URL(location); } catch { fail('REDIRECT_LOCATION_INVALID'); }
+  if (u.href !== location) fail('REDIRECT_LOCATION_INVALID');
   if (u.protocol !== 'https:' || u.username || u.password || u.port
     || u.hash || !u.pathname.startsWith('/') || !u.search) fail('REDIRECT_LOCATION_INVALID');
   if (!allowedHosts.includes(u.hostname) || !validHost(u.hostname)) fail('REDIRECT_STORAGE_HOST_DENIED');
@@ -29,6 +30,13 @@ export function validateOfflineGitHubZipRedirect({
   observedAtMs, evaluatedAtMs
 } = {}) {
   if (!GITHUB_ARTIFACT_ZIP.test(apiUrl || '')) fail('REDIRECT_API_URL_INVALID');
+  // Exact string matching alone does not reject relative dot-segments in
+  // repository coordinates. Never let URL normalization change the target.
+  const apiParsed = new URL(apiUrl);
+  if (apiParsed.href !== apiUrl
+    || apiParsed.pathname.split('/').slice(2, 4).some(part => part === '.' || part === '..')) {
+    fail('REDIRECT_API_URL_INVALID');
+  }
   if (!Array.isArray(approvedStorageHosts) || approvedStorageHosts.length === 0
     || approvedStorageHosts.length > 8 || !approvedStorageHosts.every(validHost)
     || new Set(approvedStorageHosts).size !== approvedStorageHosts.length) fail('REDIRECT_HOST_POLICY_INVALID');
