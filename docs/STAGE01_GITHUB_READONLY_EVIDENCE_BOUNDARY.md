@@ -20,6 +20,19 @@ The module accepts `readJson` and `readArtifactBytes` functions and has **no dir
 - A downstream cross-Run Producer→Consumer handoff is **not authenticated by this contract**, and still requires independent verified edge evidence.
 - Request order is inspectable in `requestedEndpoints`; no workflow dispatch, reruns, Drive writes, external AI provider or broker calls.
 
+## Minimum contract for a future independently authenticated connector
+
+The injected `readJson` and `readArtifactBytes` functions are test seams **not a credentialed transport**. This PR performs zero GitHub HTTP requests itself and cannot establish TLS peer identity or token authority. Future connector integration requires an independent security review of:
+
+- fixed `GET` methods and exact, allowlisted `api.github.com` endpoints with no redirects to arbitrary origins, userinfo or injected query strings;
+- least-privilege read-only token permissions, secret redaction, TLS validation, byte-size limits and timeout/retry budgets; reject truncated, non-UTF-8 JSON, non-binary ZIP and partial or stale API responses;
+- repository numeric ID and exact name, Run/Attempt/SHA/workflow (single YAML basename), completed/success state, Artifact ID/Run/repository/SHA, the independently downloaded ZIP and its API digest;
+- recorded observation timestamps and source/transport identity outside the artifact; immutable correlation receipts with source labels and no self-attested `trusted` claim;
+- independent cross-Run producer/consumer handoff-edge provenance: artifact `workflow_run` does not alone prove the specific attempt that produced its ZIP. Never promote this contract to authenticated provenance even if the injected data are internally consistent;
+- archive `NOT_EXPORTED`, `WITHHELD`, `SKIPPED` and partial failures cannot be interpreted as quality PASS. `readbackCorrelated` must remain **false** when the inner archive audit withholds, regardless of successful GitHub metadata readback.
+
+Any future operational integration, workflow or artifact-export change requires its own approval and tests. No such changes are authorized by this PR.
+
 ## Test and deployment boundary
 Synthetic test responses (not GitHub credentials) exercise positive metadata identity, wrong repository ID, changed Run ID/Attempt/Commit SHA, skipped/failed/incomplete Run, wrong artifact association, expired/missing digest, ZIP substitution, missing downloads, missing originals and no source promotion. The existing Stage0/1 through Stage6 offline CI runs unchanged.
 
