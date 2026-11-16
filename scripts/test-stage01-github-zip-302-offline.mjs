@@ -32,6 +32,8 @@ const block=(title,change,expected)=>{
  assert.throws(()=>validateOfflineGitHubZipRedirect(input),new RegExp(expected),title);
 };
 block('non API ZIP',x=>{x.apiUrl='https://evil.example/a';},'REDIRECT_API_URL_INVALID');
+block('API repo parent traversal',x=>{x.apiUrl='https://api.github.com/repos/../US_Alpha_Seeker/actions/artifacts/14062682867/zip';x.redirect.url=x.apiUrl;},'REDIRECT_API_URL_INVALID');
+block('API repo current directory',x=>{x.apiUrl='https://api.github.com/repos/./US_Alpha_Seeker/actions/artifacts/14062682867/zip';x.redirect.url=x.apiUrl;},'REDIRECT_API_URL_INVALID');
 block('wrong API HTTP status',x=>{x.redirect.status=200;},'REDIRECT_API_RESPONSE_INVALID');
 block('API changed',x=>{x.redirect.url='https://evil.example/';},'REDIRECT_API_RESPONSE_INVALID');
 block('API method',x=>{x.redirect.method='POST';},'REDIRECT_API_RESPONSE_INVALID');
@@ -43,6 +45,10 @@ block('storage URL is HTTP',x=>{x.redirect.location='http://artifacts.example-st
 block('userinfo',x=>{x.redirect.location='https://a@artifacts.example-storage.test/blob?sig=1';},'REDIRECT_LOCATION_INVALID');
 block('non default port',x=>{x.redirect.location='https://artifacts.example-storage.test:444/blob?sig=1';},'REDIRECT_LOCATION_INVALID');
 block('fragment',x=>{x.redirect.location=SIGNED+'#fragment';},'REDIRECT_LOCATION_INVALID');
+block('storage path dot segment',x=>{x.redirect.location='https://artifacts.example-storage.test/../blob.zip?sig=1';},'REDIRECT_LOCATION_INVALID');
+block('storage encoded dot segment',x=>{x.redirect.location='https://artifacts.example-storage.test/%2e%2e/blob.zip?sig=1';},'REDIRECT_LOCATION_INVALID');
+block('storage origin case drift',x=>{x.redirect.location='https://ARTIFACTS.example-storage.test/blob.zip?sig=1';},'REDIRECT_LOCATION_INVALID');
+block('storage explicit default port',x=>{x.redirect.location='https://artifacts.example-storage.test:443/blob.zip?sig=1';},'REDIRECT_LOCATION_INVALID');
 block('CRLF location',x=>{x.redirect.location=SIGNED+'\r\nx:y';},'REDIRECT_LOCATION_INVALID');
 block('no signed query',x=>{x.redirect.location='https://artifacts.example-storage.test/blob.zip';},'REDIRECT_LOCATION_INVALID');
 block('localhost host policy',x=>{x.approvedStorageHosts=['localhost'];},'REDIRECT_HOST_POLICY_INVALID');
