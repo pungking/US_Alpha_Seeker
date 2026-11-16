@@ -9,9 +9,12 @@ interface Props {
   onRefresh?: () => void;
   onProbe?: () => void;
   probing?: boolean;
+  confirming?: boolean;
+  onConfirm?: () => void;
+  onCancel?: () => void;
 }
 
-const ApiStatusCard: React.FC<Props> = ({ status, isAuthConnected, onRefresh, onProbe, probing }) => {
+const ApiStatusCard: React.FC<Props> = ({ status, isAuthConnected, onRefresh, onProbe, probing, confirming, onConfirm, onCancel }) => {
   const config = API_CONFIGS.find(c => c.provider === status.provider);
   const categoryLabel = config?.category === 'Acquisition' ? 'ACQ' : config?.category === 'Intelligence' ? 'INT' : 'INF';
   const categoryColor = config?.category === 'Acquisition' ? 'text-blue-400 border-blue-500/30' : config?.category === 'Intelligence' ? 'text-emerald-400 border-emerald-500/30' : 'text-amber-400 border-amber-500/30';
@@ -53,8 +56,13 @@ const ApiStatusCard: React.FC<Props> = ({ status, isAuthConnected, onRefresh, on
       </p>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={onRefresh} disabled={checking || probing} className="text-[9px] text-blue-300 underline disabled:opacity-40" aria-label={`Refresh ${status.provider} configuration`}>Refresh settings</button>
-        {ai && <button type="button" onClick={onProbe} disabled={probing || checking} className="text-[9px] text-amber-300 underline disabled:opacity-40" aria-label={`Check ${status.provider} with one real request`}>{probing ? 'Checking...' : 'Test reply (may cost)'}</button>}
+        {ai && !confirming && <button type="button" onClick={onProbe} disabled={probing || checking} className="text-[9px] text-amber-300 underline disabled:opacity-40" aria-label={`Check ${status.provider} with one real request`}>{probing ? 'Checking...' : 'Test reply (may cost)'}</button>}
       </div>
+      {ai && confirming && <div className="space-y-2 text-[10px] text-amber-200" role="group" aria-label={`Confirm ${status.provider} paid request`}>
+        <p>Send ONE real request, max 16 output tokens. Charges may apply. Existing session budget remains. No analysis or trading.</p>
+        <button type="button" onClick={onConfirm} disabled={probing || checking} className="underline disabled:opacity-40" aria-label={`Confirm ${status.provider} connection test`}>Confirm one request (may cost)</button>
+        <button type="button" onClick={onCancel} disabled={probing} className="ml-3 underline disabled:opacity-40" aria-label={`Cancel ${status.provider} connection test`}>Cancel</button>
+      </div>}
     </div>
   );
 };
