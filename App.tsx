@@ -2,6 +2,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { recordAutoTiming } from './services/autoSchedulerTiming.mjs';
 import { dashboardAiStatus } from './services/dashboardAiClient.mjs';
+import { describeDashboardProvider } from './services/dashboardApiStatus.mjs';
+import { probeDashboardAi } from './services/dashboardAiProbe';
+import { currentDriveProgressToken } from './services/driveProgressToken.mjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ApiProvider, ApiStatus } from './types';
@@ -18,7 +21,7 @@ import MarketTicker from './components/MarketTicker';
 import PerformanceDashboard from './components/PerformanceDashboard';
 import LegalDocs from './components/LegalDocs';
 import RenderGuard from './components/RenderGuard';
-import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
+import { analyzePipelineStatus, archiveReport, trackUsage } from './services/intelligenceService';
 import { sendTelegramReportWithReceipt } from './services/telegramService';
 import { classifyTelegramNotification } from './services/telegramDeliveryContract.mjs';
 
@@ -50,6 +53,12 @@ const MarkdownComponents: any = {
 
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
+  const [probingApi, setProbingApi] = useState<ApiProvider | null>(null);
+  const [apiServerBuild, setApiServerBuild] = useState<string | null>(null);
+  const probeInFlight = useRef(false);
+  const apiObservations = useRef<Record<string, any>>({});
+  const settingsGeneration = useRef(0);
+  const settingsScope = useRef<{ token: string | null; build: string | null }>({ token: null, build: null });
   const [currentStage, setCurrentStage] = useState(0);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
@@ -276,11 +285,23 @@ const App: React.FC = () => {
       }
   };
 
-  const refreshApiStatuses = useCallback(async () => {
+  const refreshApiStatuses = useCallback(async (force = false) => {
+    const generation = ++settingsGeneration.current;
+    const token = currentDriveProgressToken(sessionStorage);
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
-    const server = await dashboardAiStatus();
-    const geminiActive = !!API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || server.gemini;
+    setApiStatuses(previous => (previous.length ? previous : API_CONFIGS.map(config => ({
+      provider: config.provider, category: config.category, isConnected: false, latency: 0, lastChecked: ''
+    }))).map(status => ({ ...status, isConnected: false, diagnostics: {
+      state: 'CHECKING', label: 'CHECKING SETTINGS', detail: 'Owner-authenticated configuration check; no vendor ping.',
+      verified: false, httpStatus: null, httpSource: '', checkedAt: null, latency: null
+    } })));
+    const server = await dashboardAiStatus({ force });
+    if (generation !== settingsGeneration.current || token !== currentDriveProgressToken(sessionStorage)) return;
+    const build = server.buildSha || null;
+    if (settingsScope.current.token !== token || settingsScope.current.build !== build) apiObservations.current = {};
+    settingsScope.current = { token, build };
+    setApiServerBuild(server.buildSha || null);
     
     // Refresh Usage Stats
     loadUsageStats();
@@ -293,14 +314,14 @@ const App: React.FC = () => {
       ];
       
       const statuses = orderedConfigs.map(config => {
-        let isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : 
-                          config.provider === ApiProvider.GEMINI ? geminiActive :
-                          config.provider === ApiProvider.PERPLEXITY ? !!config.key || server.perplexity : !!config.key;
+        const diagnostics = describeDashboardProvider(config.provider, { server, localConfigured: !!config.key,
+          driveTokenPresent: hasGdriveToken, observation: apiObservations.current[config.provider] });
         return {
           provider: config.provider,
           category: config.category,
-          isConnected,
+          isConnected: diagnostics.verified,
           latency: 0,
+          diagnostics,
           lastChecked: new Date().toLocaleTimeString()
         };
       });
@@ -314,8 +335,9 @@ const App: React.FC = () => {
           statuses.splice(2, 0, {
               provider: 'Hybrid Feed (FH+ALP)' as any,
               category: 'Acquisition',
-              isConnected: hasFinnhub || hasAlpaca,
+              isConnected: false,
               latency: 0,
+              diagnostics: describeDashboardProvider('Hybrid Feed (FH+ALP)', { server, localConfigured: hasFinnhub || hasAlpaca }),
               lastChecked: 'REDUNDANT'
           });
       }
@@ -323,6 +345,39 @@ const App: React.FC = () => {
       return statuses;
     });
   }, []);
+
+  const runApiProbe = async (provider: ApiProvider) => {
+    if (probeInFlight.current || ![ApiProvider.GEMINI, ApiProvider.PERPLEXITY].includes(provider)) return;
+    if (!window.confirm(`${provider}: send ONE real connection request (max 16 output tokens). Charges may apply. No analysis or trading. Continue?`)) return;
+    const scope = settingsScope.current;
+    const currentScope = () => scope.token === currentDriveProgressToken(sessionStorage) && scope.token === settingsScope.current.token && scope.build === settingsScope.current.build;
+    probeInFlight.current = true;
+    const pending = { state: 'CHECKING', checkedAt: Date.now() };
+    apiObservations.current[provider] = pending;
+    setProbingApi(provider);
+    setApiStatuses(previous => previous.map(status => status.provider !== provider ? status : { ...status, isConnected: false, diagnostics: {
+      state: 'CHECKING', label: 'CHECKING REPLY', detail: 'One explicit request in progress; no automatic retry.', verified: false,
+      httpStatus: null, httpSource: '', checkedAt: Date.now(), latency: null
+    } }));
+    try {
+      const observation = await probeDashboardAi(provider);
+      if (currentScope() && observation.buildSha === scope.build) apiObservations.current[provider] = observation;
+    } catch (error: any) {
+      if (!currentScope()) return;
+      const controlled = typeof error.reason === 'string' && /^DASHBOARD_AI_[A-Z_]+$/.test(error.reason) ? error.reason :
+        /^PERPLEXITY_CIRCUIT_/.test(error.message || '') ? 'DASHBOARD_AI_CIRCUIT_OPEN' :
+        /^PERPLEXITY_BUDGET_/.test(error.message || '') ? 'DASHBOARD_AI_BUDGET_BLOCKED' :
+        /^DASHBOARD_AI_[A-Z_]+$/.test(error.message || '') ? error.message : 'DASHBOARD_AI_PROVIDER_UNAVAILABLE';
+      trackUsage(provider, 0, true, controlled);
+      apiObservations.current[provider] = { state: 'REQUEST_ERROR', reason: controlled, checkedAt: Date.now(),
+        httpStatus: error.upstreamHttpStatus ?? error.httpStatus ?? null, httpSource: error.upstreamHttpStatus ? 'AI provider' : error.httpSource || 'request gateway', latency: null };
+    } finally {
+      if (apiObservations.current[provider] === pending) delete apiObservations.current[provider];
+      probeInFlight.current = false;
+      setProbingApi(null);
+      await refreshApiStatuses(true);
+    }
+  };
 
   useEffect(() => {
     setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
@@ -571,9 +626,14 @@ const App: React.FC = () => {
       <div className="space-y-4">
         <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
           {apiStatuses.map((status, idx) => (
-            <ApiStatusCard key={`${status.provider}-${idx}`} status={status} isAuthConnected={status.isConnected} />
+            <ApiStatusCard key={`${status.provider}-${idx}`} status={status} isAuthConnected={status.isConnected}
+              onRefresh={() => refreshApiStatuses(true)} onProbe={() => runApiProbe(status.provider)} probing={probingApi !== null} />
           ))}
         </div>
+        <p className="px-1 text-[9px] font-mono text-slate-500" aria-label="Dashboard API settings source">
+          API server build: {apiServerBuild ? apiServerBuild.slice(0, 12) : 'NOT VERIFIED (owner login / refresh required)'}
+          {' · '}Settings presence is not a verified provider response.
+        </p>
         <RenderGuard label="Market Ticker">
           <MarketTicker />
         </RenderGuard>
@@ -604,7 +664,7 @@ const App: React.FC = () => {
             <UniverseGathering 
               isActive={currentStage === 0} 
               apiStatuses={apiStatuses}
-              onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); }}
+              onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); void refreshApiStatuses(true); }}
               onStockSelected={setSelectedStock}
               autoStart={isMirror && isAutoPilotRunning && currentStage === 0}
               onComplete={() => handleStageComplete(0)}

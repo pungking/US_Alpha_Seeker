@@ -49,6 +49,10 @@ jobs:
         run: npm run ops:test:perplexity-call-budget
       - name: Manual dashboard AI authentication and transport (offline)
         run: npm run ops:test:dashboard-ai-connection
+      - name: Dashboard API diagnostics and bounded probe contract (offline)
+        run: npm run ops:test:dashboard-api-status
+      - name: Dashboard cards and explicit probe controls (isolated offline browser)
+        run: npm run ops:test:dashboard-api-status-browser
       - name: Notion analysis-only surface contract
         run: npm run ops:test:notion-analysis-surface
       - name: Client secret exposure audit

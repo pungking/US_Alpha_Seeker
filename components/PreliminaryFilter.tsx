@@ -2,7 +2,7 @@ import { requestPerplexity } from '../services/perplexityRequest.mjs';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createGeminiClient } from '../services/geminiClient';
-import { hasAiAccess } from '../services/dashboardAiClient.mjs';
+import { hasAiAccess, explainAiAccess } from '../services/dashboardAiClient.mjs';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS, PERPLEXITY_CONFIG } from '../constants';
@@ -439,7 +439,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               let perplexityKey = perplexityConfig?.key;
 
               if (!perplexityKey && !await hasAiAccess(ApiProvider.PERPLEXITY, perplexityKey)) {
-                   throw new Error('Perplexity API key missing');
+                   throw new Error(await explainAiAccess(ApiProvider.PERPLEXITY));
               }
               
               if (perplexityKey || await hasAiAccess(ApiProvider.PERPLEXITY, perplexityKey)) {
@@ -524,7 +524,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   }
               }
           } else {
-              throw new Error("Gemini Key Not Found");
+              throw new Error(await explainAiAccess(ApiProvider.GEMINI));
           }
       } catch (geminiError: any) {
           // [STAGE 3] Perplexity
