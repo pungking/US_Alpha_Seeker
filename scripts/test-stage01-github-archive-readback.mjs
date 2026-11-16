@@ -164,6 +164,10 @@ assert.equal(nonstageResult.stages.stage1.availability,'UNKNOWN');
 // Metadata-only huge entry and aggregate overflow must be refused before inflate.
 const declaredOversize=Buffer.from(zip);
 const oversizedDir=declaredOversize.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));
+declaredOversize.writeUInt16LE(8,8); // local DEFLATE
+declaredOversize.writeUInt16LE(8,6); // data descriptor, metadata sizes are in central
+declaredOversize.writeUInt16LE(8,oversizedDir+10);
+declaredOversize.writeUInt16LE(8,oversizedDir+8);
 declaredOversize.writeUInt32LE(129*1024*1024,oversizedDir+24);
 assert.throws(()=>inspectOfflineZip(declaredOversize),/ZIP_ENTRY_TOO_LARGE/);
 const totalOverflow=zipStored({a:'0',b:'1',c:'2'});
@@ -171,6 +175,11 @@ const totalCentral=totalOverflow.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));
 const modifiedTotal=Buffer.from(totalOverflow);
 let pos=totalCentral;
 for(let i=0;i<3;i++){
+  const local=modifiedTotal.readUInt32LE(pos+42);
+  modifiedTotal.writeUInt16LE(8,local+8); // local DEFLATE
+  modifiedTotal.writeUInt16LE(8,local+6); // descriptor
+  modifiedTotal.writeUInt16LE(8,pos+10);
+  modifiedTotal.writeUInt16LE(8,pos+8);
   modifiedTotal.writeUInt32LE(100*1024*1024,pos+24);
   pos+=46+modifiedTotal.readUInt16LE(pos+28)+modifiedTotal.readUInt16LE(pos+30)+modifiedTotal.readUInt16LE(pos+32);
 }
